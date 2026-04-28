@@ -16,6 +16,7 @@ nav:
     - Marimo: development/MARIMO.md
     - Tests: development/TESTS.md
   - Paper: paper/minvar_paper.md
+  - API Reference: api.md
   - Notebooks:
     - Minimum Variance: notebooks/minvar.html
 
@@ -27,3 +28,14 @@ extra:
 theme:
   icon:
     logo: material/chart-line
+
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
