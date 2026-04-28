@@ -58,14 +58,14 @@ assert (w_kkt >= 0).all()
 
 ## The KKT System
 
-The equality-constrained minimum variance problem has the KKT system:
+The equality-constrained minimum variance problem yields the $(N+1) \times (N+1)$ KKT system:
 
-$$\begin{pmatrix} 2R^\top R & \mathbf{1} \\ \mathbf{1}^\top & 0 \end{pmatrix} \begin{pmatrix} w \\ \lambda \end{pmatrix} = \begin{pmatrix} \mathbf{0} \\ 1 \end{pmatrix}$$
+$$2R^\top R\, w + \lambda\, \mathbf{1} = \mathbf{0}, \qquad \mathbf{1}^\top w = 1$$
 
-This $(N+1) \times (N+1)$ system is **symmetric but indefinite** — the zero in the
-bottom-right corner introduces a negative eigenvalue. This rules out standard CG on the
-full system, but it opens the door to MINRES. Alternatively, the CG solver eliminates the
-constraint entirely by parameterising $w = w_0 + Pv$ where $P$ spans the null space of
+This system is **symmetric but indefinite** — the zero in the bottom-right corner of the
+KKT matrix introduces a negative eigenvalue. This rules out standard CG on the full system,
+but it opens the door to MINRES. Alternatively, the CG solver eliminates the constraint
+entirely by parameterising $w = w_0 + Pv$ where $P$ spans the null space of
 $\mathbf{1}^\top$, yielding a positive-definite reduced system of size $(N-1) \times (N-1)$.
 
 See the [companion paper](https://jebel-quant.github.io/fast_minimum_variance/paper/minvar_paper/)
