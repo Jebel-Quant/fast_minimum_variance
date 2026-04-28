@@ -3,15 +3,17 @@
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, minres
 
-from fast_minimum_variance.kkt import build_kkt
-
 
 def minvar_minres(R):  # noqa: N803
     """Solve the minimum variance portfolio via MINRES with active-set method.
 
     Applies the active-set method, dropping assets with negative weights, and
-    solves the KKT system at each iteration using MINRES. The KKT matrix is
-    indefinite, making MINRES the appropriate Krylov solver.
+    solves the KKT saddle-point system at each iteration using MINRES. The KKT
+    matrix is applied as a LinearOperator — no explicit R^T R or (N+1)x(N+1)
+    matrix is ever formed. The matvec for x = [v; mu] is::
+
+        out[:n_a] = 2 R^T (R v) + mu * 1   # two O(T*N) passes
+        out[n_a]  = 1^T v                   # O(N)
 
     Args:
         R: Return matrix of shape (T, N).
@@ -34,9 +36,21 @@ def minvar_minres(R):  # noqa: N803
     n = R.shape[1]
     active = np.ones(n, dtype=bool)
     while True:
-        A, b = build_kkt(R[:, active])  # noqa: N806
-        sol, _ = minres(A, b)
-        w_a = sol[: active.sum()]
+        r_a = R[:, active]
+        n_a = r_a.shape[1]
+
+        def _matvec(x, ra=r_a, na=n_a):
+            """Apply KKT operator [[2R^TR, 1],[1^T, 0]] to x."""
+            out = np.empty(na + 1)
+            out[:na] = 2.0 * (ra.T @ (ra @ x[:na])) + x[na]
+            out[na] = x[:na].sum()
+            return out
+
+        b = np.zeros(n_a + 1)
+        b[n_a] = 1.0
+        kkt = LinearOperator(shape=(n_a + 1, n_a + 1), matvec=_matvec)  # type: ignore[call-arg]
+        sol, _ = minres(kkt, b)
+        w_a = sol[:n_a]
         if np.all(w_a >= -1e-10):
             break
         active[np.where(active)[0][w_a < 0]] = False
