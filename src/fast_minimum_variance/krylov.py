@@ -19,6 +19,7 @@ def minvar_minres(R):  # noqa: N803
         active[np.where(active)[0][w_a < 0]] = False
     w = np.zeros(n)
     w[active] = np.maximum(w_a, 0)
+    w /= w.sum()
     return w
 
 
