@@ -85,7 +85,7 @@ def minvar_cg(R):  # noqa: N803
             """Apply the reduced Hessian P^T R^T R P to v."""
             return P.T @ (R_a.T @ (R_a @ (P @ v)))
 
-        op = LinearOperator(shape=(n_a - 1, n_a - 1), matvec=_matvec)
+        op = LinearOperator(shape=(n_a - 1, n_a - 1), matvec=_matvec)  # type: ignore[call-arg]
         rhs = -(P.T @ (R_a.T @ r0))
         v, _ = cg(op, rhs)
         w_a = w0 + P @ v
