@@ -1,4 +1,8 @@
-"""Shared fixtures for fast_minimum_variance tests."""
+"""Shared fixtures for fast_minimum_variance tests.
+
+Security note: Test code uses pytest assertions (S101), which are intentional
+and safe in the test context. No subprocess calls (S603/S607) are used here.
+"""
 
 import pytest
 
