@@ -185,6 +185,10 @@ wheels = [
 name = "fast-minimum-variance"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "cvxpy" },
+    { name = "numpy" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -197,6 +201,10 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "cvxpy", specifier = ">=1.0" },
+    { name = "numpy", specifier = ">=2.0.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [
