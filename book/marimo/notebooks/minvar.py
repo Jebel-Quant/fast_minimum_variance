@@ -1,3 +1,15 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "marimo==0.23.3",
+#     "numpy>=2.0.0",
+#     "cvxpy>=1.0",
+#     "scipy>=1.0",
+# ]
+# [tool.uv.sources]
+# fast-minimum-variance = { path = "../../..", editable = true }
+# ///
+
 import marimo
 
 __generated_with = "0.23.3"
