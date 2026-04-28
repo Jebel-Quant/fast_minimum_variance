@@ -101,3 +101,11 @@ class TestMinvarCg:
         w = minvar_cg(R)
         assert w[2] == pytest.approx(0.0, abs=1e-4)
         np.testing.assert_allclose(w[:2], [0.5, 0.5], atol=1e-4)
+
+    def test_single_asset(self):
+        """Fast-path for n_a==1: weight is exactly 1 for the sole active asset."""
+        rng = np.random.default_rng(42)
+        R = rng.standard_normal((50, 1))  # noqa: N806
+        w = minvar_cg(R)
+        assert w.shape == (1,)
+        assert w[0] == pytest.approx(1.0)
