@@ -40,7 +40,7 @@ def _():
         elapsed = time.perf_counter() - t0
         results[name] = {"norm": np.linalg.norm(R @ w), "sum": np.sum(w), "time_s": elapsed}
 
-    header = f"{'method':<15} {'norm':>10} {'time_s':>10}"
+    header = f"{'method':<15} {'norm':>10} {'sum':>10} {'time_s':>10}"
     print(header)
     print("-" * len(header))
     for name, v in results.items():
