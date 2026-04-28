@@ -106,15 +106,11 @@ def minvar_cg(R):  # noqa: N803
 
         def _p_apply(y, b=beta, vv=v0, na=n_a):
             """Apply implicit P (n_a x n_a-1) to y: O(n_a)."""
-            s = y.sum()
-            out = np.empty(na)
-            out[0] = -b * vv * s
-            out[1:] = y - (b * s)
-            return out
-
-        def _pt_apply(u, b=beta, vv=v0):
-            """Apply implicit P^T (n_a-1 x n_a) to u: O(n_a)."""
-            s = vv * u[0] + u[1:].sum()
+        def _matvec(y, ra=r_a):
+            """Apply P^T R^T R P to y via implicit Householder."""
+            pv = _p_apply(y)
+            rpv = ra.T @ (ra @ pv)
+            return _pt_apply(rpv)
             return u[1:] - (b * s)
 
         w0 = np.ones(n_a) / n_a
