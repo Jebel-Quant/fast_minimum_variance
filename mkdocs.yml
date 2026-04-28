@@ -30,6 +30,7 @@ theme:
     logo: material/chart-line
 
 plugins:
+  - search
   - mkdocstrings:
       handlers:
         python:
