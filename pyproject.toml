@@ -25,3 +25,12 @@ packages = ["src/fast_minimum_variance"]
 
 [tool.deptry]
 optional_dependencies_dev_groups = ["dev"]
+
+[tool.deptry.package_module_name_map]
+numpy = "numpy"
+plotly = "plotly"
+polars = "polars"
+scipy = "scipy"
+kaleido = "kaleido"
+marimo = "marimo"
+cvxpy = "cvxpy"
