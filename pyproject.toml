@@ -13,7 +13,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "marimo>=0.20.0",
-    "numpy>=2.4.2",
+    "numpy>=2.4.4",
     "plotly>=6.5.2",
     "polars>=1.37.1"
 ]
