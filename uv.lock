@@ -193,6 +193,7 @@ dev = [
     { name = "numpy" },
     { name = "plotly" },
     { name = "polars" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -204,6 +205,7 @@ dev = [
     { name = "numpy", specifier = ">=2.4.2" },
     { name = "plotly", specifier = ">=6.5.2" },
     { name = "polars", specifier = ">=1.40.1" },
+    { name = "scipy", specifier = ">=1.0" },
 ]
 
 [[package]]
