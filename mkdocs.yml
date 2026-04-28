@@ -16,6 +16,8 @@ nav:
     - Marimo: development/MARIMO.md
     - Tests: development/TESTS.md
   - Paper: paper/minvar_paper.md
+  - Notebooks:
+    - Minimum Variance: notebooks/minvar.html
 
 extra:
   social:
