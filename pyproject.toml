@@ -15,7 +15,7 @@ dev = [
     "marimo>=0.20.0",
     "numpy>=2.4.2",
     "plotly>=6.5.2",
-    "polars>=1.37.1"
+    "polars>=1.40.1"
 ]
 
 [tool.hatch.build.targets.wheel]
