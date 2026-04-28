@@ -60,7 +60,7 @@ assert (w_kkt >= 0).all()
 
 The equality-constrained minimum variance problem yields the $(N+1) \times (N+1)$ KKT system:
 
-$$\begin{pmatrix} 2R^\top R & \mathbf{1} \\ \mathbf{1}^\top & 0 \end{pmatrix} \begin{pmatrix} w \\ \lambda \end{pmatrix} = \begin{pmatrix} \mathbf{0} \\ 1 \end{pmatrix}$$
+$$\begin{pmatrix} 2R^\top R & \mathbf{1} \cr \mathbf{1}^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \mathbf{0} \cr 1 \end{pmatrix}$$
 
 This system is **symmetric but indefinite** — the zero in the bottom-right corner of the
 KKT matrix introduces a negative eigenvalue. This rules out standard CG on the full system,
