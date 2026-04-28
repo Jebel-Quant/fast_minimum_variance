@@ -99,6 +99,10 @@ def minvar_cg(R):  # noqa: N803
         r_a = R[:, active]
         n_a = r_a.shape[1]
 
+        if n_a == 1:
+            w_a = np.array([1.0])
+            break
+
         # Implicit Householder basis for null(1^T): v = [1+sqrt(n_a), 1,...,1]
         sqrt_na = np.sqrt(float(n_a))
         beta = 1.0 / (n_a + sqrt_na)
