@@ -8,9 +8,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "pandas>=3.0.2",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -25,5 +23,4 @@ dev = [
 packages = ["src/fast_minimum_variance"]
 
 [tool.deptry]
-# see https://deptry.com/usage/#pep-621-dev-dependency-groups
-pep621_dev_dependency_groups = ["dev"]
+optional_dependencies_dev_groups = ["dev"]
