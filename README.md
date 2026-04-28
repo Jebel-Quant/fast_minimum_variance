@@ -89,7 +89,7 @@ make install
 
 ### `fast_minimum_variance.random`
 
-```python
+```text
 make_returns(T, N, seed=42) -> np.ndarray
 ```
 
@@ -97,13 +97,13 @@ Generate a $T \times N$ matrix of i.i.d. standard normal returns.
 
 ### `fast_minimum_variance.kkt`
 
-```python
+```text
 build_kkt(R) -> tuple[np.ndarray, np.ndarray]
 ```
 
 Build the $(N+1) \times (N+1)$ KKT matrix and right-hand side vector.
 
-```python
+```text
 minvar_kkt(R) -> np.ndarray
 ```
 
@@ -111,13 +111,13 @@ Solve the minimum variance portfolio via direct KKT with active-set loop.
 
 ### `fast_minimum_variance.krylov`
 
-```python
+```text
 minvar_minres(R) -> np.ndarray
 ```
 
 Solve via MINRES on the indefinite KKT system with active-set loop.
 
-```python
+```text
 minvar_cg(R) -> np.ndarray
 ```
 
@@ -125,7 +125,7 @@ Solve via CG in the constraint-reduced space with active-set loop.
 
 ### `fast_minimum_variance.cvx`
 
-```python
+```text
 minvar_cvxpy(R) -> np.ndarray
 ```
 
