@@ -44,7 +44,7 @@ def _():
         ("cvxpy", lambda: (minvar_cvxpy(R_lw), None)),
         ("kkt", lambda: (minvar_kkt(R_lw), None)),
         ("minres", lambda: minvar_minres(R, c=c_lw, gamma=gamma_lw)),
-        ("cg", lambda: minvar_cg(R_lw)),
+        ("cg", lambda: minvar_cg(R, c=c_lw, gamma=gamma_lw)),
     ]:
         t0 = time.perf_counter()
         w, iters = fn()
