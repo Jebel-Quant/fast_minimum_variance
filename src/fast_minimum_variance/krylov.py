@@ -7,7 +7,30 @@ from fast_minimum_variance.kkt import build_kkt
 
 
 def minvar_minres(R):  # noqa: N803
-    """Solve the minimum variance portfolio via MINRES with active-set method."""
+    """Solve the minimum variance portfolio via MINRES with active-set method.
+
+    Applies the active-set method, dropping assets with negative weights, and
+    solves the KKT system at each iteration using MINRES. The KKT matrix is
+    indefinite, making MINRES the appropriate Krylov solver.
+
+    Args:
+        R: Return matrix of shape (T, N).
+
+    Returns:
+        Weight vector of shape (N,) summing to 1 with all non-negative entries.
+
+    Examples:
+        >>> import numpy as np
+        >>> from fast_minimum_variance.random import make_returns
+        >>> R = make_returns(100, 5, seed=0)
+        >>> w = minvar_minres(R)
+        >>> w.shape
+        (5,)
+        >>> float(round(w.sum(), 6))
+        1.0
+        >>> bool((w >= 0).all())
+        True
+    """
     n = R.shape[1]
     active = np.ones(n, dtype=bool)
     while True:
@@ -24,7 +47,31 @@ def minvar_minres(R):  # noqa: N803
 
 
 def minvar_cg(R):  # noqa: N803
-    """Solve the minimum variance portfolio via CG in the constraint-reduced space."""
+    """Solve the minimum variance portfolio via CG in the constraint-reduced space.
+
+    Projects the problem onto the constraint-satisfying subspace using a QR
+    basis ``P`` of the null space of the budget constraint, then applies CG to
+    the reduced positive-definite system ``P^T R^T R P``. An active-set loop
+    drops assets with negative weights until feasibility is reached.
+
+    Args:
+        R: Return matrix of shape (T, N).
+
+    Returns:
+        Weight vector of shape (N,) summing to 1 with all non-negative entries.
+
+    Examples:
+        >>> import numpy as np
+        >>> from fast_minimum_variance.random import make_returns
+        >>> R = make_returns(100, 5, seed=0)
+        >>> w = minvar_cg(R)
+        >>> w.shape
+        (5,)
+        >>> float(round(w.sum(), 6))
+        1.0
+        >>> bool((w >= 0).all())
+        True
+    """
     n = R.shape[1]
     active = np.ones(n, dtype=bool)
     while True:
