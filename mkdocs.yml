@@ -15,7 +15,6 @@ nav:
   - Development:
     - Marimo: development/MARIMO.md
     - Tests: development/TESTS.md
-  - Paper: paper/minvar_paper.md
   - API Reference: api.md
   - Notebooks:
     - Minimum Variance: notebooks/minvar.html
