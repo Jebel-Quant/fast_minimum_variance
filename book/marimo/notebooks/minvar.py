@@ -25,28 +25,6 @@ def _(np):
     import cvxpy as cp
     from scipy.sparse.linalg import LinearOperator, cg, minres, symmlq
 
-    def minvar_3(R):
-        cov = np.cov(R.T)
-        inv_cov = np.linalg.inv(cov + 1e-8 * np.eye(3))
-        ones = np.ones(3)
-        w = inv_cov @ ones / (ones @ inv_cov @ ones)
-        w = np.maximum(w, 0)
-        w /= w.sum()
-        return w
-
-    def random_forest_minvar(R, n_trees=2500, subset_size=3):
-        n = R.shape[1]
-        weights = np.zeros(n)
-        rng = np.random.default_rng(42)
-        for _ in range(n_trees):
-            idx = rng.choice(n, size=subset_size, replace=False)
-            w = minvar_3(R[:, idx])
-            for i, wi in zip(idx, w, strict=False):
-                weights[i] += wi
-        avg = weights / n_trees
-        avg /= avg.sum()
-        return avg
-
     def minvar_cvxpy(R):
         n = R.shape[1]
         w = cp.Variable(n)
@@ -136,7 +114,6 @@ def _(np):
         minvar_kkt,
         minvar_minres,
         minvar_symmlq,
-        random_forest_minvar,
     )
 
 
@@ -144,13 +121,6 @@ def _(np):
 def _(make_returns):
     R = make_returns(T=500, N=20)  # noqa: N806
     return (R,)
-
-
-@app.cell
-def _(R, random_forest_minvar):
-    w_rf = random_forest_minvar(R)
-    print(w_rf.round(4))
-    return
 
 
 @app.cell
@@ -168,21 +138,11 @@ def _(R, minvar_kkt):
 
 
 @app.cell
-def _(
-    R,
-    minvar_cg,
-    minvar_cvxpy,
-    minvar_kkt,
-    minvar_minres,
-    minvar_symmlq,
-    np,
-    random_forest_minvar,
-):
+def _(R, minvar_cg, minvar_cvxpy, minvar_kkt, minvar_minres, minvar_symmlq, np):
     import time
 
     results = {}
     for name, fn in [
-        ("random_forest", lambda: random_forest_minvar(R)),
         ("cvxpy", lambda: minvar_cvxpy(R)),
         ("kkt", lambda: minvar_kkt(R)),
         ("minres", lambda: minvar_minres(R)),
