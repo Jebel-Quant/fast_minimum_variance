@@ -25,7 +25,7 @@ def _(pd):
 @app.cell
 def _(np):
     import cvxpy as cp
-    from scipy.sparse.linalg import minres, symmlq, cg, LinearOperator
+    from scipy.sparse.linalg import LinearOperator, cg, minres, symmlq
 
     def minvar_3(R):
         cov = np.cov(R.T)
@@ -43,7 +43,7 @@ def _(np):
         for _ in range(n_trees):
             idx = rng.choice(n, size=subset_size, replace=False)
             w = minvar_3(R[:, idx])
-            for i, wi in zip(idx, w):
+            for i, wi in zip(idx, w, strict=False):
                 weights[i] += wi
         avg = weights / n_trees
         avg /= avg.sum()
@@ -57,7 +57,7 @@ def _(np):
 
     def _build_kkt(R_a):
         n_a = R_a.shape[1]
-        A = np.zeros((n_a + 1, n_a + 1))
+        A = np.zeros((n_a + 1, n_a + 1))  # noqa: N806
         A[:n_a, :n_a] = 2 * R_a.T @ R_a
         A[:n_a, n_a] = 1
         A[n_a, :n_a] = 1
@@ -69,9 +69,9 @@ def _(np):
         n = R.shape[1]
         active = np.ones(n, dtype=bool)
         while True:
-            A, b = _build_kkt(R[:, active])
+            A, b = _build_kkt(R[:, active])  # noqa: N806
             sol = np.linalg.solve(A, b)
-            w_a = sol[:active.sum()]
+            w_a = sol[: active.sum()]
             if np.all(w_a >= -1e-10):
                 break
             active[np.where(active)[0][w_a < 0]] = False
@@ -83,9 +83,9 @@ def _(np):
         n = R.shape[1]
         active = np.ones(n, dtype=bool)
         while True:
-            A, b = _build_kkt(R[:, active])
+            A, b = _build_kkt(R[:, active])  # noqa: N806
             sol, _ = minres(A, b)
-            w_a = sol[:active.sum()]
+            w_a = sol[: active.sum()]
             if np.all(w_a >= -1e-10):
                 break
             active[np.where(active)[0][w_a < 0]] = False
@@ -97,9 +97,9 @@ def _(np):
         n = R.shape[1]
         active = np.ones(n, dtype=bool)
         while True:
-            A, b = _build_kkt(R[:, active])
+            A, b = _build_kkt(R[:, active])  # noqa: N806
             sol, _ = symmlq(A, b)
-            w_a = sol[:active.sum()]
+            w_a = sol[: active.sum()]
             if np.all(w_a >= -1e-10):
                 break
             active[np.where(active)[0][w_a < 0]] = False
@@ -111,15 +111,16 @@ def _(np):
         n = R.shape[1]
         active = np.ones(n, dtype=bool)
         while True:
-            R_a = R[:, active]
+            R_a = R[:, active]  # noqa: N806
             n_a = R_a.shape[1]
-            P = np.linalg.qr(np.ones((n_a, 1)), mode='complete')[0][:, 1:]
+            P = np.linalg.qr(np.ones((n_a, 1)), mode="complete")[0][:, 1:]  # noqa: N806
             w0 = np.ones(n_a) / n_a
             r0 = R_a @ w0
-            op = LinearOperator(
-                shape=(n_a - 1, n_a - 1),
-                matvec=lambda v: P.T @ (R_a.T @ (R_a @ (P @ v)))
-            )
+
+            def _matvec(v, P=P, R_a=R_a):
+                return P.T @ (R_a.T @ (R_a @ (P @ v)))
+
+            op = LinearOperator(shape=(n_a - 1, n_a - 1), matvec=_matvec)
             rhs = -(P.T @ (R_a.T @ r0))
             v, _ = cg(op, rhs)
             w_a = w0 + P @ v
@@ -143,7 +144,7 @@ def _(np):
 
 @app.cell
 def _(random_forest_minvar, returns):
-    R = returns.values
+    R = returns.values  # noqa: N806
     w_rf = random_forest_minvar(R)
     print(w_rf.round(4))
     return (R,)
@@ -182,25 +183,21 @@ def _(
     results = {}
     for name, fn in [
         ("random_forest", lambda: random_forest_minvar(R)),
-        ("cvxpy",         lambda: minvar_cvxpy(R)),
-        ("kkt",           lambda: minvar_kkt(R)),
-        ("minres",        lambda: minvar_minres(R)),
-        ("symmlq",        lambda: minvar_symmlq(R)),
-        ("cg",            lambda: minvar_cg(R)),
+        ("cvxpy", lambda: minvar_cvxpy(R)),
+        ("kkt", lambda: minvar_kkt(R)),
+        ("minres", lambda: minvar_minres(R)),
+        ("symmlq", lambda: minvar_symmlq(R)),
+        ("cg", lambda: minvar_cg(R)),
     ]:
         t0 = time.perf_counter()
         w = fn()
         elapsed = time.perf_counter() - t0
         results[name] = {"weights": w, "norm": np.linalg.norm(R @ w), "time_s": elapsed}
 
-    summary = pd.DataFrame(
-        {n: {"norm": v["norm"], "time_s": v["time_s"]} for n, v in results.items()}
-    ).T
+    summary = pd.DataFrame({n: {"norm": v["norm"], "time_s": v["time_s"]} for n, v in results.items()}).T
     print(summary.round(6))
 
-    pd.DataFrame(
-        {n: pd.Series(v["weights"], index=tickers) for n, v in results.items()}
-    ).round(4)
+    pd.DataFrame({n: pd.Series(v["weights"], index=tickers) for n, v in results.items()}).round(4)
     return
 
 
