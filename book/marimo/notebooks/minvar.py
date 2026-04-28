@@ -35,7 +35,7 @@ def _(np):
 @app.cell
 def _(np):
     import cvxpy as cp
-    from scipy.sparse.linalg import LinearOperator, cg, minres, symmlq
+    from scipy.sparse.linalg import LinearOperator, cg, minres
 
     def minvar_cvxpy(R):
         n = R.shape[1]
@@ -81,20 +81,6 @@ def _(np):
         w[active] = np.maximum(w_a, 0)
         return w
 
-    def minvar_symmlq(R):
-        n = R.shape[1]
-        active = np.ones(n, dtype=bool)
-        while True:
-            A, b = _build_kkt(R[:, active])  # noqa: N806
-            sol, _ = symmlq(A, b)
-            w_a = sol[: active.sum()]
-            if np.all(w_a >= -1e-10):
-                break
-            active[np.where(active)[0][w_a < 0]] = False
-        w = np.zeros(n)
-        w[active] = np.maximum(w_a, 0)
-        return w
-
     def minvar_cg(R):
         n = R.shape[1]
         active = np.ones(n, dtype=bool)
@@ -125,7 +111,6 @@ def _(np):
         minvar_cvxpy,
         minvar_kkt,
         minvar_minres,
-        minvar_symmlq,
     )
 
 
@@ -150,7 +135,7 @@ def _(R, minvar_kkt):
 
 
 @app.cell
-def _(R, minvar_cg, minvar_cvxpy, minvar_kkt, minvar_minres, minvar_symmlq, np):
+def _(R, minvar_cg, minvar_cvxpy, minvar_kkt, minvar_minres, np):
     import time
 
     results = {}
@@ -158,7 +143,6 @@ def _(R, minvar_cg, minvar_cvxpy, minvar_kkt, minvar_minres, minvar_symmlq, np):
         ("cvxpy", lambda: minvar_cvxpy(R)),
         ("kkt", lambda: minvar_kkt(R)),
         ("minres", lambda: minvar_minres(R)),
-        ("symmlq", lambda: minvar_symmlq(R)),
         ("cg", lambda: minvar_cg(R)),
     ]:
         t0 = time.perf_counter()
