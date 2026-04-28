@@ -19,7 +19,7 @@ with app.setup:
     from fast_minimum_variance.krylov import minvar_cg, minvar_minres
     from fast_minimum_variance.random import make_returns
 
-    R = make_returns(T=500, N=20)
+    R = make_returns(T=200, N=100)
 
 
 @app.cell
