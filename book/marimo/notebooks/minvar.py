@@ -7,19 +7,17 @@ app = marimo.App()
 @app.cell
 def _():
     import numpy as np
-    import pandas as pd
 
-    pd.options.plotting.backend = "plotly"
-    return np, pd
+    return (np,)
 
 
 @app.cell
-def _(pd):
-    df = pd.read_csv("data/equity_prices.csv", parse_dates=["date"])
-    prices = df.pivot(index="date", columns="ticker", values="close")
-    returns = prices.pct_change().dropna()
-    returns
-    return (returns,)
+def _(np):
+    def make_returns(T, N, seed=42):
+        rng = np.random.default_rng(seed)
+        return rng.standard_normal((T, N))
+
+    return (make_returns,)
 
 
 @app.cell
@@ -143,11 +141,16 @@ def _(np):
 
 
 @app.cell
-def _(random_forest_minvar, returns):
-    R = returns.values  # noqa: N806
+def _(make_returns):
+    R = make_returns(T=500, N=20)  # noqa: N806
+    return (R,)
+
+
+@app.cell
+def _(R, random_forest_minvar):
     w_rf = random_forest_minvar(R)
     print(w_rf.round(4))
-    return (R,)
+    return
 
 
 @app.cell
@@ -173,13 +176,10 @@ def _(
     minvar_minres,
     minvar_symmlq,
     np,
-    pd,
     random_forest_minvar,
-    returns,
 ):
     import time
 
-    tickers = returns.columns
     results = {}
     for name, fn in [
         ("random_forest", lambda: random_forest_minvar(R)),
@@ -192,12 +192,13 @@ def _(
         t0 = time.perf_counter()
         w = fn()
         elapsed = time.perf_counter() - t0
-        results[name] = {"weights": w, "norm": np.linalg.norm(R @ w), "time_s": elapsed}
+        results[name] = {"norm": np.linalg.norm(R @ w), "time_s": elapsed}
 
-    summary = pd.DataFrame({n: {"norm": v["norm"], "time_s": v["time_s"]} for n, v in results.items()}).T
-    print(summary.round(6))
-
-    pd.DataFrame({n: pd.Series(v["weights"], index=tickers) for n, v in results.items()}).round(4)
+    header = f"{'method':<15} {'norm':>10} {'time_s':>10}"
+    print(header)
+    print("-" * len(header))
+    for name, v in results.items():
+        print(f"{name:<15} {v['norm']:>10.6f} {v['time_s']:>10.6f}")
     return
 
 
