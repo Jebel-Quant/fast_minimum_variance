@@ -4,8 +4,6 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/Jebel-Quant/fast_minimum_variance/blob/main/LICENSE)
 [![Rhiza](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2FJebel-Quant%2Ffast_minimum_variance%2Fmain%2F.rhiza%2Ftemplate.yml&query=%24.ref&label=rhiza)](https://github.com/jebel-quant/rhiza)
 
-[![Paper](https://img.shields.io/badge/paper-minvar_paper.pdf-red?logo=adobeacrobatreader)](https://jebel-quant.github.io/fast_minimum_variance/paper/minvar_paper/)
-
 ## Overview
 
 **fast-minimum-variance** is a Python library for computing long-only minimum variance
@@ -67,9 +65,6 @@ KKT matrix introduces a negative eigenvalue. This rules out standard CG on the f
 but it opens the door to MINRES. Alternatively, the CG solver eliminates the constraint
 entirely by parameterising $w = w_0 + Pv$ where $P$ spans the null space of
 $\mathbf{1}^\top$, yielding a positive-definite reduced system of size $(N-1) \times (N-1)$.
-
-See the [companion paper](https://jebel-quant.github.io/fast_minimum_variance/paper/minvar_paper/)
-for the full derivation, convergence analysis, and connection to Ledoit-Wolf shrinkage.
 
 ## Installation
 
