@@ -4,52 +4,73 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, minres
 
 
-def minvar_minres(R):  # noqa: N803
+def minvar_minres(R, c=1.0, gamma=0.0):  # noqa: N803
     """Solve the minimum variance portfolio via MINRES with active-set method.
 
     Applies the active-set method, dropping assets with negative weights, and
     solves the KKT saddle-point system at each iteration using MINRES. The KKT
-    matrix is applied as a LinearOperator — no explicit R^T R or (N+1)x(N+1)
-    matrix is ever formed. The matvec for x = [v; mu] is::
+    matrix is applied as a LinearOperator — no explicit matrix is ever formed.
+    The matvec for x = [v; mu] is::
 
-        out[:n_a] = 2 R^T (R v) + mu * 1   # two O(T*N) passes
-        out[n_a]  = 1^T v                   # O(N)
+        out[:n_a] = 2 (c R^T(Rv) + gamma v) + mu * 1
+        out[n_a]  = 1^T v
+
+    With the defaults ``c=1, gamma=0`` this solves the standard sample-covariance
+    problem. To apply dimension-based Ledoit-Wolf shrinkage without materialising
+    a stacked return matrix, compute::
+
+        T, N   = R.shape
+        frob_sq = (R * R).sum()
+        alpha  = N / (N + T)          # shrinkage intensity
+        c      = 1.0 - alpha          # = T / (N + T)
+        gamma  = frob_sq / (N + T)    # diagonal regularisation  (= alpha * frob_sq / N)
+
+    and call ``minvar_minres(R, c=c, gamma=gamma)``.
 
     Args:
         R: Return matrix of shape (T, N).
+        c: Scaling factor for R^T R (default 1.0).
+        gamma: Diagonal regularisation added to the (1,1) block (default 0.0).
 
     Returns:
-        Weight vector of shape (N,) summing to 1 with all non-negative entries.
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) summing
+        to 1 with all non-negative entries and n_iters is the total number of
+        MINRES iterations across all active-set steps.
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
         >>> R = make_returns(100, 5, seed=0)
-        >>> w = minvar_minres(R)
+        >>> w, iters = minvar_minres(R)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 6))
         1.0
         >>> bool((w >= 0).all())
         True
+        >>> iters > 0
+        True
     """
     n = R.shape[1]
     active = np.ones(n, dtype=bool)
+    total_iters = 0
     while True:
         r_a = R[:, active]
         n_a = r_a.shape[1]
 
-        def _matvec(x, ra=r_a, na=n_a):
-            """Apply KKT operator [[2R^TR, 1],[1^T, 0]] to x."""
+        def _matvec(x, ra=r_a, na=n_a, cc=c, gam=gamma):
+            """Apply KKT operator [[2(c R^TR + gamma I), 1],[1^T, 0]] to x."""
             out = np.empty(na + 1)
-            out[:na] = 2.0 * (ra.T @ (ra @ x[:na])) + x[na]
+            out[:na] = 2.0 * (cc * (ra.T @ (ra @ x[:na])) + gam * x[:na]) + x[na]
             out[na] = x[:na].sum()
             return out
 
         b = np.zeros(n_a + 1)
         b[n_a] = 1.0
         kkt = LinearOperator(shape=(n_a + 1, n_a + 1), matvec=_matvec)  # type: ignore[call-arg]
-        sol, _ = minres(kkt, b)
+        iters = [0]
+        sol, _ = minres(kkt, b, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
+        total_iters += iters[0]
         w_a = sol[:n_a]
         if np.all(w_a >= -1e-10):
             break
@@ -57,7 +78,7 @@ def minvar_minres(R):  # noqa: N803
     w = np.zeros(n)
     w[active] = np.maximum(w_a, 0)
     w /= w.sum()
-    return w
+    return w, total_iters
 
 
 def minvar_cg(R):  # noqa: N803
@@ -79,22 +100,27 @@ def minvar_cg(R):  # noqa: N803
         R: Return matrix of shape (T, N).
 
     Returns:
-        Weight vector of shape (N,) summing to 1 with all non-negative entries.
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) summing
+        to 1 with all non-negative entries and n_iters is the total number of
+        CG iterations across all active-set steps.
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
         >>> R = make_returns(100, 5, seed=0)
-        >>> w = minvar_cg(R)
+        >>> w, iters = minvar_cg(R)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 6))
         1.0
         >>> bool((w >= 0).all())
         True
+        >>> iters > 0
+        True
     """
     n = R.shape[1]
     active = np.ones(n, dtype=bool)
+    total_iters = 0
     while True:
         r_a = R[:, active]
         n_a = r_a.shape[1]
@@ -137,7 +163,9 @@ def minvar_cg(R):  # noqa: N803
         g0 = r_a.T @ r0
         rhs = -_pt_apply(g0)
         op = LinearOperator(shape=(n_a - 1, n_a - 1), matvec=_matvec)  # type: ignore[call-arg]
-        sol, _ = cg(op, rhs)
+        iters = [0]
+        sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
+        total_iters += iters[0]
         w_a = w0 + _p_apply(sol)
         if np.all(w_a >= -1e-10):
             break
@@ -145,4 +173,4 @@ def minvar_cg(R):  # noqa: N803
     w = np.zeros(n)
     w[active] = np.maximum(w_a, 0)
     w /= w.sum()
-    return w
+    return w, total_iters
