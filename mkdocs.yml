@@ -18,6 +18,9 @@ nav:
   - API Reference: api.md
   - Notebooks:
     - Minimum Variance: notebooks/minvar.html
+  - Reports:
+    - Test Report: reports/html-report/report.html
+    - Coverage Report: reports/html-coverage/index.html
 
 extra:
   social:
