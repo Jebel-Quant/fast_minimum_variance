@@ -1,0 +1,27 @@
+INHERIT: docs/mkdocs-base.yml
+
+site_name: fast-minimum-variance
+site_description: Fast minimum variance portfolio optimisation.
+site_author: Jebel Quant Research
+site_url: https://jebel-quant.github.io/fast_minimum_variance/
+repo_url: https://github.com/Jebel-Quant/fast_minimum_variance
+repo_name: Jebel-Quant/fast_minimum_variance
+copyright: Copyright &copy; 2024–2026 Jebel Quant Research
+
+docs_dir: docs
+
+nav:
+  - Home: index.md
+  - Development:
+    - Marimo: development/MARIMO.md
+    - Tests: development/TESTS.md
+  - Paper: paper/minvar_paper.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Jebel-Quant/fast_minimum_variance
+
+theme:
+  icon:
+    logo: material/chart-line
