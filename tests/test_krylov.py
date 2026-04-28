@@ -40,6 +40,20 @@ class TestMinvarMinres:
         assert abs(w.sum() - 1.0) < 1e-6
         assert np.all(w >= -1e-10)
 
+    def test_active_set_drops_asset(self):
+        """Active-set iteration drops a high-variance correlated asset."""
+        R = np.array(  # noqa: N806
+            [
+                [0.1, 0.0, 5.0],
+                [-0.1, 0.0, -5.0],
+                [0.0, 0.1, 0.1],
+                [0.0, -0.1, -0.1],
+            ]
+        )
+        w = minvar_minres(R)
+        assert w[2] == pytest.approx(0.0, abs=1e-4)
+        np.testing.assert_allclose(w[:2], [0.5, 0.5], atol=1e-4)
+
 
 class TestMinvarCg:
     """Tests for minvar_cg."""
@@ -73,3 +87,17 @@ class TestMinvarCg:
         w = minvar_cg(R)
         assert abs(w.sum() - 1.0) < 1e-6
         assert np.all(w >= -1e-10)
+
+    def test_active_set_drops_asset(self):
+        """Active-set iteration drops a high-variance correlated asset."""
+        R = np.array(  # noqa: N806
+            [
+                [0.1, 0.0, 5.0],
+                [-0.1, 0.0, -5.0],
+                [0.0, 0.1, 0.1],
+                [0.0, -0.1, -0.1],
+            ]
+        )
+        w = minvar_cg(R)
+        assert w[2] == pytest.approx(0.0, abs=1e-4)
+        np.testing.assert_allclose(w[:2], [0.5, 0.5], atol=1e-4)
