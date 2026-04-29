@@ -29,36 +29,81 @@ def _():
 
     import numpy as np
 
-    # Build the LW-shrunk effective return matrix:
-    #   R_lw = vstack([sqrt(c)*R, sqrt(gamma)*I])
-    # so that R_lw.T @ R_lw = c*R.T@R + gamma*I  (the LW covariance, scaled by T).
-    # alpha = N/(N+T), gamma = ||R||_F^2/(N+T), c = 1-alpha = T/(N+T).
     T_dim, N_dim = R.shape  # noqa: N806
     frob_sq = np.einsum("ti,ti->", R, R)
     gamma_lw = frob_sq / (N_dim + T_dim)
     c_lw = T_dim / (N_dim + T_dim)
     R_lw = np.vstack([np.sqrt(c_lw) * R, np.sqrt(gamma_lw) * np.eye(N_dim)])  # noqa: N806
 
-    results = {}
-    for name, fn in [
-        ("cvxpy", lambda: (minvar_cvxpy(R_lw), None)),
-        ("kkt", lambda: (minvar_kkt(R_lw), None)),
-        ("minres", lambda: minvar_minres(R, c=c_lw, gamma=gamma_lw)),
-        ("cg", lambda: minvar_cg(R, c=c_lw, gamma=gamma_lw)),
-    ]:
-        t0 = time.perf_counter()
-        w, iters = fn()
-        elapsed = time.perf_counter() - t0
-        results[name] = {"norm": np.linalg.norm(R @ w), "sum": np.sum(w), "time_s": elapsed, "iters": iters}
+    def run_all(shrinkage):
+        if shrinkage:
+            configs = [
+                ("cvxpy", lambda: (minvar_cvxpy(R_lw), None)),
+                ("kkt", lambda: (minvar_kkt(R_lw), None)),
+                ("minres", lambda: minvar_minres(R, c=c_lw, gamma=gamma_lw)),
+                ("cg", lambda: minvar_cg(R, c=c_lw, gamma=gamma_lw)),
+            ]
+        else:
+            configs = [
+                ("cvxpy", lambda: (minvar_cvxpy(R), None)),
+                ("kkt", lambda: (minvar_kkt(R), None)),
+                ("minres", lambda: minvar_minres(R)),
+                ("cg", lambda: minvar_cg(R)),
+            ]
+        out = {}
+        for name, fn in configs:
+            t0 = time.perf_counter()
+            w, iters = fn()
+            out[name] = {"norm": np.linalg.norm(R @ w), "time_s": time.perf_counter() - t0, "iters": iters}
+        return out
 
-    cvxpy_time = results["cvxpy"]["time_s"]
-    header = f"{'method':<15} {'norm':>10} {'sum':>10} {'time_s':>10} {'iters':>8} {'speedup':>10}"
-    print(header)
-    print("-" * len(header))
-    for name, v in results.items():
-        iters_str = str(v["iters"]) if v["iters"] is not None else "-"
-        speedup = cvxpy_time / v["time_s"]
-        print(f"{name:<15} {v['norm']:>10.6f} {v['sum']:>10.6f} {v['time_s']:>10.6f} {iters_str:>8} {speedup:>10.1f}x")
+    res_no_lw = run_all(shrinkage=False)
+    res_lw = run_all(shrinkage=True)
+
+    display_names = {"cvxpy": "cvxpy", "kkt": "KKT direct", "minres": "MINRES", "cg": "CG (constraint-eliminated)"}
+
+    for label, results in [("Without LW shrinkage", res_no_lw), ("With LW shrinkage", res_lw)]:
+        ref = results["cvxpy"]["time_s"]
+        print(f"\n{label}")
+        print(f"{'method':<30} {'norm':>10} {'time_s':>10} {'iters':>8} {'speedup':>10}")
+        print("-" * 72)
+        for name, v in results.items():
+            iters_str = str(v["iters"]) if v["iters"] is not None else "-"
+            spd = ref / v["time_s"]
+            print(f"{display_names[name]:<30} {v['norm']:>10.6f} {v['time_s']:>10.6f} {iters_str:>8} {spd:>10.1f}x")
+
+    # LaTeX table: two panels separated by \midrule
+    lines = [
+        r"\begin{table}[h]",
+        r"\centering",
+        r"\begin{tabular}{lcccc}",
+        r"\toprule",
+        r"Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\",
+        r"\midrule",
+        r"\multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]",
+    ]
+
+    def tex_row(dn, v, ref):
+        iters_str = str(v["iters"]) if v["iters"] is not None else "--"
+        cols = f"{v['norm']:.4f} & {v['time_s']:.4f} & {iters_str:>6} & {ref / v['time_s']:.1f}x"
+        return f"{dn:<30} & {cols} \\\\"
+
+    ref_no = res_no_lw["cvxpy"]["time_s"]
+    for name, v in res_no_lw.items():
+        lines.append(tex_row(display_names[name], v, ref_no))
+    lines.append(r"\midrule")
+    lines.append(r"\multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]")
+    ref_lw = res_lw["cvxpy"]["time_s"]
+    for name, v in res_lw.items():
+        lines.append(tex_row(display_names[name], v, ref_lw))
+    lines += [
+        r"\bottomrule",
+        r"\end{tabular}",
+        rf"\caption{{Results on {N_dim} assets, {T_dim} trading days. Speedup relative to cvxpy within each panel.}}",
+        r"\end{table}",
+    ]
+    print("\n% LaTeX table")
+    print("\n".join(lines))
     return
 
 

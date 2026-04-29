@@ -12,3 +12,7 @@ include .rhiza/rhiza.mk
 
 # Optional: developer-local extensions (not committed)
 -include local.mk
+
+.PHONY: paper
+paper: ## Build the LaTeX paper to PDF
+	cd paper && pdflatex -interaction=nonstopmode minvar_paper.tex && pdflatex -interaction=nonstopmode minvar_paper.tex
