@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "marimo==0.23.3",
-#     "fast-minimum-variance",
+#     "fast-minimum-variance[convex]",
 # ]
 # [tool.uv.sources]
 # fast-minimum-variance = { path = "../../..", editable = true }
