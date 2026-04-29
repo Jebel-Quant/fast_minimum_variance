@@ -9,9 +9,13 @@ description = "Constructing minimum variance portfolios"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "cvxpy>=1.0",
     "numpy>=2.0.0",
     "scipy>=1.0",
+]
+
+[project.optional-dependencies]
+convex = [
+    "cvxpy>=1.0",
 ]
 
 [dependency-groups]
@@ -24,6 +28,7 @@ packages = ["src/fast_minimum_variance"]
 
 [tool.deptry]
 optional_dependencies_dev_groups = ["dev"]
+known_optional = ["cvxpy"]
 
 [tool.deptry.package_module_name_map]
 numpy = "numpy"
