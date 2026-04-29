@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "fast-minimum-variance"
 version = "0.2.0"
-description = "Add your description here"
+description = "Constructing minimum variance portfolios"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
