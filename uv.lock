@@ -186,9 +186,13 @@ name = "fast-minimum-variance"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "cvxpy" },
     { name = "numpy" },
     { name = "scipy" },
+]
+
+[package.optional-dependencies]
+convex = [
+    { name = "cvxpy" },
 ]
 
 [package.dev-dependencies]
@@ -198,10 +202,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cvxpy", specifier = ">=1.0" },
+    { name = "cvxpy", marker = "extra == 'convex'", specifier = ">=1.0" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "scipy", specifier = ">=1.0" },
 ]
+provides-extras = ["convex"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "marimo", specifier = ">=0.20.0" }]
