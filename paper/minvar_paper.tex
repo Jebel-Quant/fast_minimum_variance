@@ -113,15 +113,15 @@ valid for $\alpha$ close to one, shows that $\alpha^\star$ is governed by the sp
 
 \subsection{CVXPY Reference Implementation}
 
-Before developing the Krylov solvers we establish a reference solution using CVXPY \cite{diamond2016}, a domain-specific language for convex optimisation. The minimum variance problem maps directly onto a least-squares objective, which CVXPY dispatches to a general-purpose interior-point solver. In the code listings below, \texttt{R} denotes the returns matrix $X$.
+Before developing the Krylov solvers we establish a reference solution using CVXPY \cite{diamond2016}, a domain-specific language for convex optimisation. The minimum variance problem maps directly onto a least-squares objective, which CVXPY dispatches to a general-purpose interior-point solver.
 
 \begin{lstlisting}[style=python]
 import cvxpy as cp
 
-n = R.shape[1]
+n = X.shape[1]
 w = cp.Variable(n)
 problem = cp.Problem(
-    cp.Minimize(cp.sum_squares(R @ w)),
+    cp.Minimize(cp.sum_squares(X @ w)),
     [cp.sum(w) == 1, w >= 0]
 )
 problem.solve(solver=cp.CLARABEL)
@@ -139,23 +139,23 @@ The speedup figures in Tables~\ref{tab:synthetic} and~\ref{tab:sp500} should be 
 For small $n$, \texttt{numpy.linalg.solve} applied to the explicit KKT matrix is fast and exact. It requires forming $X^\top X$ (an $O(n^2 T)$ operation), but for $n \ll T$ this is not the bottleneck.
 
 \begin{lstlisting}[style=python]
-def build_kkt(R):
+def build_kkt(X):
     """Build the KKT system matrix and RHS for the
     minimum variance problem.
 
     Constructs the (N+1) x (N+1) indefinite KKT system for:
 
-        min  w^T (R^T R) w
+        min  w^T (X^T X) w
         s.t. sum(w) = 1
 
     The system has the form:
 
-        [ 2 R^T R   1 ] [ w ]   [ 0 ]
+        [ 2 X^T X   1 ] [ w ]   [ 0 ]
         [ 1^T       0 ] [lam] = [ 1 ]
     """
-    n = R.shape[1]
+    n = X.shape[1]
     A = np.zeros((n + 1, n + 1))
-    A[:n, :n] = 2 * R.T @ R        # form X^T X explicitly
+    A[:n, :n] = 2 * X.T @ X        # form X^T X explicitly
     A[:n, n] = 1                   # budget constraint column
     A[n, :n] = 1                   # budget constraint row
     b = np.zeros(n + 1);  b[n] = 1
@@ -163,7 +163,7 @@ def build_kkt(R):
 
 active = np.ones(n, dtype=bool)
 while True:
-    A, b = build_kkt(R[:, active])
+    A, b = build_kkt(X[:, active])
     sol = np.linalg.solve(A, b)
     w_a = sol[:active.sum()]
     if np.all(w_a >= 0):
@@ -180,7 +180,7 @@ from scipy.sparse.linalg import LinearOperator, minres
 
 def matvec(x):
     out = np.empty(n + 1)
-    out[:n] = 2.0 * (R.T @ (R @ x[:n])) + x[n]
+    out[:n] = 2.0 * (X.T @ (X @ x[:n])) + x[n]
     out[n]  = x[:n].sum()
     return out
 
