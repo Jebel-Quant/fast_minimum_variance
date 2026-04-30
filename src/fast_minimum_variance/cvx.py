@@ -1,29 +1,44 @@
-"""Convex optimization solver for the minimum variance portfolio."""
+"""Convex optimization solver for the minimum variance and Markowitz portfolio."""
 
 import cvxpy as cp
+import numpy as np
 
 
-def minvar_cvxpy(R):  # noqa: N803
-    """Solve the minimum variance portfolio via CVXPY.
+def minvar_cvxpy(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N803
+    """Solve the general mean-variance portfolio via CVXPY.
 
-    Solves the long-only minimum variance problem::
+    Solves::
 
-        min  ||R w||_2^2
-        s.t. sum(w) = 1,  w >= 0
+        min  ||X w||_2^2 - rho * mu @ w
+        s.t. A.T @ w == b
+             C.T @ w <= d
 
-    using CVXPY with its default solver.
+    Defaults recover the long-only minimum variance problem::
+
+        min  ||X w||_2^2
+        s.t. sum(w) == 1,  w >= 0
 
     Args:
-        R: Return matrix of shape (T, N).
+        X:   Return matrix of shape (T, N).
+        A:   Equality constraint matrix of shape (N, m).
+             Defaults to ones((N, 1)) (budget constraint).
+        b:   Equality RHS of shape (m,).
+             Defaults to [1.0].
+        C:   Inequality constraint matrix of shape (N, p).
+             Defaults to -eye(N) (long-only constraint).
+        d:   Inequality RHS of shape (p,).
+             Defaults to zeros(N).
+        rho: Risk-aversion parameter (>= 0). Default 0.
+        mu:  Expected return vector of shape (N,). Required when rho > 0.
 
     Returns:
-        Weight vector of shape (N,) summing to 1 with all non-negative entries.
+        Weight vector of shape (N,).
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
-        >>> R = make_returns(100, 5, seed=0)
-        >>> w = minvar_cvxpy(R)
+        >>> X = make_returns(100, 5, seed=0)
+        >>> w = minvar_cvxpy(X)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 6))
@@ -31,7 +46,22 @@ def minvar_cvxpy(R):  # noqa: N803
         >>> bool((w >= -1e-6).all())
         True
     """
-    n = R.shape[1]
+    n = X.shape[1]
+
+    if A is None:
+        A = np.ones((n, 1))  # noqa: N806
+    if b is None:
+        b = np.ones(1)
+    if C is None:
+        C = -np.eye(n)  # noqa: N806
+    if d is None:
+        d = np.zeros(n)
+
     w = cp.Variable(n)
-    cp.Problem(cp.Minimize(cp.sum_squares(R @ w)), [cp.sum(w) == 1, w >= 0]).solve(solver=cp.CLARABEL)
+    objective = cp.sum_squares(X @ w)
+    if rho != 0.0:
+        objective = objective - rho * (mu @ w)
+
+    constraints = [A.T @ w == b, C.T @ w <= d]
+    cp.Problem(cp.Minimize(objective), constraints).solve(solver=cp.CLARABEL)
     return w.value
