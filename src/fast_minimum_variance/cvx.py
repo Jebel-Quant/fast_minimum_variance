@@ -33,5 +33,5 @@ def minvar_cvxpy(R):  # noqa: N803
     """
     n = R.shape[1]
     w = cp.Variable(n)
-    cp.Problem(cp.Minimize(cp.sum_squares(R @ w)), [cp.sum(w) == 1, w >= 0]).solve()
+    cp.Problem(cp.Minimize(cp.sum_squares(R @ w)), [cp.sum(w) == 1, w >= 0]).solve(solver=cp.CLARABEL)
     return w.value
