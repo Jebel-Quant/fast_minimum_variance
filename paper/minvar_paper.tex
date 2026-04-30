@@ -42,13 +42,11 @@
 \maketitle
 
 \begin{abstract}
-The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix and passing it to a generic quadratic programming solver. This standard approach obscures the structure of the problem and incurs unnecessary computational and memory costs.
+The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix and passing it to a generic quadratic programming solver. This approach is unnecessary: all required operations reduce to matrix-vector products on the returns matrix, and the covariance matrix need never be formed.
 
-We show that the problem is more naturally expressed as a matrix-free least-squares problem on the returns matrix itself. This reformulation eliminates the need to form the covariance matrix and exposes a symmetric indefinite KKT system that can be solved efficiently using Krylov subspace methods. Both MINRES and a constraint-eliminated conjugate gradient method outperform direct solves and generic optimisation routines by large factors. On real equity returns, where factor structure inflates the condition number, Ledoit-Wolf shrinkage reduces iteration counts substantially; with shrinkage applied the two Krylov methods are competitive, with CG marginally faster.
+Expressed directly in terms of the returns matrix, the problem reduces to a symmetric indefinite KKT system. MINRES and a constraint-eliminated conjugate gradient method solve this system without assembling $X^\top X$ and are 350--385 times faster than CVXPY on a universe of 495 S\&P~500 constituents. All methods produce identical portfolio weights; the gain is entirely computational.
 
-A central insight of the paper is that covariance shrinkage, as introduced by Ledoit and Wolf, acts as a spectral preconditioner for the underlying linear system. This establishes a direct link between statistical estimation and numerical linear algebra: both operate by reshaping the eigenvalue spectrum of the same operator. Empirically, shrinkage significantly reduces Krylov iteration counts, providing computational gains alongside its statistical benefits.
-
-The resulting perspective recasts minimum variance portfolio construction as a structured linear algebra problem rather than a generic optimisation task, enabling scalable solvers that are simple, fast, and well suited to large asset universes.
+Ledoit-Wolf covariance shrinkage acts as a spectral preconditioner for the KKT system: by lifting small eigenvalues it compresses the spectrum and directly reduces iteration counts. On real equity data, where a dominant market factor inflates the condition number, shrinkage halves MINRES iterations and cuts CG by two thirds. The two objectives, reducing statistical estimation error and accelerating the iterative solver, are achieved by the same modification to the spectrum.
 \end{abstract}
 
 \section{Introduction}
