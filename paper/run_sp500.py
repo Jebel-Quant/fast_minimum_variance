@@ -17,9 +17,9 @@ import time
 import numpy as np
 import pandas as pd
 
-from fast_minimum_variance.cvx import minvar_cvxpy
-from fast_minimum_variance.kkt import minvar_kkt
-from fast_minimum_variance.krylov import minvar_cg, minvar_minres
+from fast_minimum_variance.cvx import solve_cvxpy
+from fast_minimum_variance.kkt import solve_kkt
+from fast_minimum_variance.krylov import solve_cg, solve_minres
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 
@@ -52,17 +52,17 @@ def run_solver(name, fn, repeats=3):
 
 
 configs_no_lw = [
-    ("cvxpy", lambda: (minvar_cvxpy(R), None)),
-    ("kkt", lambda: (minvar_kkt(R), None)),
-    ("minres", lambda: minvar_minres(R)),
-    ("cg", lambda: minvar_cg(R)),
+    ("cvxpy", lambda: (solve_cvxpy(R), None)),
+    ("kkt", lambda: (solve_kkt(R), None)),
+    ("minres", lambda: solve_minres(R)),
+    ("cg", lambda: solve_cg(R)),
 ]
 
 configs_lw = [
-    ("cvxpy", lambda: (minvar_cvxpy(R_lw), None)),
-    ("kkt", lambda: (minvar_kkt(R_lw), None)),
-    ("minres", lambda: minvar_minres(R, c=c_lw, gamma=gamma_lw)),
-    ("cg", lambda: minvar_cg(R, c=c_lw, gamma=gamma_lw)),
+    ("cvxpy", lambda: (solve_cvxpy(R_lw), None)),
+    ("kkt", lambda: (solve_kkt(R_lw), None)),
+    ("minres", lambda: solve_minres(R, c=c_lw, gamma=gamma_lw)),
+    ("cg", lambda: solve_cg(R, c=c_lw, gamma=gamma_lw)),
 ]
 
 display = {

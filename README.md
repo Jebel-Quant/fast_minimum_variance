@@ -25,10 +25,10 @@ weights, and repeat. The process terminates in at most $N$ iterations.
 
 | Solver | Module | Method | Notes |
 |---|---|---|---|
-| `minvar_kkt` | `kkt` | Direct KKT via `numpy.linalg.solve` | Exact; baseline for accuracy comparisons |
-| `minvar_minres` | `krylov` | MINRES on the indefinite KKT system | Matrix-free capable; handles indefiniteness correctly |
-| `minvar_cg` | `krylov` | CG in the constraint-reduced space | Positive-definite reduced system; no indefinite solver needed |
-| `minvar_cvxpy` | `cvx` | General-purpose convex solver via CVXPY | Reference implementation; slowest but most flexible |
+| `solve_kkt` | `kkt` | Direct KKT via `numpy.linalg.solve` | Exact; baseline for accuracy comparisons |
+| `solve_minres` | `krylov` | MINRES on the indefinite KKT system | Matrix-free capable; handles indefiniteness correctly |
+| `solve_cg` | `krylov` | CG in the constraint-reduced space | Positive-definite reduced system; no indefinite solver needed |
+| `solve_cvxpy` | `cvx` | General-purpose convex solver via CVXPY | Reference implementation; slowest but most flexible |
 
 All solvers return a weight vector $w \in \mathbb{R}^N$ satisfying $\sum_i w_i = 1$ and $w_i \geq 0$.
 
@@ -36,18 +36,18 @@ All solvers return a weight vector $w \in \mathbb{R}^N$ satisfying $\sum_i w_i =
 
 ```python
 from fast_minimum_variance.random import make_returns
-from fast_minimum_variance.kkt import minvar_kkt
-from fast_minimum_variance.krylov import minvar_cg, minvar_minres
-from fast_minimum_variance.cvx import minvar_cvxpy
+from fast_minimum_variance.kkt import solve_kkt
+from fast_minimum_variance.krylov import solve_cg, solve_minres
+from fast_minimum_variance.cvx import solve_cvxpy
 
 # Generate a synthetic return matrix: 500 daily returns, 20 assets
 R = make_returns(T=500, N=20, seed=42)
 
 # Solve with any of the available solvers
-w_kkt    = minvar_kkt(R)      # exact KKT solve
-w_minres = minvar_minres(R)   # MINRES on the indefinite KKT system
-w_cg     = minvar_cg(R)       # CG in the constraint-reduced space
-w_cvxpy  = minvar_cvxpy(R)    # CVXPY reference
+w_kkt = solve_kkt(R)  # exact KKT solve
+w_minres = solve_minres(R)  # MINRES on the indefinite KKT system
+w_cg = solve_cg(R)  # CG in the constraint-reduced space
+w_cvxpy = solve_cvxpy(R)  # CVXPY reference
 
 # All solutions satisfy the portfolio constraints
 assert abs(w_kkt.sum() - 1.0) < 1e-8
