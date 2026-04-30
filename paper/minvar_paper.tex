@@ -26,10 +26,7 @@
 
 \author{Thomas Schmelzer%
   \thanks{Jebel Quant (\email{thomas@jqr.ae}).
-    The first author's 2004 diploma thesis at the University of Kaiserslautern
-    \cite{schmelzer2004}, supervised by Martin~H.~Gutknecht (ETH~Z\"{u}rich),
-    developed block extensions of MINRES and SYMMLQ. The present work revisits
-    those same methods in a new setting twenty-two years later.}
+    The first author studied block extensions of MINRES and SYMMLQ in \cite{schmelzer2004}.}
   \and
   Michael Wolf%
   \thanks{Department of Economics, University of Zurich.}
@@ -42,11 +39,20 @@
 \maketitle
 
 \begin{abstract}
-The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix and passing it to a generic quadratic programming solver. This approach is unnecessary: all required operations reduce to matrix-vector products on the returns matrix, and the covariance matrix need never be formed.
+The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix
+and passing it to a generic quadratic programming solver. This approach is unnecessary: all required
+operations reduce to matrix-vector products on the returns matrix, and the covariance matrix need never be formed.
 
-Expressed directly in terms of the returns matrix, the problem reduces to a symmetric indefinite KKT system. MINRES and a constraint-eliminated conjugate gradient method solve this system without assembling $X^\top X$ and are 350--385 times faster than CVXPY on the standard long-only problem with 495 S\&P~500 constituents. All methods produce identical portfolio weights; the gain is entirely computational.
+Expressed directly in terms of the returns matrix, the problem reduces to a symmetric indefinite KKT system.
+MINRES and a constraint-eliminated conjugate gradient method solve this system without
+assembling $X^\top X$ and are 350--385 times faster than CVXPY on the standard long-only problem with 495 S\&P~500 constituents.
+All methods produce identical portfolio weights; the gain is entirely computational.
 
-Ledoit-Wolf covariance shrinkage acts as a spectral preconditioner for the KKT system: by lifting small eigenvalues it compresses the spectrum and directly reduces iteration counts. On real equity data, where a dominant market factor inflates the condition number, shrinkage halves MINRES iterations and cuts CG by two thirds. The two objectives, reducing statistical estimation error and accelerating the iterative solver, are achieved by the same modification to the spectrum.
+Ledoit-Wolf covariance shrinkage acts as a spectral preconditioner for the KKT system: by lifting
+small eigenvalues it compresses the spectrum and directly reduces iteration counts.
+On real equity data, where a dominant market factor inflates the condition number,
+shrinkage halves MINRES iterations and cuts CG by two thirds. The two objectives,
+reducing statistical estimation error and accelerating the iterative solver, are achieved by the same modification to the spectrum.
 \end{abstract}
 
 \section{Introduction}
@@ -59,11 +65,11 @@ Formulated directly in terms of the returns matrix, the problem avoids the covar
 
 Generic optimisation frameworks are robust but expensive; matrix-free Krylov methods reduce all operations to repeated applications of $X$ and $X^\top$, avoiding both the $O(n^2)$ storage and the $O(n^2 T)$ cost of forming the covariance matrix.
 
-Covariance shrinkage, particularly the estimator of Ledoit and Wolf \cite{ledoit2004}, is usually motivated as a statistical device for high-dimensional estimation. It is also a spectral preconditioner: by lifting small eigenvalues and compressing the spectrum, shrinkage improves the convergence of Krylov methods. \textbf{Statistical regularisation and numerical preconditioning act on the same object}, the eigenvalue distribution of the system matrix, driven by different objectives.
+Covariance shrinkage, particularly the estimator of Ledoit and Wolf \cite{ledoit2004}, is usually motivated as a statistical device for high-dimensional estimation. It is also a spectral preconditioner: by lifting small eigenvalues and compressing the spectrum, shrinkage improves the convergence of Krylov methods. Statistical regularisation and numerical preconditioning act on the same object: the eigenvalue distribution of the system matrix, driven by different objectives.
 
 The minimum variance problem is formally equivalent to a quadratic programme, but its natural computational representation is linear algebraic: a structured matrix equation that admits fast, scalable solvers without the overhead of a general-purpose optimisation framework. The resulting implementations are faster, more transparent, and better aligned with the statistical structure of the problem, particularly in large-scale settings where forming the covariance matrix is itself the dominant cost.
 
-Krylov methods are standard tools in large-scale numerical linear algebra \cite{golub2013} but have not been systematically applied to portfolio optimisation. The closest related work applies GMRES to the MVP problem when the covariance matrix is singular \cite{bajeux2012}; that formulation still assembles $X^\top X$ explicitly and does not consider preconditioning. General-purpose solvers such as Clarabel \cite{clarabel2024} handle the long-only constraint natively but require an explicit covariance matrix and cannot exploit the matrix-free structure of the returns representation. The connection between shrinkage intensity and spectral preconditioning does not, to our knowledge, appear in the existing literature.
+Krylov methods are standard tools in large-scale numerical linear algebra \cite{golub2013} but have not been systematically applied to portfolio optimisation. The KKT system studied here is a saddle-point system; iterative methods for such systems are surveyed by Benzi, Golub, and Liesen \cite{benzi2005}, but the portfolio application and the shrinkage-preconditioning connection are not treated there. The closest related work applies GMRES to the MVP problem when the covariance matrix is singular \cite{bajeux2012}; that formulation still assembles $X^\top X$ explicitly and does not consider preconditioning. General-purpose solvers such as Clarabel \cite{clarabel2024} handle the long-only constraint natively but require an explicit covariance matrix and cannot exploit the matrix-free structure of the returns representation. The connection between shrinkage intensity and spectral preconditioning does not, to our knowledge, appear in the existing literature.
 
 Sections~\ref{sec:problem}--\ref{sec:precond} develop the formulation and solvers; Section~\ref{sec:results} reports empirical results on both synthetic and S\&P~500 data.
 
@@ -95,7 +101,7 @@ Setting derivatives to zero gives the stationarity condition $2X^\top X w = \lam
 \]
 This $(n+1) \times (n+1)$ system is \textbf{symmetric but indefinite}: the zero in the bottom-right corner ensures the matrix has both positive and negative eigenvalues. Standard CG requires positive definiteness and does not apply; MINRES handles the indefinite case directly.
 
-The long-only constraint $w \geq 0$ is handled via an \textbf{active set method}: solve the KKT system on the current active set, drop any asset with a negative weight, and repeat. The process terminates in at most $n$ iterations in the worst case.
+The long-only constraint $w \geq 0$ is handled via an \textbf{active set method}: solve the KKT system on the current active set, drop any asset with a negative weight, and repeat. The feasible set is non-empty (the equal-weight portfolio always satisfies the constraints) and compact, so the constrained minimum exists. The process terminates in at most $n$ iterations in the worst case.
 
 With Ledoit-Wolf shrinkage, the active set converges rapidly in practice. The unconstrained minimiser satisfies $w^\star \propto \Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As $\alpha \to 1$, $\Sigma_{\mathrm{LW}} \to \alpha I$ and $w^\star \to \frac{1}{n}\mathbf{1}$, the equal-weight portfolio with all components strictly positive. By continuity there exists a threshold $\alpha^\star \in (0,1)$ above which every component of the unconstrained solution is positive; for $\alpha > \alpha^\star$ the first active set solve requires no asset to be dropped. The first-order expansion
 \[
@@ -103,11 +109,11 @@ With Ledoit-Wolf shrinkage, the active set converges rapidly in practice. The un
 \]
 valid for $\alpha$ close to one, shows that $\alpha^\star$ is governed by the spectral structure of $X^\top X$: assets with large total covariance exposure are the last to turn positive as $\alpha$ increases. For the LW-optimal $\alpha$ and dense equity returns, the threshold is typically exceeded and the first solve yields few negative components. Across 50 experiments with $n$ from 100 to 1000 and $T = 2n$, the active set required 2--3 outer iterations in all cases; runtime is dominated by the linear solves.
 
-\section{Krylov Solvers for the Indefinite System}\label{sec:solvers}
+\section{Computational Methods}\label{sec:solvers}
 
 \subsection{CVXPY Reference Implementation}
 
-Before developing the Krylov solvers we establish a reference solution using CVXPY \cite{diamond2016}, a domain-specific language for convex optimisation. The minimum variance problem maps directly onto a least-squares objective, which CVXPY dispatches to a general-purpose interior-point solver.
+Before developing the Krylov solvers we establish a reference solution using CVXPY \cite{diamond2016}, a domain-specific language for convex optimisation. The minimum variance problem maps directly onto a least-squares objective, which CVXPY dispatches to a general-purpose interior-point solver. In the code listings below, \texttt{R} denotes the returns matrix $X$.
 
 \begin{lstlisting}[style=python]
 import cvxpy as cp
@@ -215,7 +221,7 @@ The shrinkage intensity $\alpha \in (0,1)$ is chosen analytically to minimise th
 \[
 \kappa(\Sigma_{\text{LW}}) = \frac{\lambda_{\max}(\Sigma_{\text{LW}})}{\lambda_{\min}(\Sigma_{\text{LW}})} \leq \frac{\lambda_{\max} + \alpha}{\alpha}
 \]
-since $\lambda_{\min}(\Sigma_{\text{LW}}) \geq \alpha$ and $\lambda_{\max}(\Sigma_{\text{LW}}) \leq \lambda_{\max} + \alpha$. The condition number is fully controlled by $\alpha$. Subsequent work by the same authors provides an analytical nonlinear shrinkage formula \cite{ledoit2020} that applies a different shrinkage coefficient to each sample eigenvalue, achieving a strictly smaller Frobenius loss when $n/T$ is not negligible.
+since $\lambda_{\min}(\Sigma_{\text{LW}}) \geq \alpha$ and $\lambda_{\max}(\Sigma_{\text{LW}}) \leq \lambda_{\max} + \alpha$. The condition number is fully controlled by $\alpha$. Subsequent work by the same authors provides an analytical nonlinear shrinkage formula \cite{ledoit2020} that applies a different coefficient to each sample eigenvalue, achieving a smaller Frobenius loss when $n/T$ is not negligible. Nonlinear shrinkage cannot be expressed as a simple augmented matrix $\tilde{X}$, so incorporating it into the matrix-free framework would require a separate Krylov-compatible preconditioner rather than a modified return matrix.
 
 In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\Sigma_{\text{LW}}$ explicitly. Setting $c = 1 - \alpha$ and $\gamma = \alpha \cdot \|\Sigma\|_F / n$, the stacked matrix $\tilde{X} = [\sqrt{c}\,X;\,\sqrt{\gamma}\,I]$ satisfies $\tilde{X}^\top \tilde{X} = c\,X^\top X + \gamma I \propto \Sigma_{\text{LW}}$, so any of the solvers above can be applied to $\tilde{X}$ without modification.
 
@@ -238,13 +244,13 @@ Table~\ref{tab:synthetic} reports timings and iteration counts for all four solv
 Method & Time (s) & Iterations & Speedup \\
 \midrule
 \multicolumn{4}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 6.7192 &     -- &   1.0x \\
+cvxpy (Clarabel)               &  6.72  &     -- &   1.0x \\
 KKT direct                     & 0.0456 &     -- & 147.4x \\
 MINRES                         & 0.0114 &     39 & 590.1x \\
 CG (constraint-eliminated)     & 0.0149 &     80 & 451.7x \\
 \midrule
 \multicolumn{4}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 4.6214 &     -- &   1.0x \\
+cvxpy (Clarabel)               &  4.62  &     -- &   1.0x \\
 KKT direct                     & 0.0473 &     -- &  97.6x \\
 MINRES                         & 0.0072 &     16 & 643.9x \\
 CG (constraint-eliminated)     & 0.0083 &     26 & 558.3x \\
@@ -267,13 +273,13 @@ Table~\ref{tab:sp500} repeats the benchmark on daily log-returns for 495 S\&P~50
 Method & Time (s) & Iterations & Speedup \\
 \midrule
 \multicolumn{4}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 1.5672 &     -- &   1.0x \\
+cvxpy (Clarabel)               &  1.57  &     -- &   1.0x \\
 KKT direct                     & 0.0058 &     -- & 269.1x \\
 MINRES                         & 0.0059 &    214 & 264.5x \\
 CG (constraint-eliminated)     & 0.0090 &    387 & 175.0x \\
 \midrule
 \multicolumn{4}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 1.4514 &     -- &   1.0x \\
+cvxpy (Clarabel)               &  1.45  &     -- &   1.0x \\
 KKT direct                     & 0.0124 &     -- & 117.3x \\
 MINRES                         & 0.0041 &    105 & 354.4x \\
 CG (constraint-eliminated)     & 0.0038 &    117 & 384.8x \\

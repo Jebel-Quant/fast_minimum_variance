@@ -5,6 +5,10 @@
   approach to large portfolio optimization}, Journal of Economic Dynamics and
   Control, 36 (2012), pp.~1688--1699.
 
+\bibitem{benzi2005}
+{\sc M.~Benzi, G.~H. Golub, and J.~Liesen}, {\em Numerical solution of saddle
+  point problems}, Acta Numerica, 14 (2005), pp.~1--137.
+
 \bibitem{diamond2016}
 {\sc S.~Diamond and S.~Boyd}, {\em {CVXPY}: A {Python}-embedded modeling
   language for convex optimization}, Journal of Machine Learning Research, 17
