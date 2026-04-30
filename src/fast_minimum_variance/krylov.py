@@ -221,3 +221,208 @@ def solve_cg(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None, c=1.0, gamma=0
     w[active] = np.maximum(w_a, 0)
     w /= w.sum()
     return w, total_iters
+
+
+def solve_minres(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None, c=1.0, gamma=0.0):  # noqa: N803
+    """Solve the general mean-variance portfolio via MINRES on the KKT saddle-point system.
+
+    Extends :func:`minvar_minres` to the full Markowitz problem: multiple equality
+    constraints encoded in ``A`` and ``b``, general linear inequalities ``C.T @ w <= d``
+    handled by the active-set method, and a linear return term ``rho * mu.T @ w``.
+    At each active-set iteration violated inequality constraints are promoted to
+    equalities (appended as columns of ``A``), and the enlarged saddle-point system
+
+        [ 2(c X^T X + gamma I)   A_ext ] [ w      ]   [ rho * mu ]
+        [ A_ext^T                0     ] [ lambda ] = [ b_ext    ]
+
+    is solved matrix-free via MINRES.  No explicit matrix is ever formed.
+
+    With the defaults (``A = ones``, ``b = [1]``, ``C = -I``, ``d = 0``) this
+    recovers the long-only minimum variance problem.  See :func:`minvar_minres`
+    for the Ledoit-Wolf shrinkage recipe.
+
+    Args:
+        X:     Return matrix of shape (T, N).
+        A:     Equality constraint matrix of shape (N, m).
+               Defaults to ones((N, 1)) (budget constraint).
+        b:     Equality RHS of shape (m,). Defaults to [1.0].
+        C:     Inequality constraint matrix of shape (N, p) for C.T @ w <= d.
+               Defaults to -eye(N) (long-only constraint).
+        d:     Inequality RHS of shape (p,). Defaults to zeros(N).
+        rho:   Risk-aversion parameter (>= 0). Default 0.
+        mu:    Expected return vector of shape (N,). Required when rho > 0.
+        c:     Scaling factor for X^T X (default 1.0).
+        gamma: Diagonal regularisation added to the (N, N) block (default 0.0).
+
+    Returns:
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+        n_iters is the total MINRES iterations summed across all active-set steps.
+
+    Examples:
+        >>> import numpy as np
+        >>> from fast_minimum_variance.random import make_returns
+        >>> X = make_returns(100, 5, seed=0)
+        >>> w, iters = solve_minres(X)
+        >>> w.shape
+        (5,)
+        >>> float(round(w.sum(), 6))
+        1.0
+        >>> bool((w >= -1e-8).all())
+        True
+        >>> iters > 0
+        True
+    """
+    n = X.shape[1]
+
+    if A is None:
+        A = np.ones((n, 1))  # noqa: N806
+    if b is None:
+        b = np.ones(1)
+    if C is None:
+        C = -np.eye(n)  # noqa: N806
+    if d is None:
+        d = np.zeros(n)
+
+    p = d.shape[0]
+    active = np.zeros(p, dtype=bool)
+    total_iters = 0
+
+    while True:
+        A_ext = np.hstack([A, C[:, active]]) if active.any() else A  # noqa: N806
+        b_ext = np.concatenate([b, d[active]]) if active.any() else b
+        m_ext = A_ext.shape[1]
+
+        def _matvec(x, aa=A_ext, ma=m_ext, cc=c, gam=gamma):
+            """Apply KKT operator [[2(cX^TX+gammaI), A_ext],[A_ext^T,0]] to x."""
+            out = np.empty(n + ma)
+            out[:n] = 2.0 * (cc * (X.T @ (X @ x[:n])) + gam * x[:n]) + aa @ x[n:]
+            out[n:] = aa.T @ x[:n]
+            return out
+
+        rhs = np.zeros(n + m_ext)
+        if rho != 0.0 and mu is not None:
+            rhs[:n] = rho * mu
+        rhs[n:] = b_ext
+
+        kkt = LinearOperator(shape=(n + m_ext, n + m_ext), matvec=_matvec)  # type: ignore[call-arg]
+        iters = [0]
+        sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
+        total_iters += iters[0]
+        w = sol[:n]
+
+        inactive = ~active
+        if not inactive.any():
+            break
+        violations = C[:, inactive].T @ w - d[inactive]
+        if np.all(violations <= 1e-10):
+            break
+        active[np.where(inactive)[0][violations > 1e-10]] = True
+
+    return w, total_iters
+
+
+def solve_cg(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None, c=1.0, gamma=0.0):  # noqa: N803
+    """Solve the general mean-variance portfolio via CG in the constraint-reduced space.
+
+    Extends :func:`minvar_cg` to the full Markowitz problem.  At each active-set
+    iteration violated inequalities are promoted to equalities forming ``A_ext``.
+    The equality-constrained subproblem is solved by parameterising ``w = w0 + P v``
+    where ``w0`` is the minimum-norm particular solution of ``A_ext.T @ w = b_ext``
+    and ``P`` is an orthonormal null-space basis from QR factorisation of ``A_ext``.
+    CG is applied to the positive-definite reduced system
+
+        (c (X P)^T (X P) + gamma I) v = -P^T (c X^T X w0 + gamma w0 - (rho/2) mu)
+
+    No explicit matrix is ever formed.
+
+    With the defaults (``A = ones``, ``b = [1]``, ``C = -I``, ``d = 0``) this
+    recovers the long-only minimum variance problem.  See :func:`minvar_minres`
+    for the Ledoit-Wolf shrinkage recipe.
+
+    Args:
+        X:     Return matrix of shape (T, N).
+        A:     Equality constraint matrix of shape (N, m).
+               Defaults to ones((N, 1)) (budget constraint).
+        b:     Equality RHS of shape (m,). Defaults to [1.0].
+        C:     Inequality constraint matrix of shape (N, p) for C.T @ w <= d.
+               Defaults to -eye(N) (long-only constraint).
+        d:     Inequality RHS of shape (p,). Defaults to zeros(N).
+        rho:   Risk-aversion parameter (>= 0). Default 0.
+        mu:    Expected return vector of shape (N,). Required when rho > 0.
+        c:     Scaling factor for X^T X (default 1.0).
+        gamma: Diagonal regularisation added to the objective (default 0.0).
+
+    Returns:
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+        n_iters is the total CG iterations summed across all active-set steps.
+
+    Examples:
+        >>> import numpy as np
+        >>> from fast_minimum_variance.random import make_returns
+        >>> X = make_returns(100, 5, seed=0)
+        >>> w, iters = solve_cg(X)
+        >>> w.shape
+        (5,)
+        >>> float(round(w.sum(), 6))
+        1.0
+        >>> bool((w >= -1e-8).all())
+        True
+        >>> iters > 0
+        True
+    """
+    n = X.shape[1]
+
+    if A is None:
+        A = np.ones((n, 1))  # noqa: N806
+    if b is None:
+        b = np.ones(1)
+    if C is None:
+        C = -np.eye(n)  # noqa: N806
+    if d is None:
+        d = np.zeros(n)
+
+    p = d.shape[0]
+    active = np.zeros(p, dtype=bool)
+    total_iters = 0
+
+    while True:
+        A_ext = np.hstack([A, C[:, active]]) if active.any() else A  # noqa: N806
+        b_ext = np.concatenate([b, d[active]]) if active.any() else b
+        m_ext = A_ext.shape[1]
+        n_free = n - m_ext
+
+        if n_free == 0:
+            w = np.linalg.lstsq(A_ext.T, b_ext, rcond=None)[0]
+            break
+
+        # Null-space basis P (N x n_free) and minimum-norm particular solution w0
+        Q, _ = np.linalg.qr(A_ext, mode="complete")  # noqa: N806
+        P = Q[:, m_ext:]  # noqa: N806
+        w0 = np.linalg.lstsq(A_ext.T, b_ext, rcond=None)[0]
+
+        # P^T w0 = 0 (w0 lies in row space of A_ext^T), so gamma term vanishes from rhs
+        g0 = c * (X.T @ (X @ w0)) + gamma * w0
+        if rho != 0.0 and mu is not None:
+            g0 = g0 - (rho / 2.0) * mu
+        rhs = -(P.T @ g0)
+
+        def _matvec(y, pp=P, cc=c, gam=gamma):
+            """Apply P^T (c X^T X + gamma I) P to y."""
+            pv = pp @ y
+            return cc * (pp.T @ (X.T @ (X @ pv))) + gam * y
+
+        op = LinearOperator(shape=(n_free, n_free), matvec=_matvec)  # type: ignore[call-arg]
+        iters = [0]
+        sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
+        total_iters += iters[0]
+        w = w0 + P @ sol
+
+        inactive = ~active
+        if not inactive.any():
+            break
+        violations = C[:, inactive].T @ w - d[inactive]
+        if np.all(violations <= 1e-10):
+            break
+        active[np.where(inactive)[0][violations > 1e-10]] = True
+
+    return w, total_iters
