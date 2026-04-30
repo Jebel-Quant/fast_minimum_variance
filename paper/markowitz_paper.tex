@@ -1,0 +1,139 @@
+\documentclass{siamart}
+
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{graphicx}
+
+\newtheorem{remark}{Remark}
+
+\lstdefinestyle{python}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{orange!80!black},
+  showstringspaces=false,
+  frame=single,
+  framesep=4pt,
+  xleftmargin=8pt,
+  xrightmargin=8pt,
+  belowskip=6pt,
+  aboveskip=6pt,
+}
+
+\title{Krylov Methods for the Markowitz Portfolio}
+
+\author{Thomas Schmelzer%
+  \thanks{Jebel Quant (\email{thomas@jqr.ae}).}
+  \and
+  Raphael Hauser%
+  \thanks{Mathematical Institute, University of Oxford.}
+  \and
+  Stephen Boyd%
+  \thanks{Department of Electrical Engineering, Stanford University.}
+}
+
+\headers{Krylov Methods for the Markowitz Portfolio}{T.~Schmelzer, R.~Hauser, and S.~Boyd}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+TODO
+\end{abstract}
+
+\section{Introduction}
+
+The companion paper \cite{minvar_paper} showed that the long-only minimum variance portfolio
+reduces to a symmetric indefinite KKT system solvable by MINRES without ever forming the
+sample covariance matrix, yielding speedups of 354--644$\times$ over CVXPY on standard benchmarks.
+The present paper extends this framework to the full Markowitz mean-variance problem.
+
+Three generalisations are required: (i) the single budget constraint $\mathbf{1}^\top w = 1$ is
+replaced by a general equality constraint matrix $A$; (ii) general linear inequalities
+$C^\top w \leq d$ are handled by extending the active set loop; and (iii) a linear return term
+$\rho\,\mu^\top w$ is added to the objective. In each case the KKT saddle-point structure is
+preserved and MINRES applies without modification.
+
+\section{Problem Formulation}\label{sec:problem}
+
+Let $X \in \mathbb{R}^{T \times n}$ be the matrix of daily returns for $n$ assets over $T$ trading
+days, $\mu \in \mathbb{R}^n$ a vector of expected returns, and $\rho \geq 0$ a risk-aversion
+parameter. The general mean-variance problem is:
+\[
+\min_{w} \; \|Xw\|^2 - \rho\,\mu^\top w
+\quad \text{subject to} \quad
+A^\top w = b, \quad C^\top w \leq d
+\]
+where $A \in \mathbb{R}^{n \times m}$, $b \in \mathbb{R}^m$ encode $m$ linear equality constraints
+(at minimum the budget constraint, and optionally sector limits, factor-exposure constraints, etc.),
+and $C \in \mathbb{R}^{n \times p}$, $d \in \mathbb{R}^p$ encode $p$ linear inequality constraints
+(the long-only requirement $w \geq 0$ being the special case $C = -I$, $d = \mathbf{0}$).
+Setting $\rho = 0$ and $A = \mathbf{1}$, $b = 1$, $C = -I$, $d = \mathbf{0}$ recovers the
+minimum variance problem of \cite{minvar_paper}.
+
+\section{The KKT System}\label{sec:kkt}
+
+\subsection{Equality-constrained subproblem}
+
+Ignoring the inequality constraints, the Lagrangian is:
+\[
+\mathcal{L}(w, \lambda) = \|Xw\|^2 - \rho\,\mu^\top w - \lambda^\top(A^\top w - b)
+\]
+The stationarity condition $\nabla_w \mathcal{L} = 0$ gives $2X^\top X w - A\lambda = \rho\mu$.
+Combined with $A^\top w = b$, this yields the $(n+m)\times(n+m)$ saddle-point system:
+\[
+\begin{pmatrix} 2X^\top X & A \\ A^\top & 0 \end{pmatrix}
+\begin{pmatrix} w \\ \lambda \end{pmatrix}
+=
+\begin{pmatrix} \rho\mu \\ b \end{pmatrix}.
+\]
+The matrix is \textbf{symmetric but indefinite}; MINRES \cite{paige1975} handles this directly.
+Setting $\rho = 0$ recovers the minimum variance KKT system of \cite{minvar_paper} with the
+right-hand side $(\mathbf{0},\, b)$. The constraint-eliminated CG formulation generalises
+analogously: the null-space basis $P$ becomes an orthonormal basis for $\ker(A^\top)$, of
+dimension $n - m$ when $A$ has full column rank.
+
+\subsection{Inequality constraints and the active set method}
+
+General linear inequalities $C^\top w \leq d$ are handled by extending the active set loop.
+At each outer iteration, the currently active inequalities (those binding at the current
+solution) are appended as additional columns of $A$; the KKT saddle-point system is solved on
+the resulting enlarged equality-constrained subproblem. Constraints that become inactive are
+dropped and the solve is repeated. The process terminates when no active-set change occurs.
+The long-only constraint $w \geq 0$ is the special case $C = -I$, $d = \mathbf{0}$, already
+present in \cite{minvar_paper}.
+
+\subsection{Efficient frontier}
+
+Varying $\rho$ from $0$ to $\infty$ traces the efficient frontier: $\rho = 0$ gives the
+minimum variance portfolio; large $\rho$ gives the maximum return portfolio. Each point on the
+frontier requires one active set solve of the KKT system above, with a different right-hand
+side $(\rho\mu,\, b)$ but the same saddle-point matrix. Warm-starting from the previous
+$\rho$ reduces the active set iterations.
+
+\section{Computational Methods}\label{sec:solvers}
+
+TODO
+
+\section{Numerical Results}\label{sec:results}
+
+TODO
+
+\section{Conclusion}
+
+TODO
+
+\section*{Acknowledgements}
+
+The authors thank Martin~H.~Gutknecht (ETH~Z\"{u}rich) for supervising the 2004 diploma
+thesis \cite{schmelzer2004} on block MINRES and SYMMLQ, which motivated the present work.
+
+\bibliographystyle{siamplain}
+\bibliography{refs}
+
+\end{document}
