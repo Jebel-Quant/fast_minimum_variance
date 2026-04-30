@@ -14,5 +14,9 @@ include .rhiza/rhiza.mk
 -include local.mk
 
 .PHONY: paper
-paper: ## Build the LaTeX paper to PDF
-	cd paper && pdflatex -interaction=nonstopmode minvar_paper.tex && pdflatex -interaction=nonstopmode minvar_paper.tex
+paper: ## Build the LaTeX paper to PDF (pdflatex + bibtex + pdflatex x2)
+	cd paper && \
+	  pdflatex -interaction=nonstopmode minvar_paper.tex > /dev/null && \
+	  bibtex minvar_paper && \
+	  pdflatex -interaction=nonstopmode minvar_paper.tex > /dev/null && \
+	  pdflatex -interaction=nonstopmode minvar_paper.tex | grep -E "Output written|Warning|Error" || true
