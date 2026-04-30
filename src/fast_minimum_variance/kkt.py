@@ -61,7 +61,7 @@ def build_kkt(X, A=None, b=None, rho=0.0, mu=None):  # noqa: N803
     return K, rhs
 
 
-def minvar_kkt(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N803
+def solve_kkt(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N803
     """Solve the general mean-variance portfolio via the KKT system with active-set method.
 
     Iteratively promotes violated inequality constraints to equalities until
@@ -86,7 +86,7 @@ def minvar_kkt(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N8
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
         >>> X = make_returns(100, 5, seed=0)
-        >>> w = minvar_kkt(X)
+        >>> w = solve_kkt(X)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 10))
