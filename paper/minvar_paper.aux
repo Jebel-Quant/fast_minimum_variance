@@ -26,9 +26,10 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Direct Solve (Baseline)}{3}{lstlisting.2}\protected@file@percent }
 \citation{paige1975}
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.3}MINRES}{4}{lstlisting.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Constraint-Eliminated CG}{4}{lstlisting.4}\protected@file@percent }
 \citation{ledoit2004}
+\citation{benzi2005}
 \citation{ledoit2020}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Constraint-Eliminated CG}{5}{lstlisting.4}\protected@file@percent }
 \newlabel{sec:precond}{{5}{5}{Ledoit-Wolf Shrinkage}{lstlisting.4}{}}
 \newlabel{sec:precond@cref}{{}{[1][5][]5}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {5}Ledoit-Wolf Shrinkage}{5}{lstlisting.4}\protected@file@percent }
@@ -39,21 +40,25 @@
 \@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt  {cvxpy} within each panel.}}{6}{table.6}\protected@file@percent }
 \newlabel{tab:synthetic}{{1}{6}{Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt {cvxpy} within each panel}{table.6}{}}
 \newlabel{tab:synthetic@cref}{{[table][1][]1}{[1][6][]6}{}{}{}}
+\citation{ledoit2004}
 \@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt  {cvxpy} within each panel.}}{7}{table.8}\protected@file@percent }
 \newlabel{tab:sp500}{{2}{7}{S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt {cvxpy} within each panel}{table.8}{}}
 \newlabel{tab:sp500@cref}{{[table][2][]2}{[1][6][]7}{}{}{}}
-\citation{ledoit2004}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{7}{figure.10}\protected@file@percent }
 \citation{golub2013}
 \citation{schmelzer2004}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases.}}{8}{figure.11}\protected@file@percent }
-\newlabel{fig:scaling}{{1}{8}{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases}{figure.11}{}}
-\newlabel{fig:scaling@cref}{{[figure][1][]1}{[1][8][]8}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{8}{figure.11}\protected@file@percent }
 \citation{fast_minimum_variance}
 \bibstyle{siamplain}
 \bibdata{refs}
 \bibcite{bajeux2012}{1}
 \bibcite{benzi2005}{2}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases.}}{8}{figure.10}\protected@file@percent }
+\newlabel{fig:scaling}{{1}{8}{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases}{figure.10}{}}
+\newlabel{fig:scaling@cref}{{[figure][1][]1}{[1][7][]8}{}{}{}}
+\@writefile{toc}{\contentsline {section}{Appendix~A. Constraint-Eliminated CG: Implementation}{8}{section*.11}\protected@file@percent }
+\newlabel{app:cg}{{A}{8}{Acknowledgements}{section*.11}{}}
+\newlabel{app:cg@cref}{{}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {section}{References}{8}{section*.11}\protected@file@percent }
 \bibcite{diamond2016}{3}
 \bibcite{golub2013}{4}
 \bibcite{clarabel2024}{5}
@@ -63,8 +68,4 @@
 \bibcite{paige1975}{9}
 \bibcite{schmelzer2004}{10}
 \bibcite{fast_minimum_variance}{11}
-\@writefile{toc}{\contentsline {section}{Appendix~A. Constraint-Eliminated CG: Implementation}{9}{section*.12}\protected@file@percent }
-\newlabel{app:cg}{{A}{9}{Acknowledgements}{section*.12}{}}
-\newlabel{app:cg@cref}{{}{[1][9][]9}{}{}{}}
-\@writefile{toc}{\contentsline {section}{References}{9}{section*.12}\protected@file@percent }
 \gdef \@abspage@last{9}

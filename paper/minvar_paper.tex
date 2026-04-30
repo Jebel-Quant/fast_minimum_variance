@@ -140,19 +140,7 @@ For small $n$, \texttt{numpy.linalg.solve} applied to the explicit KKT matrix is
 
 \begin{lstlisting}[style=python]
 def build_kkt(X):
-    """Build the KKT system matrix and RHS for the
-    minimum variance problem.
-
-    Constructs the (N+1) x (N+1) indefinite KKT system for:
-
-        min  w^T (X^T X) w
-        s.t. sum(w) = 1
-
-    The system has the form:
-
-        [ 2 X^T X   1 ] [ w ]   [ 0 ]
-        [ 1^T       0 ] [lam] = [ 1 ]
-    """
+    """Build the (n+1) x (n+1) KKT matrix and RHS."""
     n = X.shape[1]
     A = np.zeros((n + 1, n + 1))
     A[:n, :n] = 2 * X.T @ X        # form X^T X explicitly
@@ -207,7 +195,7 @@ with normal equations:
 \[
 (XP)^\top (XP) \, v = -(XP)^\top (Xw_0)
 \]
-The matrix $(XP)^\top(XP)$ is \textbf{symmetric positive definite}, so standard CG applies. The matrix-vector product $v \mapsto P^\top X^\top (X(Pv))$ requires four cheap operations and never forms $X^\top X$ or $(XP)^\top(XP)$ explicitly. In the implementation $P$ is never stored: it is applied via an implicit Householder reflector in $O(n)$ time. The full implementation is listed in Appendix~\ref{app:cg}.
+The matrix $(XP)^\top(XP)$ is \textbf{symmetric positive definite}, so standard CG applies. The matrix-vector product $v \mapsto P^\top X^\top (X(Pv))$ requires four cheap operations and never forms $X^\top X$ or $(XP)^\top(XP)$ explicitly. In the implementation $P$ is never stored: it is applied via an implicit Householder reflector in $O(n)$ time. The full implementation is listed in Appendix~\ref{app:cg}. Within the active set loop, when an asset is removed the Householder reflector is recomputed for the reduced active dimension and CG is restarted on the smaller $(k-1)\times(k-1)$ system, where $k$ is the number of remaining assets.
 
 
 \section{Ledoit-Wolf Shrinkage}
@@ -221,9 +209,9 @@ The shrinkage intensity $\alpha \in (0,1)$ is chosen analytically to minimise th
 \[
 \kappa(\Sigma_{\text{LW}}) = \frac{\lambda_{\max}(\Sigma_{\text{LW}})}{\lambda_{\min}(\Sigma_{\text{LW}})} \leq \frac{\lambda_{\max} + \alpha}{\alpha}
 \]
-since $\lambda_{\min}(\Sigma_{\text{LW}}) \geq \alpha$ and $\lambda_{\max}(\Sigma_{\text{LW}}) \leq \lambda_{\max} + \alpha$. The condition number is fully controlled by $\alpha$. Subsequent work by the same authors provides an analytical nonlinear shrinkage formula \cite{ledoit2020} that applies a different coefficient to each sample eigenvalue, achieving a smaller Frobenius loss when $n/T$ is not negligible. Nonlinear shrinkage cannot be expressed as a simple augmented matrix $\tilde{X}$, so incorporating it into the matrix-free framework would require a separate Krylov-compatible preconditioner rather than a modified return matrix.
+since $\lambda_{\min}(\Sigma_{\text{LW}}) \geq \alpha$ and $\lambda_{\max}(\Sigma_{\text{LW}}) \leq \lambda_{\max} + \alpha$. The condition number is fully controlled by $\alpha$. For saddle-point systems of the form studied here, MINRES convergence is governed jointly by the eigenvalues of $\Sigma_{\text{LW}}$ and the constraint structure \cite{benzi2005}; compressing the spectrum of $\Sigma_{\text{LW}}$ clusters the eigenvalues of the full KKT matrix and reduces iteration counts. Subsequent work by the same authors provides an analytical nonlinear shrinkage formula \cite{ledoit2020} that applies a different coefficient to each sample eigenvalue, achieving a smaller Frobenius loss when $n/T$ is not negligible. Nonlinear shrinkage cannot be expressed as a simple augmented matrix $\tilde{X}$, so incorporating it into the matrix-free framework would require a separate Krylov-compatible preconditioner rather than a modified return matrix.
 
-In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\Sigma_{\text{LW}}$ explicitly. Setting $c = 1 - \alpha$ and $\gamma = \alpha \cdot \|\Sigma\|_F / n$, the stacked matrix $\tilde{X} = [\sqrt{c}\,X;\,\sqrt{\gamma}\,I]$ satisfies $\tilde{X}^\top \tilde{X} = c\,X^\top X + \gamma I \propto \Sigma_{\text{LW}}$, so any of the solvers above can be applied to $\tilde{X}$ without modification.
+In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\Sigma_{\text{LW}}$ explicitly. Setting $c = 1 - \alpha$ and $\gamma = \alpha \cdot \mathrm{tr}(X^\top X)/n$, the stacked matrix $\tilde{X} = [\sqrt{c}\,X;\,\sqrt{\gamma}\,I]$ satisfies $\tilde{X}^\top \tilde{X} = c\,X^\top X + \gamma I = T\Sigma_{\text{LW}}$, so any of the solvers above can be applied to $\tilde{X}$ and produce exactly the LW-shrinkage portfolio weights.
 
 From the perspective of numerical linear algebra, compressing the eigenvalue spectrum of the system matrix is precisely what a preconditioner does. Ledoit-Wolf shrinkage therefore plays a dual role: it reduces statistical estimation error and, as a side effect, accelerates iterative solvers by clustering the eigenvalues. The two motivations are independent but arrive at the same modified matrix.
 
@@ -293,17 +281,13 @@ The real-data results reveal two effects absent from the synthetic benchmark. Fi
 
 Second, Ledoit-Wolf shrinkage matters far more here than on synthetic data. It halves the MINRES count (214 to 105) and cuts CG by two thirds (387 to 117). With shrinkage applied, CG narrowly edges MINRES (0.0038 s vs.\ 0.0041 s), reversing the synthetic ranking. CG solves a positive definite reduced system of size $n-1$, and after spectrum compression by shrinkage, its convergence rate catches up to MINRES on the indefinite system of size $n+1$.
 
-A third effect is also visible: KKT direct becomes the \emph{slowest} of the three non-cvxpy solvers when shrinkage is applied (0.0124 s vs.\ 0.0041--0.0038 s). Shrinkage is implemented by augmenting the return matrix to $\tilde{X} \in \mathbb{R}^{(T+n)\times n}$, making the explicit assembly of $\tilde{X}^\top\tilde{X}$ more expensive than iterating on the original $X$.
-
-\subsection*{Which solver to use}
-
-The choice between MINRES and CG depends on conditioning. Without shrinkage, MINRES is preferable: it handles the indefinite KKT system directly, requires no constraint elimination, and is more robust to high condition numbers; on real equity data without shrinkage, MINRES needs 214 iterations against CG's 387. With Ledoit-Wolf shrinkage applied, the two methods are competitive; on real equity data CG is marginally faster (0.0038\,s vs.\ 0.0041\,s) because the constraint-eliminated system of size $n-1$ has slightly cheaper iterations than the KKT system of size $n+1$. CG is also the natural choice when $X$ is sparse or when positive definite structure is required for compatibility with SPD preconditioners. For most practical settings (dense returns with LW shrinkage), either method is acceptable and the difference is small.
+A third effect is also visible: KKT direct becomes the \emph{slowest} of the three non-cvxpy solvers when shrinkage is applied (0.0124 s vs.\ 0.0041--0.0038 s). Shrinkage is implemented by augmenting the return matrix to $\tilde{X} \in \mathbb{R}^{(T+n)\times n}$, making the explicit assembly of $\tilde{X}^\top\tilde{X}$ more expensive than iterating on the original $X$. These results are specific to this five-year window; iteration counts depend on the factor structure of equity returns and may differ in other market regimes. In practice: without shrinkage MINRES is preferable (it handles the indefinite system directly and is more robust to high condition numbers); with LW shrinkage the two methods are competitive and either is acceptable for dense returns.
 
 \subsection*{Scaling with problem size}
 
-Figure~\ref{fig:scaling} extends the synthetic results across a range of problem sizes and shrinkage levels. Panel~(a) shows wall-clock time as a function of $n$ (with $T = 2n$ and LW shrinkage throughout). The KKT direct solve scales as $O(n^3)$, dominated by the $n \times n$ linear system, while MINRES and CG grow substantially more slowly, with the gap widening visibly beyond $n \approx 300$.
+Figure~\ref{fig:scaling} extends the synthetic results across a range of problem sizes and shrinkage levels. The left panel shows wall-clock time as a function of $n$ (with $T = 2n$ and LW shrinkage throughout). The KKT direct solve scales as $O(n^3)$, dominated by the $n \times n$ linear system, while MINRES and CG grow substantially more slowly, with the gap widening visibly beyond $n \approx 300$.
 
-Panel~(b) uses the rank-deficient setting $T = 250 < n = 500$, in which $X^\top X$ has at most $T$ non-zero eigenvalues and the unshrunk sample covariance is singular. This regime is practically relevant: asset universes with more instruments than trading days arise when securities with limited common history are pooled, or when a large cross-section is combined with a short lookback window. Without shrinkage the KKT system is singular and the iterative solvers do not converge; every point in the panel has $\alpha > 0$. The preconditioning effect of shrinkage is strongest precisely here: iteration counts fall steeply as $\alpha$ increases from zero, reaching the practical operating point at moderate $\alpha$ values well below unity.
+The right panel uses the rank-deficient setting $T = 250 < n = 500$, in which $X^\top X$ has at most $T$ non-zero eigenvalues and the unshrunk sample covariance is singular. This regime is practically relevant: asset universes with more instruments than trading days arise when securities with limited common history are pooled, or when a large cross-section is combined with a short lookback window. Without shrinkage the KKT system is singular and the iterative solvers do not converge; every point in the panel has $\alpha > 0$. The preconditioning effect of shrinkage is strongest precisely here: iteration counts fall steeply as $\alpha$ increases from zero, reaching the practical operating point at moderate $\alpha$ values well below unity.
 
 \begin{figure}[ht]
 \centering
@@ -316,7 +300,7 @@ Panel~(b) uses the rank-deficient setting $T = 250 < n = 500$, in which $X^\top 
 
 The long-only minimum variance portfolio problem, formulated directly in terms of the returns matrix, is a structured linear algebra problem. Avoiding explicit formation of the sample covariance matrix exposes the KKT system's symmetric indefinite structure and makes Krylov methods directly applicable at scale.
 
-The empirical results, on both synthetic data and 495 S\&P~500 constituents over five years, agree. Without shrinkage, real equity returns produce a far harder system than i.i.d.\ Gaussian data: MINRES needs 214 iterations versus 39, reflecting the dominant market factor that inflates the condition number. Ledoit-Wolf shrinkage \cite{ledoit2004} compresses the spectrum and reduces iteration counts dramatically in both settings: on synthetic data MINRES drops from 39 to 16 iterations and CG from 80 to 26; on the S\&P~500 universe MINRES drops from 214 to 105 and CG from 387 to 117, with the effect more pronounced precisely because the real spectrum is harder to begin with. With shrinkage applied, the Krylov solvers are 350--385$\times$ faster than CVXPY and outperform the direct solve by a factor of three, since augmenting the return matrix makes the direct assembly of $\tilde{X}^\top\tilde{X}$ more expensive than iterating.
+The empirical results, on both synthetic data and 495 S\&P~500 constituents over five years, agree. Without shrinkage, real equity returns produce a far harder system than i.i.d.\ Gaussian data: MINRES needs 214 iterations versus 39, reflecting the dominant market factor that inflates the condition number. Ledoit-Wolf shrinkage \cite{ledoit2004} compresses the spectrum and reduces iteration counts dramatically in both settings: on synthetic data MINRES drops from 39 to 16 iterations and CG from 80 to 26; on the S\&P~500 universe MINRES drops from 214 to 105 and CG from 387 to 117, with the effect more pronounced precisely because the real spectrum is harder to begin with. With shrinkage applied on the S\&P~500 universe, the Krylov solvers are 350--385$\times$ faster than CVXPY (558--644$\times$ on synthetic data) and outperform the direct solve by a factor of three, since augmenting the return matrix makes the direct assembly of $\tilde{X}^\top\tilde{X}$ more expensive than iterating.
 
 The shrinkage estimator of Ledoit and Wolf and the preconditioning theory of Golub and Van Loan \cite{golub2013} address different problems but act on the same object: the eigenvalue spectrum of the system matrix. This connection, which the two literatures do not usually make explicit, points toward richer preconditioners (factor-model or low-rank structured) as a productive direction for future work.
 
