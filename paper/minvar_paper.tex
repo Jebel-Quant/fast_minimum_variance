@@ -63,7 +63,7 @@ Covariance shrinkage, particularly the estimator of Ledoit and Wolf \cite{ledoit
 
 The minimum variance problem is formally equivalent to a quadratic programme, but its natural computational representation is linear algebraic: a structured matrix equation that admits fast, scalable solvers without the overhead of a general-purpose optimisation framework. The resulting implementations are faster, more transparent, and better aligned with the statistical structure of the problem, particularly in large-scale settings where forming the covariance matrix is itself the dominant cost.
 
-The closest related work applies GMRES to the MVP problem when the covariance matrix is singular \cite{bajeux2012}; we avoid forming the covariance matrix altogether and treat the shrinkage--preconditioning duality as central.
+Krylov methods are standard tools in large-scale numerical linear algebra \cite{golub2013} but have not been systematically applied to portfolio optimisation. The closest related work applies GMRES to the MVP problem when the covariance matrix is singular \cite{bajeux2012}; that formulation still assembles $X^\top X$ explicitly and does not consider preconditioning. General-purpose solvers such as Clarabel \cite{clarabel2024} handle the long-only constraint natively but require an explicit covariance matrix and cannot exploit the matrix-free structure of the returns representation. The connection between shrinkage intensity and spectral preconditioning does not, to our knowledge, appear in the existing literature.
 
 Sections~\ref{sec:problem}--\ref{sec:precond} develop the formulation and solvers; Section~\ref{sec:results} reports empirical results on both synthetic and S\&P~500 data.
 
@@ -335,7 +335,6 @@ The empirical results, on both synthetic data and 495 S\&P~500 constituents over
 
 The shrinkage estimator of Ledoit and Wolf and the preconditioning theory of Golub and Van Loan \cite{golub2013} address different problems but act on the same object: the eigenvalue spectrum of the system matrix. This connection, which the two literatures do not usually make explicit, points toward richer preconditioners (factor-model or low-rank structured) as a productive direction for future work.
 
-Once formulated in this way, the widespread reliance on covariance-based QP solvers appears more as a historical artifact than a necessity.
 
 
 \section*{Acknowledgements}

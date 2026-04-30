@@ -6,7 +6,9 @@
 \citation{markowitz1952}
 \citation{paige1975}
 \citation{ledoit2004}
+\citation{golub2013}
 \citation{bajeux2012}
+\citation{clarabel2024}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{Doc-Start}\protected@file@percent }
 \citation{diamond2016}
 \newlabel{sec:problem}{{2}{2}{Problem Formulation}{Doc-Start}{}}
@@ -20,8 +22,8 @@
 \@writefile{toc}{\contentsline {section}{\numberline {4}Krylov Solvers for the Indefinite System}{2}{Doc-Start}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.1}CVXPY Reference Implementation}{2}{section*.1}\protected@file@percent }
 \citation{clarabel2024}
-\citation{paige1975}
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Direct Solve (Baseline)}{3}{lstlisting.2}\protected@file@percent }
+\citation{paige1975}
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.3}MINRES}{4}{lstlisting.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Constraint-Eliminated CG}{4}{lstlisting.4}\protected@file@percent }
 \citation{ledoit2004}
@@ -37,11 +39,11 @@
 \@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt  {cvxpy} within each panel.}}{6}{table.7}\protected@file@percent }
 \newlabel{tab:synthetic}{{1}{6}{Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt {cvxpy} within each panel}{table.7}{}}
 \newlabel{tab:synthetic@cref}{{[table][1][]1}{[1][6][]6}{}{}{}}
-\citation{ledoit2004}
 \@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt  {cvxpy} within each panel.}}{7}{table.9}\protected@file@percent }
 \newlabel{tab:sp500}{{2}{7}{S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt {cvxpy} within each panel}{table.9}{}}
-\newlabel{tab:sp500@cref}{{[table][2][]2}{[1][6][]7}{}{}{}}
+\newlabel{tab:sp500@cref}{{[table][2][]2}{[1][7][]7}{}{}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{7}{figure.11}\protected@file@percent }
+\citation{ledoit2004}
 \citation{golub2013}
 \citation{schmelzer2004}
 \bibstyle{siamplain}
@@ -49,12 +51,12 @@
 \bibcite{bajeux2012}{1}
 \bibcite{diamond2016}{2}
 \bibcite{golub2013}{3}
-\bibcite{clarabel2024}{4}
-\bibcite{ledoit2004}{5}
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases.}}{8}{figure.11}\protected@file@percent }
 \newlabel{fig:scaling}{{1}{8}{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases}{figure.11}{}}
 \newlabel{fig:scaling@cref}{{[figure][1][]1}{[1][7][]8}{}{}{}}
 \@writefile{toc}{\contentsline {section}{References}{8}{section*.12}\protected@file@percent }
+\bibcite{clarabel2024}{4}
+\bibcite{ledoit2004}{5}
 \bibcite{ledoit2020}{6}
 \bibcite{markowitz1952}{7}
 \bibcite{paige1975}{8}
