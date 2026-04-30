@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from fast_minimum_variance.cvx import solve_cvxpy
-from fast_minimum_variance.kkt import minvar_kkt
+from fast_minimum_variance.kkt import solve_kkt
 
 
 class TestMinvarCvxpy:
@@ -27,7 +27,7 @@ class TestMinvarCvxpy:
 
     def test_close_to_kkt(self, X_small):  # noqa: N803
         """CVXPY solution is close to the exact KKT solution."""
-        w_kkt = minvar_kkt(X_small)
+        w_kkt = solve_kkt(X_small)
         w_cvxpy = solve_cvxpy(X_small)
         np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
 
