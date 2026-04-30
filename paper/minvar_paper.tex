@@ -39,7 +39,7 @@
 \begin{abstract}
 The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix and passing it to a generic quadratic programming solver. This standard approach obscures the structure of the problem and incurs unnecessary computational and memory costs.
 
-We show that the problem is more naturally expressed as a matrix-free least-squares problem on the returns matrix itself. This reformulation eliminates the need to form the covariance matrix and exposes a symmetric indefinite KKT system that can be solved efficiently using Krylov subspace methods. In particular, MINRES applied in a matrix-free fashion outperforms direct solves and generic optimisation routines, with speedups that grow with problem size.
+We show that the problem is more naturally expressed as a matrix-free least-squares problem on the returns matrix itself. This reformulation eliminates the need to form the covariance matrix and exposes a symmetric indefinite KKT system that can be solved efficiently using Krylov subspace methods. Both MINRES and a constraint-eliminated conjugate gradient method outperform direct solves and generic optimisation routines by large factors. On real equity returns, where factor structure inflates the condition number, Ledoit-Wolf shrinkage reduces iteration counts substantially; with shrinkage applied the two Krylov methods are competitive, with CG marginally faster.
 
 A central insight of the paper is that covariance shrinkage, as introduced by Ledoit and Wolf, acts as a spectral preconditioner for the underlying linear system. This establishes a direct link between statistical estimation and numerical linear algebra: both operate by reshaping the eigenvalue spectrum of the same operator. Empirically, shrinkage significantly reduces Krylov iteration counts, providing computational gains alongside its statistical benefits.
 
@@ -224,7 +224,7 @@ w     = w0 + P_apply(v)                # feasible: 1^T w = 1
 
 \subsection{Which solver to use}
 
-MINRES is the recommended default: it operates directly on the symmetric indefinite KKT system, requires no constraint elimination, and converges in fewer iterations than CG across all settings tested. The constraint-eliminated CG is mathematically cleaner — it solves a symmetric positive definite system of size $n-1$, for which standard CG theory applies without qualification — and is preferable when the returns matrix $X$ is sparse (where applying $X$ and $X^\top$ is cheap but materialising $X^\top X$ is not), or when a positive definite structure is required for compatibility with preconditioners designed for SPD systems. For dense problems with Ledoit-Wolf shrinkage, MINRES is faster and simpler to apply.
+The choice between MINRES and CG depends on conditioning. Without shrinkage, MINRES is preferable: it handles the indefinite KKT system directly, requires no constraint elimination, and is more robust to high condition numbers — on real equity data without shrinkage, MINRES needs 214 iterations against CG's 387. With Ledoit-Wolf shrinkage applied, the two methods are competitive; on real equity data CG is marginally faster (0.0038\,s vs.\ 0.0041\,s) because the constraint-eliminated system of size $n-1$ has slightly cheaper iterations than the KKT system of size $n+1$. CG is also the natural choice when $X$ is sparse or when positive definite structure is required for compatibility with SPD preconditioners. For most practical settings — dense returns with LW shrinkage — either method is acceptable and the difference is small.
 
 \section{Ledoit-Wolf Shrinkage}
 \label{sec:precond}
@@ -255,21 +255,21 @@ Table~\ref{tab:synthetic} reports timings and iteration counts for all four solv
 
 \begin{table}[ht]
 \centering
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \toprule
-Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\
+Method & Time (s) & Iterations & Speedup \\
 \midrule
-\multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 0.9924 & 6.7192 &     -- &   1.0x \\
-KKT direct                     & 0.9931 & 0.0456 &     -- & 147.4x \\
-MINRES                         & 0.9929 & 0.0114 &     39 & 590.1x \\
-CG (constraint-eliminated)     & 0.9931 & 0.0149 &     80 & 451.7x \\
+\multicolumn{4}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)               & 6.7192 &     -- &   1.0x \\
+KKT direct                     & 0.0456 &     -- & 147.4x \\
+MINRES                         & 0.0114 &     39 & 590.1x \\
+CG (constraint-eliminated)     & 0.0149 &     80 & 451.7x \\
 \midrule
-\multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 1.0582 & 4.6214 &     -- &   1.0x \\
-KKT direct                     & 1.0582 & 0.0473 &     -- &  97.6x \\
-MINRES                         & 1.0583 & 0.0072 &     16 & 643.9x \\
-CG (constraint-eliminated)     & 1.0582 & 0.0083 &     26 & 558.3x \\
+\multicolumn{4}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)               & 4.6214 &     -- &   1.0x \\
+KKT direct                     & 0.0473 &     -- &  97.6x \\
+MINRES                         & 0.0072 &     16 & 643.9x \\
+CG (constraint-eliminated)     & 0.0083 &     26 & 558.3x \\
 \bottomrule
 \end{tabular}
 \caption{Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt{cvxpy} within each panel.}
@@ -284,21 +284,21 @@ Table~\ref{tab:sp500} repeats the benchmark on daily log-returns for 495 S\&P~50
 
 \begin{table}[ht]
 \centering
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \toprule
-Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\
+Method & Time (s) & Iterations & Speedup \\
 \midrule
-\multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 0.2241 & 1.5672 &     -- &   1.0x \\
-KKT direct                     & 0.2246 & 0.0058 &     -- & 269.1x \\
-MINRES                         & 0.2245 & 0.0059 &    214 & 264.5x \\
-CG (constraint-eliminated)     & 0.2246 & 0.0090 &    387 & 175.0x \\
+\multicolumn{4}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)               & 1.5672 &     -- &   1.0x \\
+KKT direct                     & 0.0058 &     -- & 269.1x \\
+MINRES                         & 0.0059 &    214 & 264.5x \\
+CG (constraint-eliminated)     & 0.0090 &    387 & 175.0x \\
 \midrule
-\multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy (Clarabel)               & 0.2281 & 1.4514 &     -- &   1.0x \\
-KKT direct                     & 0.2280 & 0.0124 &     -- & 117.3x \\
-MINRES                         & 0.2280 & 0.0041 &    105 & 354.4x \\
-CG (constraint-eliminated)     & 0.2280 & 0.0038 &    117 & 384.8x \\
+\multicolumn{4}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)               & 1.4514 &     -- &   1.0x \\
+KKT direct                     & 0.0124 &     -- & 117.3x \\
+MINRES                         & 0.0041 &    105 & 354.4x \\
+CG (constraint-eliminated)     & 0.0038 &    117 & 384.8x \\
 \bottomrule
 \end{tabular}
 \caption{S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt{cvxpy} within each panel.}
