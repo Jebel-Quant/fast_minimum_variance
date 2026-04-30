@@ -323,35 +323,7 @@ The authors thank Martin~H.~Gutknecht (ETH~Z\"{u}rich) for supervising the 2004 
 \appendix
 \section{Constraint-Eliminated CG: Implementation}\label{app:cg}
 
-\begin{lstlisting}[style=python]
-from scipy.sparse.linalg import LinearOperator, cg
-
-# Implicit null-space basis via Householder reflector
-sqrt_n = np.sqrt(float(n))
-beta   = 1.0 / (n + sqrt_n)
-v0     = 1.0 + sqrt_n
-
-def P_apply(y):                     # P y  (n-1 -> n)
-    s = y.sum()
-    out = np.empty(n);
-    out[0] = -beta * v0 * s;
-    out[1:] = y - beta * s
-    return out
-
-def PT_apply(u):                    # P^T u  (n -> n-1)
-    s = v0 * u[0] + u[1:].sum()
-    return u[1:] - beta * s
-
-w0  = np.ones(n) / n          # particular solution
-rhs = -PT_apply(R.T @ (R @ w0))
-
-def matvec(y):
-    return PT_apply(R.T @ (R @ P_apply(y)))
-
-A_red = LinearOperator(shape=(n-1, n-1), matvec=matvec)
-v, _  = cg(A_red, rhs)
-w     = w0 + P_apply(v)                # feasible: 1^T w = 1
-\end{lstlisting}
+The complete implementation of the constraint-eliminated CG solver, including the implicit Householder reflector for $P$ and $P^\top$, is available in the companion package \cite{fast_minimum_variance} as \texttt{fast\_minimum\_variance.krylov.minvar\_cg}.
 
 \bibliographystyle{siamplain}
 \bibliography{refs}
