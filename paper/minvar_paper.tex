@@ -1,17 +1,11 @@
-\documentclass[11pt, a4paper]{article}
+\documentclass{siamart}
 
 \usepackage{amsmath, amssymb}
 \usepackage{booktabs}
-\usepackage{hyperref}
-\usepackage{geometry}
 \usepackage{microtype}
-\usepackage{parskip}
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{graphicx}
-
-\geometry{margin=2.5cm}
-\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
 
 \lstdefinestyle{python}{
   language=Python,
@@ -28,9 +22,20 @@
   aboveskip=6pt,
 }
 
-\title{\textbf{Solving the Minimum Variance Portfolio Fast:\\A Krylov Perspective}}
-\author{Thomas Schmelzer\thanks{The first author's 2004 diploma thesis at the University of Kaiserslautern \cite{schmelzer2004}, supervised by Martin~H.~Gutknecht (ETH~Z\"{u}rich), developed block extensions of MINRES and SYMMLQ. The present work revisits those same methods in a new setting twenty-two years later.} \and Michael Wolf}
-\date{}
+\title{Solving the Minimum Variance Portfolio Fast: A Krylov Perspective}
+
+\author{Thomas Schmelzer%
+  \thanks{Jebel Quant (\email{thomas.s@yukkalab.com}).
+    The first author's 2004 diploma thesis at the University of Kaiserslautern
+    \cite{schmelzer2004}, supervised by Martin~H.~Gutknecht (ETH~Z\"{u}rich),
+    developed block extensions of MINRES and SYMMLQ. The present work revisits
+    those same methods in a new setting twenty-two years later.}
+  \and
+  Michael Wolf%
+  \thanks{Department of Economics, University of Zurich.}
+}
+
+\headers{Solving the Minimum Variance Portfolio Fast}{T.~Schmelzer and M.~Wolf}
 
 \begin{document}
 
@@ -213,7 +218,7 @@ def PT_apply(u):                    # P^T u  (n -> n-1)
     s = v0 * u[0] + u[1:].sum()
     return u[1:] - beta * s
 
-w0  = np.ones(n) / n                # particular solution: 1^T w0 = 1
+w0  = np.ones(n) / n          # particular solution
 rhs = -PT_apply(R.T @ (R @ w0))
 
 def matvec(y):
@@ -335,62 +340,11 @@ The paper also draws a connection that the two literatures involved — numerica
 Once formulated in this way, the widespread reliance on covariance-based QP solvers appears more as a historical artifact than a necessity.
 
 
-\begin{thebibliography}{9}
-
-\bibitem{bajeux2012}
-Bajeux-Besnainou, I., Bandara, W. and Bura, E. (2012).
-A Krylov subspace approach to large portfolio optimization.
-\textit{Journal of Economic Dynamics and Control}, 36(11), 1688--1699.
-
-\bibitem{clarabel2024}
-Goulart, P.\,J. and Chen, Y. (2024).
-Clarabel: An interior-point solver for conic optimisation problems with quadratic objectives.
-\textit{INFORMS Journal on Computing}, 36(2), 481--499.
-
-\bibitem{diamond2016}
-Diamond, S. and Boyd, S. (2016).
-CVXPY: A Python-embedded modeling language for convex optimization.
-\textit{Journal of Machine Learning Research}, 17(83), 1--5.
-
-\bibitem{golub2013}
-Golub, G.\,H. and Van Loan, C.\,F. (2013).
-\textit{Matrix Computations} (4th ed.).
-Johns Hopkins University Press.
-
-\bibitem{ledoit2004}
-Ledoit, O. and Wolf, M. (2004).
-A well-conditioned estimator for large-dimensional covariance matrices.
-\textit{Journal of Multivariate Analysis}, 88(2), 365--411.
-
-\bibitem{ledoit2020}
-Ledoit, O. and Wolf, M. (2020).
-Analytical nonlinear shrinkage of large-dimensional covariance matrices.
-\textit{Annals of Statistics}, 48(5), 3043--3065.
-
-\bibitem{markowitz1952}
-Markowitz, H. (1952).
-Portfolio selection.
-\textit{Journal of Finance}, 7(1), 77--91.
-
-\bibitem{paige1975}
-Paige, C.\,C. and Saunders, M.\,A. (1975).
-Solution of sparse indefinite systems of linear equations.
-\textit{SIAM Journal on Numerical Analysis}, 12(4), 617--629.
-
-\bibitem{schmelzer2004}
-Schmelzer, T. (2004).
-Block Krylov methods for Hermitian linear systems.
-Diploma thesis, Department of Mathematics, University of Kaiserslautern.
-
-\bibitem{fast_minimum_variance}
-Schmelzer, T. (2026).
-\textit{fast-minimum-variance: Solving Minimum Variance Portfolios Fast}.
-\url{https://github.com/Jebel-Quant/fast_minimum_variance}. MIT License.
-
-\end{thebibliography}
-
 \section*{Acknowledgements}
 
 The authors thank Martin~H.~Gutknecht (ETH~Z\"{u}rich) for supervising the 2004 diploma thesis \cite{schmelzer2004} on block MINRES and SYMMLQ that planted the seeds of the present work.
+
+\bibliographystyle{siamplain}
+\bibliography{refs}
 
 \end{document}
