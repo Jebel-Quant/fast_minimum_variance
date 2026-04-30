@@ -40,6 +40,8 @@ paper/*.log
 paper/*.out
 paper/*.thm
 paper/*.toc
+paper/*.pdf
+paper/*.tex
 
 # temp file used by Junie
 .output.txt
