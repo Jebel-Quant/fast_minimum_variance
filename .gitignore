@@ -32,6 +32,8 @@ docs/paper/*.log
 docs/paper/*.out
 docs/paper/*.toc
 
+paper/minvar_paper.*
+
 # temp file used by Junie
 .output.txt
 
