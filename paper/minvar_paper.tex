@@ -126,6 +126,8 @@ The formulation is transparent and correct, and CVXPY handles the long-only cons
 
 All four methods in this paper (CVXPY, KKT direct, MINRES, and CG) solve the same optimisation problem and produce identical portfolio weights up to numerical tolerance. The comparison is purely computational: the question is not which method finds a better portfolio, but which finds the same portfolio fastest.
 
+The speedup figures in Tables~\ref{tab:synthetic} and~\ref{tab:sp500} should be read with this in mind. CVXPY and Clarabel are general-purpose tools: the same code handles additional convex constraints --- sector limits, turnover bounds, factor exposure constraints --- without modification. The Krylov methods exploit the specific structure of the pure long-only minimum variance problem and would require substantial rework to accommodate constraints beyond the budget and non-negativity requirements. The 350--385$\times$ speedup therefore conflates two effects: genuine algorithmic efficiency from exploiting problem structure, and the overhead of a framework designed for a far broader problem class. For the standard long-only constraint the full speedup is available; practitioners requiring richer constraint sets face a narrower tradeoff and may find a specialised QP solver a more appropriate baseline.
+
 \subsection{Direct Solve (Baseline)}
 
 For small $n$, \texttt{numpy.linalg.solve} applied to the explicit KKT matrix is fast and exact. It requires forming $X^\top X$ (an $O(n^2 T)$ operation), but for $n \ll T$ this is not the bottleneck.
