@@ -115,7 +115,9 @@ problem.solve(solver=cp.CLARABEL)
 weights = w.value
 \end{lstlisting}
 
-The formulation is transparent and correct, and CVXPY handles the long-only constraint natively. We use the Clarabel interior-point solver \cite{clarabel2024}, which dispatches the problem as a second-order cone programme. Its cost is substantial: interior-point methods require $O(n^3)$ work per iteration, and the overhead of problem construction and solver communication adds further latency. At $n = 1000$ this amounts to roughly 5 seconds (Table~1), making CVXPY unsuitable for production use but ideal as a ground-truth reference.
+The formulation is transparent and correct, and CVXPY handles the long-only constraint natively. We use the Clarabel interior-point solver \cite{clarabel2024}, which dispatches the problem as a second-order cone programme. Its cost is substantial: interior-point methods require $O(n^3)$ work per iteration, and the overhead of problem construction and solver communication adds further latency. At $n = 1000$ this amounts to roughly 5 seconds (Table~\ref{tab:synthetic}), making CVXPY unsuitable for production use but ideal as a ground-truth reference.
+
+All four methods in this paper — CVXPY, KKT direct, MINRES, and CG — solve the same optimisation problem and produce identical portfolio weights up to numerical tolerance. The comparison is purely computational: the question is not which method finds a better portfolio, but which finds the same portfolio fastest.
 
 \subsection{Direct Solve (Baseline)}
 
