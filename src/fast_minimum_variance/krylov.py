@@ -1,47 +1,61 @@
-"""Krylov subspace solvers for the minimum variance portfolio."""
+"""Krylov subspace solvers for the minimum variance and Markowitz portfolio."""
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, minres
 
 
-def minvar_minres(R, c=1.0, gamma=0.0):  # noqa: N803
-    """Solve the minimum variance portfolio via MINRES with active-set method.
+def solve_minres(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None, c=1.0, gamma=0.0):  # noqa: N803
+    """Solve the general mean-variance portfolio via MINRES with active-set method.
 
-    Applies the active-set method, dropping assets with negative weights, and
-    solves the KKT saddle-point system at each iteration using MINRES. The KKT
-    matrix is applied as a LinearOperator — no explicit matrix is ever formed.
-    The matvec for x = [v; mu] is::
+    Applies the active-set method for the long-only constraint, dropping assets
+    with negative weights and resolving.  At each outer iteration the KKT
+    saddle-point system for the active assets
 
-        out[:n_a] = 2 (c R^T(Rv) + gamma v) + mu * 1
-        out[n_a]  = 1^T v
+        [ 2(c X_a^T X_a + gamma I)   A_a ] [ w_a ]   [ rho * mu_a ]
+        [ A_a^T                       0   ] [ λ   ] = [ b          ]
 
-    With the defaults ``c=1, gamma=0`` this solves the standard sample-covariance
-    problem. To apply dimension-based Ledoit-Wolf shrinkage without materialising
-    a stacked return matrix, compute::
+    is solved matrix-free via MINRES, where ``X_a = X[:, active]`` and
+    ``A_a = A[active, :]``.  No explicit matrix is ever formed.
 
-        T, N   = R.shape
-        frob_sq = (R * R).sum()
-        alpha  = N / (N + T)          # shrinkage intensity
-        c      = 1.0 - alpha          # = T / (N + T)
-        gamma  = frob_sq / (N + T)    # diagonal regularisation  (= alpha * frob_sq / N)
+    With the defaults (``A = ones``, ``b = [1]``, ``C = -I``, ``d = 0``) this
+    recovers the long-only minimum variance solver of the companion paper.
+    The ``C`` and ``d`` parameters are accepted for interface symmetry; the
+    active-set loop is optimised for the default long-only constraint.
 
-    and call ``minvar_minres(R, c=c, gamma=gamma)``.
+    To apply Ledoit-Wolf shrinkage without materialising a stacked return
+    matrix, compute::
+
+        T, N    = X.shape
+        frob_sq = (X * X).sum()
+        alpha   = N / (N + T)
+        c       = 1.0 - alpha
+        gamma   = frob_sq / (N + T)
+
+    and pass ``c`` and ``gamma`` explicitly.
 
     Args:
-        R: Return matrix of shape (T, N).
-        c: Scaling factor for R^T R (default 1.0).
-        gamma: Diagonal regularisation added to the (1,1) block (default 0.0).
+        X:     Return matrix of shape (T, N).
+        A:     Equality constraint matrix of shape (N, m).
+               Defaults to ones((N, 1)) (budget constraint).
+        b:     Equality RHS of shape (m,). Defaults to [1.0].
+        C:     Inequality constraint matrix of shape (N, p) for C.T @ w <= d.
+               Defaults to -eye(N) (long-only constraint).
+        d:     Inequality RHS of shape (p,). Defaults to zeros(N).
+        rho:   Risk-aversion parameter (>= 0). Default 0.
+        mu:    Expected return vector of shape (N,). Required when rho > 0.
+        c:     Scaling factor for X^T X (default 1.0).
+        gamma: Diagonal regularisation added to the (N, N) block (default 0.0).
 
     Returns:
-        Tuple (w, n_iters) where w is the weight vector of shape (N,) summing
-        to 1 with all non-negative entries and n_iters is the total number of
-        MINRES iterations across all active-set steps.
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+        n_iters is the total number of MINRES iterations across all active-set
+        steps.
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
-        >>> R = make_returns(100, 5, seed=0)
-        >>> w, iters = minvar_minres(R)
+        >>> X = make_returns(100, 5, seed=0)
+        >>> w, iters = solve_minres(X)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 6))
@@ -51,71 +65,97 @@ def minvar_minres(R, c=1.0, gamma=0.0):  # noqa: N803
         >>> iters > 0
         True
     """
-    n = R.shape[1]
+    n = X.shape[1]
+
+    if A is None:
+        A = np.ones((n, 1))  # noqa: N806
+    if b is None:
+        b = np.ones(1)
+    if C is None:
+        C = -np.eye(n)  # noqa: N806
+    if d is None:
+        d = np.zeros(n)
+
+    m = A.shape[1]
     active = np.ones(n, dtype=bool)
     total_iters = 0
-    while True:
-        r_a = R[:, active]
-        n_a = r_a.shape[1]
 
-        def _matvec(x, ra=r_a, na=n_a, cc=c, gam=gamma):
-            """Apply KKT operator [[2(c R^TR + gamma I), 1],[1^T, 0]] to x."""
-            out = np.empty(na + 1)
-            out[:na] = 2.0 * (cc * (ra.T @ (ra @ x[:na])) + gam * x[:na]) + x[na]
-            out[na] = x[:na].sum()
+    while True:
+        x_a = X[:, active]
+        a_a = A[active, :]
+        n_a = int(active.sum())
+
+        def _matvec(x, ra=x_a, aa=a_a, na=n_a, ma=m, cc=c, gam=gamma):
+            """Apply the KKT saddle-point operator to vector x."""
+            out = np.empty(na + ma)
+            out[:na] = 2.0 * (cc * (ra.T @ (ra @ x[:na])) + gam * x[:na]) + aa @ x[na:]
+            out[na:] = aa.T @ x[:na]
             return out
 
-        b = np.zeros(n_a + 1)
-        b[n_a] = 1.0
-        kkt = LinearOperator(shape=(n_a + 1, n_a + 1), matvec=_matvec)  # type: ignore[call-arg]
+        rhs = np.zeros(n_a + m)
+        if rho != 0.0 and mu is not None:
+            rhs[:n_a] = rho * mu[active]
+        rhs[n_a:] = b
+
+        kkt = LinearOperator(shape=(n_a + m, n_a + m), matvec=_matvec)  # type: ignore[call-arg]
         iters = [0]
-        sol, _ = minres(kkt, b, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
+        sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
         total_iters += iters[0]
         w_a = sol[:n_a]
+
         if np.all(w_a >= -1e-10):
             break
         active[np.where(active)[0][w_a < 0]] = False
+
     w = np.zeros(n)
     w[active] = np.maximum(w_a, 0)
     w /= w.sum()
     return w, total_iters
 
 
-def minvar_cg(R, c=1.0, gamma=0.0):  # noqa: N803
-    """Solve the minimum variance portfolio via CG in the constraint-reduced space.
+def solve_cg(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None, c=1.0, gamma=0.0):  # noqa: N803
+    """Solve the general mean-variance portfolio via CG in the constraint-reduced space.
 
-    Projects the problem onto the constraint-satisfying subspace using an
-    implicit Householder reflector as the null-space basis of the budget
-    constraint, then applies CG to the reduced positive-definite system
-    ``P^T (c R^T R + gamma I) P``. An active-set loop drops assets with
-    negative weights until feasibility is reached.
+    At each active-set iteration the equality-constrained subproblem for the
+    active assets is solved by projecting onto the null space of ``A_a^T``
+    via QR factorisation of ``A_a = A[active, :]``, then applying CG to the
+    reduced positive-definite system
 
-    The Householder vector ``v = [1+sqrt(n_a), 1, ..., 1]`` with
-    ``beta = 1/(n_a + sqrt(n_a))`` defines the reflector H = I - beta*v*v^T.
-    Its last n_a-1 columns span the null space of 1^T and form the implicit
-    basis P. Applying P or P^T costs O(n_a) instead of O(n_a^2) for the
-    explicit QR matrix, and no O(n_a^2) matrix is ever formed. Because P has
-    orthonormal columns, ``P^T (gamma I) P = gamma I``, so the gamma term
-    adds only a scalar shift to each matvec.
+        (c (X_a P)^T (X_a P) + gamma I) v = -P^T (c X_a^T X_a w0 + gamma w0 - (rho/2) mu_a)
 
-    With the defaults ``c=1, gamma=0`` this solves the standard sample-covariance
-    problem. See ``minvar_minres`` for the Ledoit-Wolf shrinkage recipe.
+    where ``P`` is an orthonormal null-space basis for ``A_a^T`` and ``w0`` is
+    the minimum-norm particular solution of ``A_a^T w = b``.  The active
+    asset weights are recovered as ``w_a = w0 + P v``.
+
+    For the default ``A = ones`` this QR approach is equivalent to the
+    Householder trick used in the companion paper; general ``A`` is handled
+    identically.  The ``C`` and ``d`` parameters are accepted for interface
+    symmetry; the active-set loop is optimised for the default long-only
+    constraint.  See ``minvar_minres`` for the Ledoit-Wolf shrinkage recipe.
 
     Args:
-        R: Return matrix of shape (T, N).
-        c: Scaling factor for R^T R (default 1.0).
+        X:     Return matrix of shape (T, N).
+        A:     Equality constraint matrix of shape (N, m).
+               Defaults to ones((N, 1)) (budget constraint).
+        b:     Equality RHS of shape (m,). Defaults to [1.0].
+        C:     Inequality constraint matrix of shape (N, p) for C.T @ w <= d.
+               Defaults to -eye(N) (long-only constraint).
+        d:     Inequality RHS of shape (p,). Defaults to zeros(N).
+        rho:   Risk-aversion parameter (>= 0). Default 0.
+        mu:    Expected return vector of shape (N,). Required when rho > 0.
+        c:     Scaling factor for X^T X (default 1.0).
         gamma: Diagonal regularisation added to the objective (default 0.0).
 
     Returns:
-        Tuple (w, n_iters) where w is the weight vector of shape (N,) summing
-        to 1 with all non-negative entries and n_iters is the total number of
-        CG iterations across all active-set steps.
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+        n_iters is the total number of CG iterations across all active-set
+        steps.
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
-        >>> R = make_returns(100, 5, seed=0)
-        >>> w, iters = minvar_cg(R)
+        >>> X = make_returns(100, 5, seed=0)
+        >>> w, iters = solve_cg(X)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 6))
@@ -125,58 +165,58 @@ def minvar_cg(R, c=1.0, gamma=0.0):  # noqa: N803
         >>> iters > 0
         True
     """
-    n = R.shape[1]
+    n = X.shape[1]
+
+    if A is None:
+        A = np.ones((n, 1))  # noqa: N806
+    if b is None:
+        b = np.ones(1)
+    if C is None:
+        C = -np.eye(n)  # noqa: N806
+    if d is None:
+        d = np.zeros(n)
+
+    m = A.shape[1]
     active = np.ones(n, dtype=bool)
     total_iters = 0
-    while True:
-        r_a = R[:, active]
-        n_a = r_a.shape[1]
 
-        if n_a == 1:
-            w_a = np.array([1.0])
+    while True:
+        x_a = X[:, active]
+        a_a = A[active, :]
+        n_a = int(active.sum())
+        n_free = n_a - m
+
+        if n_free == 0:
+            w_a = np.linalg.lstsq(a_a.T, b, rcond=None)[0]
             break
 
-        # Implicit Householder basis for null(1^T): v = [1+sqrt(n_a), 1,...,1]
-        sqrt_na = np.sqrt(float(n_a))
-        beta = 1.0 / (n_a + sqrt_na)
-        v0 = 1.0 + sqrt_na
+        # Null-space basis P (n_a x n_free) and particular solution w0 via QR
+        Q, _ = np.linalg.qr(a_a, mode="complete")  # noqa: N806
+        P = Q[:, m:]  # noqa: N806
+        w0 = np.linalg.lstsq(a_a.T, b, rcond=None)[0]
 
-        def _p_apply(y, b=beta, vv=v0, na=n_a):
-            """Apply implicit P (n_a x n_a-1) to y: O(n_a)."""
-            s = y.sum()
-            out = np.empty(na)
-            out[0] = -b * vv * s
-            out[1:] = y - (b * s)
-            return out
+        # Half-gradient of scaled objective at w0; P^T w0 = 0 so gamma term vanishes
+        g0 = c * (x_a.T @ (x_a @ w0)) + gamma * w0
+        if rho != 0.0 and mu is not None:
+            g0 = g0 - (rho / 2.0) * mu[active]
 
-        def _pt_apply(u, b=beta, vv=v0):
-            """Apply implicit P^T (n_a-1 x n_a) to u: O(n_a)."""
-            s = vv * u[0] + u[1:].sum()
-            return u[1:] - (b * s)
+        rhs = -(P.T @ g0)
 
-        w0 = np.ones(n_a) / n_a
-        r0 = r_a @ w0
+        def _matvec(y, ra=x_a, pp=P, cc=c, gam=gamma):
+            """Apply the reduced positive-definite operator to vector y."""
+            pv = pp @ y
+            return cc * (pp.T @ (ra.T @ (ra @ pv))) + gam * y
 
-        def _matvec(y, ra=r_a, b=beta, vv=v0, na=n_a, cc=c, gam=gamma):
-            """Apply P^T (c R^T R + gamma I) P to y via implicit Householder."""
-            s = y.sum()
-            pv = np.empty(na)
-            pv[0] = -b * vv * s
-            pv[1:] = y - (b * s)
-            rpv = cc * (ra.T @ (ra @ pv)) + gam * pv
-            sv = vv * rpv[0] + rpv[1:].sum()
-            return rpv[1:] - (b * sv)
-
-        g0 = c * (r_a.T @ r0) + gamma * w0
-        rhs = -_pt_apply(g0)
-        op = LinearOperator(shape=(n_a - 1, n_a - 1), matvec=_matvec)  # type: ignore[call-arg]
+        op = LinearOperator(shape=(n_free, n_free), matvec=_matvec)  # type: ignore[call-arg]
         iters = [0]
         sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))  # noqa: B023
         total_iters += iters[0]
-        w_a = w0 + _p_apply(sol)
+        w_a = w0 + P @ sol
+
         if np.all(w_a >= -1e-10):
             break
         active[np.where(active)[0][w_a < 0]] = False
+
     w = np.zeros(n)
     w[active] = np.maximum(w_a, 0)
     w /= w.sum()

@@ -4,7 +4,7 @@ import cvxpy as cp
 import numpy as np
 
 
-def minvar_cvxpy(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N803
+def solve_cvxpy(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N803
     """Solve the general mean-variance portfolio via CVXPY.
 
     Solves::
@@ -38,7 +38,7 @@ def minvar_cvxpy(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: 
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
         >>> X = make_returns(100, 5, seed=0)
-        >>> w = minvar_cvxpy(X)
+        >>> w = solve_cvxpy(X)
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 6))
