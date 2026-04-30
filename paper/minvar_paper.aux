@@ -29,10 +29,14 @@
 \newlabel{sec:precond}{{5}{6}{Ledoit-Wolf Shrinkage}{section.5}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {6}Numerical Results}{6}{section.6}\protected@file@percent }
 \newlabel{sec:results}{{6}{6}{Numerical Results}{section.6}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Results on 1000 assets, 2000 trading days. Speedup relative to \texttt  {cvxpy} within each panel.}}{7}{table.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases.}}{7}{figure.1}\protected@file@percent }
-\newlabel{fig:scaling}{{1}{7}{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases}{figure.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt  {cvxpy} within each panel.}}{7}{table.1}\protected@file@percent }
+\newlabel{tab:synthetic}{{1}{7}{Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt {cvxpy} within each panel}{table.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt  {cvxpy} within each panel.}}{7}{table.2}\protected@file@percent }
+\newlabel{tab:sp500}{{2}{7}{S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt {cvxpy} within each panel}{table.2}{}}
 \citation{ledoit2004}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases.}}{8}{figure.1}\protected@file@percent }
+\newlabel{fig:scaling}{{1}{8}{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa $ decreases monotonically as $\alpha $ increases}{figure.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{8}{section.7}\protected@file@percent }
 \citation{golub2013}
 \bibcite{bajeux2012}{1}
 \bibcite{clarabel2024}{2}
@@ -45,5 +49,4 @@
 \bibcite{schmelzer2004}{9}
 \bibcite{fast_minimum_variance}{10}
 \citation{schmelzer2004}
-\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{8}{section.7}\protected@file@percent }
 \gdef \@abspage@last{9}

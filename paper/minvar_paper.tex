@@ -247,37 +247,75 @@ This observation opens a richer design space. The identity shrinkage target $\al
 
 \section{Numerical Results}\label{sec:results}
 
-Table~1 reports timings and iteration counts for all four solvers on a synthetic problem with $n = 1000$ assets and $T = 2000$ daily returns, run both without and with Ledoit-Wolf shrinkage. All implementations are available in the companion package \cite{fast_minimum_variance}.
+We present two sets of experiments: a synthetic benchmark designed to isolate the effect of problem size and conditioning, and a real-data experiment on the S\&P~500. All implementations are available in the companion package \cite{fast_minimum_variance}.
 
-\begin{table}[h]
+\subsection*{Synthetic benchmark}
+
+Table~\ref{tab:synthetic} reports timings and iteration counts for all four solvers on a problem with $n = 1000$ assets and $T = 2000$ i.i.d.\ Gaussian returns, run without and with Ledoit-Wolf shrinkage.
+
+\begin{table}[ht]
 \centering
 \begin{tabular}{lcccc}
 \toprule
 Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\
 \midrule
 \multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy                          & 0.9924 & 6.7192 &     -- & 1.0x \\
+cvxpy (Clarabel)               & 0.9924 & 6.7192 &     -- &   1.0x \\
 KKT direct                     & 0.9931 & 0.0456 &     -- & 147.4x \\
 MINRES                         & 0.9929 & 0.0114 &     39 & 590.1x \\
 CG (constraint-eliminated)     & 0.9931 & 0.0149 &     80 & 451.7x \\
 \midrule
 \multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
-cvxpy                          & 1.0582 & 4.6214 &     -- & 1.0x \\
-KKT direct                     & 1.0582 & 0.0473 &     -- & 97.6x \\
+cvxpy (Clarabel)               & 1.0582 & 4.6214 &     -- &   1.0x \\
+KKT direct                     & 1.0582 & 0.0473 &     -- &  97.6x \\
 MINRES                         & 1.0583 & 0.0072 &     16 & 643.9x \\
 CG (constraint-eliminated)     & 1.0582 & 0.0083 &     26 & 558.3x \\
 \bottomrule
 \end{tabular}
-\caption{Results on 1000 assets, 2000 trading days. Speedup relative to \texttt{cvxpy} within each panel.}
+\caption{Synthetic benchmark: 1000 assets, 2000 i.i.d.\ Gaussian returns. Speedup relative to \texttt{cvxpy} within each panel.}
+\label{tab:synthetic}
 \end{table}
 
-The impact of Ledoit-Wolf shrinkage on the Krylov solvers is immediate: MINRES iterations drop from 39 to 16 and CG from 80 to 26, reflecting the compressed eigenvalue spectrum of the regularised system. The KKT direct solve is unaffected — it does not iterate — and its runtime stays flat across both panels because forming $X^\top X$ dominates regardless of conditioning.
+On synthetic data, LW shrinkage compresses the eigenvalue spectrum and reduces iteration counts dramatically: MINRES drops from 39 to 16 iterations and CG from 80 to 26. MINRES is the fastest solver in both settings and is roughly $4\times$ faster than KKT direct because it avoids the $O(n^2 T)$ cost of assembling $X^\top X$ explicitly.
 
-MINRES is the fastest solver in both settings. At $n = 1000$ it is roughly 4$\times$ faster than KKT direct because it avoids the $O(n^2 T)$ cost of assembling $X^\top X$ explicitly. The constraint-eliminated CG is close behind and is the natural choice when $X$ is sparse or when memory for $X^\top X$ is unavailable.
+\subsection*{S\&P~500 real-data experiment}
 
-Figure~\ref{fig:scaling} extends these results across problem sizes and conditioning regimes. Panel~(a) shows wall-clock time as a function of $n$ (with $T = 2n$ and Ledoit-Wolf shrinkage throughout). The KKT direct solve scales as $O(n^3)$ — dominated by the $n \times n$ linear system — while MINRES and CG grow substantially more slowly, with the gap widening visibly beyond $n \approx 300$. Panel~(b) fixes $n = T = 800$ (a mildly ill-conditioned regime with $n/T = 1$) and varies the shrinkage intensity $\alpha$, tracing out the full range of condition numbers. Both solvers require more iterations as $\kappa$ grows, and CG is consistently more sensitive to conditioning than MINRES. At low $\kappa$ (heavy shrinkage) both methods converge rapidly; the practical operating point for most asset universes sits in this low-$\kappa$ regime.
+Table~\ref{tab:sp500} repeats the benchmark on daily log-returns for 495 S\&P~500 constituents over the period July~2021--April~2026 (1192 trading days, $T/n \approx 2.4$). Tickers with more than 5\% missing observations are excluded; short gaps are forward-filled.
 
-\begin{figure}[h]
+\begin{table}[ht]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\
+\midrule
+\multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)               & 0.2241 & 1.5672 &     -- &   1.0x \\
+KKT direct                     & 0.2246 & 0.0058 &     -- & 269.1x \\
+MINRES                         & 0.2245 & 0.0059 &    214 & 264.5x \\
+CG (constraint-eliminated)     & 0.2246 & 0.0090 &    387 & 175.0x \\
+\midrule
+\multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)               & 0.2281 & 1.4514 &     -- &   1.0x \\
+KKT direct                     & 0.2280 & 0.0124 &     -- & 117.3x \\
+MINRES                         & 0.2280 & 0.0041 &    105 & 354.4x \\
+CG (constraint-eliminated)     & 0.2280 & 0.0038 &    117 & 384.8x \\
+\bottomrule
+\end{tabular}
+\caption{S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--Apr~2026). Speedup relative to \texttt{cvxpy} within each panel.}
+\label{tab:sp500}
+\end{table}
+
+The real-data results reveal two effects absent from the synthetic benchmark. First, the unshrunk system is substantially harder: MINRES requires 214 iterations and CG 387, compared with 39 and 80 on i.i.d.\ Gaussian data. The difference reflects the strong factor structure of equity returns — a dominant market factor concentrates variance along a single eigendirection and inflates the condition number far beyond the Gaussian baseline. Without shrinkage, MINRES and KKT direct are nearly indistinguishable in speed (0.0059 s vs.\ 0.0058 s); the matrix-free advantage is offset by the high iteration count.
+
+Second, Ledoit-Wolf shrinkage matters far more here than on synthetic data. It halves the MINRES count (214 to 105) and cuts CG by two thirds (387 to 117). With shrinkage applied, CG narrowly edges MINRES (0.0038 s vs.\ 0.0041 s), reversing the synthetic ranking. The reason is instructive: CG solves a positive definite reduced system of size $n-1$, and after spectrum compression by shrinkage, its convergence rate catches up to MINRES on the indefinite system of size $n+1$.
+
+A third effect is also visible: KKT direct becomes the \emph{slowest} of the three non-cvxpy solvers when shrinkage is applied (0.0124 s vs.\ 0.0041--0.0038 s). Shrinkage is implemented by augmenting the return matrix to $\tilde{X} \in \mathbb{R}^{(T+n)\times n}$, making the explicit assembly of $\tilde{X}^\top\tilde{X}$ more expensive than iterating on the original $X$.
+
+\subsection*{Scaling with problem size}
+
+Figure~\ref{fig:scaling} extends the synthetic results across a range of problem sizes and shrinkage levels. Panel~(a) shows wall-clock time as a function of $n$ (with $T = 2n$ and LW shrinkage throughout). The KKT direct solve scales as $O(n^3)$ — dominated by the $n \times n$ linear system — while MINRES and CG grow substantially more slowly, with the gap widening visibly beyond $n \approx 300$. Panel~(b) fixes $n = 500$, $T = 250$ and varies $\alpha$, tracing out the full range of condition numbers. Both solvers require more iterations as $\kappa$ grows; the practical operating point for most asset universes sits in the low-$\kappa$ regime achieved by LW shrinkage.
+
+\begin{figure}[ht]
 \centering
 \includegraphics[width=\linewidth]{minvar_scaling.pdf}
 \caption{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha$ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha$ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa$ decreases monotonically as $\alpha$ increases.}
@@ -288,7 +326,7 @@ Figure~\ref{fig:scaling} extends these results across problem sizes and conditio
 
 We have shown that the long-only minimum variance portfolio problem, when formulated directly in terms of the returns matrix, is a structured linear algebra problem that admits a clean hierarchy of solvers. Avoiding the explicit formation of the sample covariance matrix is both numerically advantageous and algorithmically revealing: it exposes the KKT system's symmetric indefinite structure and opens the door to Krylov methods that scale to large universes.
 
-The key empirical finding is that MINRES, applied matrix-free to the KKT system, is faster than a direct solve by a factor of roughly four at $n = 1000$ and the gap widens as $n$ grows. Ledoit-Wolf shrinkage \cite{ledoit2004} compresses the eigenvalue spectrum of the system, reducing MINRES iterations from 39 to 16 and CG iterations from 80 to 26 in our experiments. The shrinkage intensity is chosen to minimise estimation error — the acceleration of the iterative solver is a consequence, not a design goal.
+The empirical results — on both synthetic data and 495 S\&P~500 constituents over five years — tell a consistent story. Without shrinkage, real equity returns produce a far harder system than i.i.d.\ Gaussian data: MINRES needs 214 iterations versus 39, reflecting the dominant market factor that inflates the condition number. Ledoit-Wolf shrinkage \cite{ledoit2004} compresses the spectrum and reduces iteration counts dramatically in both settings, with the effect more pronounced on real data. With shrinkage applied to the S\&P~500 universe, the Krylov solvers are 350--385$\times$ faster than CVXPY and outperform the direct solve by a factor of three — because augmenting the return matrix makes the direct assembly of $\tilde{X}^\top\tilde{X}$ more expensive than iterating. The shrinkage intensity is chosen to minimise estimation error; the acceleration of the iterative solver is a consequence, not a design goal.
 
 The paper also draws a connection that the two literatures involved — numerical linear algebra and high-dimensional statistics — do not usually make explicit. The shrinkage estimator of Ledoit and Wolf and the preconditioning theory of Golub and Van Loan \cite{golub2013} address different problems but act on the same object: the eigenvalue spectrum of the system matrix. Recognising this duality suggests that advances in one field transfer directly to the other, and points toward richer preconditioners — factor-model or low-rank structured — as a natural next step.
 
