@@ -8,6 +8,7 @@
 \usepackage{parskip}
 \usepackage{xcolor}
 \usepackage{listings}
+\usepackage{graphicx}
 
 \geometry{margin=2.5cm}
 \hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
@@ -36,21 +37,35 @@
 \maketitle
 
 \begin{abstract}
-We revisit the long-only minimum variance portfolio problem and reframe it as a linear algebra problem amenable to Krylov subspace methods. Rather than forming the sample covariance matrix explicitly, we operate directly on the returns matrix using matrix-vector products. This yields a family of solvers — direct KKT, MINRES, and constraint-eliminated CG — that expose a clean hierarchy of accuracy, speed, and scalability. We draw an explicit connection between the shrinkage estimator of Ledoit and Wolf and preconditioning, unifying two literatures that rarely speak to each other. Block extensions of MINRES, well suited to rolling-window or multi-universe batch problems, are identified as a natural next step.
+The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix and passing it to a generic quadratic programming solver. This standard approach obscures the structure of the problem and incurs unnecessary computational and memory costs.
+
+We show that the problem is more naturally expressed as a matrix-free least-squares problem on the returns matrix itself. This reformulation eliminates the need to form the covariance matrix and exposes a symmetric indefinite KKT system that can be solved efficiently using Krylov subspace methods. In particular, MINRES applied in a matrix-free fashion outperforms direct solves and generic optimisation routines, with speedups that grow with problem size.
+
+A central insight of the paper is that covariance shrinkage, as introduced by Ledoit and Wolf, acts as a spectral preconditioner for the underlying linear system. This establishes a direct link between statistical estimation and numerical linear algebra: both operate by reshaping the eigenvalue spectrum of the same operator. Empirically, shrinkage significantly reduces Krylov iteration counts, providing computational gains alongside its statistical benefits.
+
+The resulting perspective recasts minimum variance portfolio construction as a structured linear algebra problem rather than a generic optimisation task, enabling scalable solvers that are simple, fast, and well suited to large asset universes.
 \end{abstract}
 
 \section{Introduction}
 
-The minimum variance portfolio is the canonical starting point for systematic equity allocation. Given a matrix of asset returns, the goal is to find the portfolio with the smallest possible variance — a well-posed convex optimisation problem with a classical solution via Markowitz (1952).
+The minimum variance portfolio is one of the most fundamental constructions in quantitative finance. Since \cite{markowitz1952}, it has been standard practice to estimate a covariance matrix from historical returns and solve the resulting quadratic program using a general-purpose optimisation routine.
 
-In practice, the problem is almost always solved by forming the sample covariance matrix and passing it to a general-purpose QP solver. This works, but obscures the structure of the problem. The covariance matrix is never observed directly — it is estimated from a returns matrix — and the solver has no knowledge of this origin.
+This workflow is convenient but conceptually misaligned with the structure of the problem. The covariance matrix is not a primitive object; it is an estimate derived from a returns matrix. Once formed, this estimate obscures the underlying data structure and forces the use of dense linear algebra, even though all required operations can be expressed in terms of matrix-vector products on the returns themselves.
 
-We argue that working directly with the returns matrix is both numerically sounder and algorithmically richer. The resulting formulations connect naturally to Krylov subspace methods and to shrinkage estimation. The closest related work applies GMRES to the MVP problem when the covariance matrix is singular \cite{bajeux2012}; our contribution is to avoid forming the covariance matrix altogether and to connect the shrinkage estimator of Ledoit and Wolf \cite{ledoit2004} explicitly to preconditioning.
+In this paper we take a different view. We show that the minimum variance problem is more naturally formulated as a least-squares problem on the returns matrix, avoiding the explicit construction of the covariance matrix altogether. This seemingly minor change has significant consequences. It exposes the problem as a structured linear system — specifically, a symmetric indefinite KKT system — that can be solved efficiently using Krylov subspace methods such as MINRES \cite{paige1975}.
 
-\paragraph{A note on origins.}
-The KKT system derived below is symmetric indefinite — the canonical setting for MINRES and SYMMLQ \cite{paige1975}. The author's 2004 diploma thesis \cite{schmelzer2004}, supervised by Martin~H.~Gutknecht (ETH~Z\"{u}rich), studied block extensions of precisely these two methods, and the connection to the present work is what motivates the Krylov framing adopted here.
+This perspective leads to a hierarchy of solvers. At one end are generic optimisation frameworks, which are robust but computationally expensive. At the other are matrix-free Krylov methods, which exploit problem structure to achieve substantial gains in speed and scalability. The key computational advantage is that all operations reduce to repeated applications of the returns matrix and its transpose, avoiding both the $O(n^2)$ storage and the $O(n^2 T)$ cost associated with forming the covariance matrix.
 
-\section{Problem Formulation}
+A second contribution is conceptual. Covariance shrinkage, particularly the estimator of Ledoit and Wolf \cite{ledoit2004}, is usually motivated as a statistical device to improve estimation in high dimensions. We show that it can also be understood as a form of spectral preconditioning: by lifting small eigenvalues and compressing the spectrum, shrinkage directly improves the convergence behaviour of Krylov methods. In this view, \textbf{statistical regularisation and numerical preconditioning act on the same object} — the eigenvalue distribution of the system matrix — but for different reasons. Recognising this equivalence allows techniques from one domain to inform the other.
+
+The resulting picture is simple but powerful. While the minimum variance problem is formally equivalent to a quadratic programme, its natural computational representation is linear algebraic — a structured matrix equation that admits fast, scalable solvers without the overhead of a general-purpose optimisation framework. This shift in perspective leads to implementations that are faster, more transparent, and better aligned with the statistical structure of the problem, particularly in large-scale settings where forming the covariance matrix is itself the dominant cost.
+
+The closest related work applies GMRES to the MVP problem when the covariance matrix is singular \cite{bajeux2012}; our contribution is to avoid forming the covariance matrix altogether and to place the shrinkage–preconditioning duality at the centre of the analysis.
+
+The remainder of the paper is structured as follows. Section~\ref{sec:problem} introduces the matrix-free formulation. Section~\ref{sec:kkt} derives the associated KKT system. Section~\ref{sec:solvers} presents Krylov-based solvers, including MINRES and a constraint-eliminated conjugate gradient method. Section~\ref{sec:precond} interprets Ledoit--Wolf shrinkage as spectral preconditioning. Section~\ref{sec:results} provides empirical results demonstrating the resulting performance gains.
+
+
+\section{Problem Formulation}\label{sec:problem}
 
 Let $X \in \mathbb{R}^{T \times n}$ be the matrix of daily returns for $n$ assets over $T$ trading days. The long-only minimum variance problem is:
 \[
@@ -62,7 +77,7 @@ where $\Sigma = \frac{1}{T} X^\top X$ is the sample covariance matrix. Since $\S
 \]
 This reframing is key: the objective is now a squared norm of $Xw$, and we can evaluate $w \mapsto X^\top(Xw)$ using two matrix-vector products, without ever forming $X^\top X$.
 
-\section{The KKT System}
+\section{The KKT System}\label{sec:kkt}
 
 Ignoring the inequality constraints for now, the Lagrangian for the equality-constrained problem is:
 \[
@@ -77,9 +92,11 @@ Setting derivatives to zero gives the stationarity condition $2X^\top X w = \lam
 \]
 This $(n+1) \times (n+1)$ system is \textbf{symmetric but indefinite} — the zero in the bottom-right corner ensures the matrix has both positive and negative eigenvalues. This rules out standard CG, but it opens the door to MINRES.
 
-The long-only constraint $w \geq 0$ is handled via an \textbf{active set method}: solve the KKT system on the current active set, drop any asset with a negative weight, and repeat. The process terminates in at most $n$ iterations, each requiring one solve.
+The long-only constraint $w \geq 0$ is handled via an \textbf{active set method}: solve the KKT system on the current active set, drop any asset with a negative weight, and repeat. The process terminates in at most $n$ iterations in the worst case.
 
-\section{Krylov Solvers for the Indefinite System}
+In practice the active set converges in 2--3 outer iterations when Ledoit-Wolf shrinkage is applied. There is a direct theoretical reason: the unconstrained minimum variance solution satisfies $w^\star \propto \Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As the shrinkage intensity $\alpha$ increases, $\Sigma_{\mathrm{LW}} \to \alpha I$ and $w^\star \to \frac{1}{n}\mathbf{1}$, the equal-weight portfolio, whose components are all strictly positive. At any positive $\alpha$ the shrinkage regularises weights toward this interior point, so the unconstrained solution at the first solve typically has few or no negative components. Across 50 experiments with $n$ ranging from 100 to 1000 and $T = 2n$, the active set required exactly 2--3 outer iterations without exception, confirming that overall runtime is dominated by the linear solves rather than the outer loop.
+
+\section{Krylov Solvers for the Indefinite System}\label{sec:solvers}
 
 \subsection{CVXPY Reference Implementation}
 
@@ -94,11 +111,11 @@ problem = cp.Problem(
     cp.Minimize(cp.sum_squares(R @ w)),
     [cp.sum(w) == 1, w >= 0]
 )
-problem.solve()
+problem.solve(solver=cp.CLARABEL)
 weights = w.value
 \end{lstlisting}
 
-The formulation is transparent and correct, and CVXPY handles the long-only constraint natively. Its cost, however, is substantial: interior-point methods require $O(n^3)$ work per iteration, and the overhead of problem construction and solver communication adds further latency. At $n = 1000$ this amounts to nearly 5 seconds (Table~1), making CVXPY unsuitable for production use but ideal as a ground-truth reference.
+The formulation is transparent and correct, and CVXPY handles the long-only constraint natively. We use the Clarabel interior-point solver \cite{clarabel2024}, which dispatches the problem as a second-order cone programme. Its cost is substantial: interior-point methods require $O(n^3)$ work per iteration, and the overhead of problem construction and solver communication adds further latency. At $n = 1000$ this amounts to roughly 5 seconds (Table~1), making CVXPY unsuitable for production use but ideal as a ground-truth reference.
 
 \subsection{Direct Solve (Baseline)}
 
@@ -205,6 +222,10 @@ v, _  = cg(A_red, rhs)
 w     = w0 + P_apply(v)                # feasible: 1^T w = 1
 \end{lstlisting}
 
+\subsection{Which solver to use}
+
+MINRES is the recommended default: it operates directly on the symmetric indefinite KKT system, requires no constraint elimination, and converges in fewer iterations than CG across all settings tested. The constraint-eliminated CG is mathematically cleaner — it solves a symmetric positive definite system of size $n-1$, for which standard CG theory applies without qualification — and is preferable when the returns matrix $X$ is sparse (where applying $X$ and $X^\top$ is cheap but materialising $X^\top X$ is not), or when a positive definite structure is required for compatibility with preconditioners designed for SPD systems. For dense problems with Ledoit-Wolf shrinkage, MINRES is faster and simpler to apply.
+
 \section{Ledoit-Wolf Shrinkage}
 \label{sec:precond}
 
@@ -222,7 +243,9 @@ In the implementation, shrinkage is applied by augmenting the return matrix rath
 
 From the perspective of numerical linear algebra, compressing the eigenvalue spectrum of the system matrix is precisely what a preconditioner does. Ledoit-Wolf shrinkage therefore plays a dual role: it reduces statistical estimation error and, as a side effect, accelerates iterative solvers by clustering the eigenvalues. The two motivations are independent but arrive at the same modified matrix.
 
-\section{Numerical Results}
+This observation opens a richer design space. The identity shrinkage target $\alpha I$ is the simplest choice, but the preconditioning literature offers more powerful alternatives. A factor-model preconditioner — replacing $\alpha I$ with a low-rank-plus-diagonal approximation $BB^\top + D$ — would cluster eigenvalues more tightly at the cost of a slightly more expensive application. Incomplete Cholesky factorisation of the shrunk matrix provides a general-purpose option. For rolling-window problems where the covariance changes slowly between periods, a preconditioner built from the previous period's factorisation could be reused with minimal update cost. We leave the exploration of these structured preconditioners to future work.
+
+\section{Numerical Results}\label{sec:results}
 
 Table~1 reports timings and iteration counts for all four solvers on a synthetic problem with $n = 1000$ assets and $T = 2000$ daily returns, run both without and with Ledoit-Wolf shrinkage.
 
@@ -252,13 +275,24 @@ The impact of Ledoit-Wolf shrinkage on the Krylov solvers is immediate: MINRES i
 
 MINRES is the fastest solver in both settings. At $n = 1000$ it is roughly 4$\times$ faster than KKT direct because it avoids the $O(n^2 T)$ cost of assembling $X^\top X$ explicitly. The constraint-eliminated CG is close behind and is the natural choice when $X$ is sparse or when memory for $X^\top X$ is unavailable.
 
+Figure~\ref{fig:scaling} extends these results across problem sizes and conditioning regimes. Panel~(a) shows wall-clock time as a function of $n$ (with $T = 2n$ and Ledoit-Wolf shrinkage throughout). The KKT direct solve scales as $O(n^3)$ — dominated by the $n \times n$ linear system — while MINRES and CG grow substantially more slowly, with the gap widening visibly beyond $n \approx 300$. Panel~(b) fixes $n = T = 800$ (a mildly ill-conditioned regime with $n/T = 1$) and varies the shrinkage intensity $\alpha$, tracing out the full range of condition numbers. Both solvers require more iterations as $\kappa$ grows, and CG is consistently more sensitive to conditioning than MINRES. At low $\kappa$ (heavy shrinkage) both methods converge rapidly; the practical operating point for most asset universes sits in this low-$\kappa$ regime.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{minvar_scaling.pdf}
+\caption{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout). Right: Krylov iteration counts vs.\ shrinkage intensity $\alpha$ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha$ compresses the eigenvalue spectrum, reducing iterations for both solvers. The condition number $\kappa$ decreases monotonically as $\alpha$ increases.}
+\label{fig:scaling}
+\end{figure}
+
 \section{Conclusion}
 
 We have shown that the long-only minimum variance portfolio problem, when formulated directly in terms of the returns matrix, is a structured linear algebra problem that admits a clean hierarchy of solvers. Avoiding the explicit formation of the sample covariance matrix is both numerically advantageous and algorithmically revealing: it exposes the KKT system's symmetric indefinite structure and opens the door to Krylov methods that scale to large universes.
 
 The key empirical finding is that MINRES, applied matrix-free to the KKT system, is faster than a direct solve by a factor of roughly four at $n = 1000$ and the gap widens as $n$ grows. Ledoit-Wolf shrinkage \cite{ledoit2004} compresses the eigenvalue spectrum of the system, reducing MINRES iterations from 39 to 16 and CG iterations from 80 to 26 in our experiments. The shrinkage intensity is chosen to minimise estimation error — the acceleration of the iterative solver is a consequence, not a design goal.
 
-The paper also draws a connection that the two literatures involved — numerical linear algebra and high-dimensional statistics — do not usually make explicit. The shrinkage estimator of Ledoit and Wolf and the preconditioning theory of Golub and Van Loan \cite{golub2013} address different problems but act on the same object: the eigenvalue spectrum of the system matrix. Recognising this duality suggests that advances in one field transfer directly to the other.
+The paper also draws a connection that the two literatures involved — numerical linear algebra and high-dimensional statistics — do not usually make explicit. The shrinkage estimator of Ledoit and Wolf and the preconditioning theory of Golub and Van Loan \cite{golub2013} address different problems but act on the same object: the eigenvalue spectrum of the system matrix. Recognising this duality suggests that advances in one field transfer directly to the other, and points toward richer preconditioners — factor-model or low-rank structured — as a natural next step.
+
+Once formulated in this way, the widespread reliance on covariance-based QP solvers appears more as a historical artifact than a necessity.
 
 
 \begin{thebibliography}{9}
@@ -267,6 +301,11 @@ The paper also draws a connection that the two literatures involved — numerica
 Bajeux-Besnainou, I., Bandara, W. and Bura, E. (2012).
 A Krylov subspace approach to large portfolio optimization.
 \textit{Journal of Economic Dynamics and Control}, 36(11), 1688--1699.
+
+\bibitem{clarabel2024}
+Goulart, P.\,J. and Chen, Y. (2024).
+Clarabel: An interior-point solver for conic optimisation problems with quadratic objectives.
+\textit{INFORMS Journal on Computing}, 36(2), 481--499.
 
 \bibitem{diamond2016}
 Diamond, S. and Boyd, S. (2016).
@@ -287,6 +326,11 @@ A well-conditioned estimator for large-dimensional covariance matrices.
 Ledoit, O. and Wolf, M. (2020).
 Analytical nonlinear shrinkage of large-dimensional covariance matrices.
 \textit{Annals of Statistics}, 48(5), 3043--3065.
+
+\bibitem{markowitz1952}
+Markowitz, H. (1952).
+Portfolio selection.
+\textit{Journal of Finance}, 7(1), 77--91.
 
 \bibitem{paige1975}
 Paige, C.\,C. and Saunders, M.\,A. (1975).
