@@ -44,7 +44,7 @@
 \begin{abstract}
 The long-only minimum variance portfolio is typically solved by forming a sample covariance matrix and passing it to a generic quadratic programming solver. This approach is unnecessary: all required operations reduce to matrix-vector products on the returns matrix, and the covariance matrix need never be formed.
 
-Expressed directly in terms of the returns matrix, the problem reduces to a symmetric indefinite KKT system. MINRES and a constraint-eliminated conjugate gradient method solve this system without assembling $X^\top X$ and are 350--385 times faster than CVXPY on a universe of 495 S\&P~500 constituents. All methods produce identical portfolio weights; the gain is entirely computational.
+Expressed directly in terms of the returns matrix, the problem reduces to a symmetric indefinite KKT system. MINRES and a constraint-eliminated conjugate gradient method solve this system without assembling $X^\top X$ and are 350--385 times faster than CVXPY on the standard long-only problem with 495 S\&P~500 constituents. All methods produce identical portfolio weights; the gain is entirely computational.
 
 Ledoit-Wolf covariance shrinkage acts as a spectral preconditioner for the KKT system: by lifting small eigenvalues it compresses the spectrum and directly reduces iteration counts. On real equity data, where a dominant market factor inflates the condition number, shrinkage halves MINRES iterations and cuts CG by two thirds. The two objectives, reducing statistical estimation error and accelerating the iterative solver, are achieved by the same modification to the spectrum.
 \end{abstract}
@@ -97,11 +97,11 @@ This $(n+1) \times (n+1)$ system is \textbf{symmetric but indefinite}: the zero 
 
 The long-only constraint $w \geq 0$ is handled via an \textbf{active set method}: solve the KKT system on the current active set, drop any asset with a negative weight, and repeat. The process terminates in at most $n$ iterations in the worst case.
 
-With Ledoit-Wolf shrinkage, the active set converges rapidly in practice. The unconstrained minimiser satisfies $w^\star \propto \Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As $\alpha \to 1$, $\Sigma_{\mathrm{LW}} \to \alpha I$ and $w^\star \to \frac{1}{n}\mathbf{1}$, the equal-weight portfolio with all components strictly positive. Writing $\Sigma_{\mathrm{LW}} = \gamma I + cX^\top X$ and expanding via the Neumann series:
+With Ledoit-Wolf shrinkage, the active set converges rapidly in practice. The unconstrained minimiser satisfies $w^\star \propto \Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As $\alpha \to 1$, $\Sigma_{\mathrm{LW}} \to \alpha I$ and $w^\star \to \frac{1}{n}\mathbf{1}$, the equal-weight portfolio with all components strictly positive. By continuity there exists a threshold $\alpha^\star \in (0,1)$ above which every component of the unconstrained solution is positive; for $\alpha > \alpha^\star$ the first active set solve requires no asset to be dropped. The first-order expansion
 \[
-\Sigma_{\mathrm{LW}}^{-1}\mathbf{1} = \tfrac{1}{\gamma}\mathbf{1} - \tfrac{c}{\gamma^2}X^\top X\mathbf{1} + O(\gamma^{-3}),
+\Sigma_{\mathrm{LW}}^{-1}\mathbf{1} \approx \tfrac{1}{\alpha}\mathbf{1} - \tfrac{1-\alpha}{\alpha^2 T}X^\top X\mathbf{1},
 \]
-every component of $w^\star$ is positive when $\gamma > c\,(X^\top X\mathbf{1})_{\max}$, i.e.\ when $\alpha$ exceeds a threshold determined by the spectral structure of $X^\top X$. For the LW-optimal $\alpha$ and dense equity returns, this condition is typically satisfied and the first active set solve yields few negative components. Across 50 experiments with $n$ from 100 to 1000 and $T = 2n$, the active set required 2--3 outer iterations in all cases; runtime is dominated by the linear solves.
+valid for $\alpha$ close to one, shows that $\alpha^\star$ is governed by the spectral structure of $X^\top X$: assets with large total covariance exposure are the last to turn positive as $\alpha$ increases. For the LW-optimal $\alpha$ and dense equity returns, the threshold is typically exceeded and the first solve yields few negative components. Across 50 experiments with $n$ from 100 to 1000 and $T = 2n$, the active set required 2--3 outer iterations in all cases; runtime is dominated by the linear solves.
 
 \section{Krylov Solvers for the Indefinite System}\label{sec:solvers}
 
@@ -225,7 +225,7 @@ The identity shrinkage target $\alpha I$ is the simplest choice, but the precond
 
 \section{Numerical Results}\label{sec:results}
 
-We present two sets of experiments: a synthetic benchmark with i.i.d.\ Gaussian returns spanning a range of problem sizes and condition numbers, and a real-data experiment on the S\&P~500. All implementations are available in the companion package \cite{fast_minimum_variance}.
+We present two sets of experiments: a synthetic benchmark with i.i.d.\ Gaussian returns spanning a range of problem sizes and condition numbers, and a real-data experiment on the S\&P~500. All experiments were run on an Apple M4 Pro (14-core CPU, 48\,GB RAM) under Python~3.13 with NumPy and SciPy~1.17. The iterative solvers use SciPy's default relative residual tolerance of $10^{-5}$; reported times are the minimum of three repeated solves. All implementations are available in the companion package \cite{fast_minimum_variance}.
 
 \subsection*{Synthetic benchmark}
 
