@@ -32,7 +32,7 @@ docs/paper/*.log
 docs/paper/*.out
 docs/paper/*.toc
 
-paper/minvar_paper.*
+paper/minvar_paper.tex
 
 # temp file used by Junie
 .output.txt
