@@ -42,7 +42,7 @@ class TestMinvarMinres:
         """Solver works across a range of asset counts."""
         rng = np.random.default_rng(N)
         R = rng.standard_normal((200, N))  # noqa: N806
-        w, _ = minvar_minres(R)
+        w, _ = solve_minres(R)
         assert abs(w.sum() - 1.0) < 1e-6
         assert np.all(w >= -1e-10)
 
