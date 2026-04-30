@@ -14,9 +14,9 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    from fast_minimum_variance.cvx import minvar_cvxpy
-    from fast_minimum_variance.kkt import minvar_kkt
-    from fast_minimum_variance.krylov import minvar_cg, minvar_minres
+    from fast_minimum_variance.cvx import solve_cvxpy
+    from fast_minimum_variance.kkt import solve_kkt
+    from fast_minimum_variance.krylov import solve_cg, solve_minres
     from fast_minimum_variance.random import make_returns
 
     R = make_returns(T=2000, N=1000)
@@ -38,17 +38,17 @@ def _():
     def run_all(shrinkage):
         if shrinkage:
             configs = [
-                ("cvxpy", lambda: (minvar_cvxpy(R_lw), None)),
-                ("kkt", lambda: (minvar_kkt(R_lw), None)),
-                ("minres", lambda: minvar_minres(R, c=c_lw, gamma=gamma_lw)),
-                ("cg", lambda: minvar_cg(R, c=c_lw, gamma=gamma_lw)),
+                ("cvxpy", lambda: (solve_cvxpy(R_lw), None)),
+                ("kkt", lambda: (solve_kkt(R_lw), None)),
+                ("minres", lambda: solve_minres(R, c=c_lw, gamma=gamma_lw)),
+                ("cg", lambda: solve_cg(R, c=c_lw, gamma=gamma_lw)),
             ]
         else:
             configs = [
-                ("cvxpy", lambda: (minvar_cvxpy(R), None)),
-                ("kkt", lambda: (minvar_kkt(R), None)),
-                ("minres", lambda: minvar_minres(R)),
-                ("cg", lambda: minvar_cg(R)),
+                ("cvxpy", lambda: (solve_cvxpy(R), None)),
+                ("kkt", lambda: (solve_kkt(R), None)),
+                ("minres", lambda: solve_minres(R)),
+                ("cg", lambda: solve_cg(R)),
             ]
         out = {}
         for name, fn in configs:
