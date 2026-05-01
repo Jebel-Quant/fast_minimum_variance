@@ -42,7 +42,13 @@ def solve_kkt(api: API, *, project: bool = True):
         # Pin active inequalities as equalities by appending their columns to A.
         # When active is empty, hstack returns A unchanged (C[:,active] is (n, 0)).
         K, rhs = api.kkt(active=active)  # noqa: N806
-        return np.linalg.solve(K, rhs)[: api.n], 1
+        # np.linalg.solve returns the full KKT solution [w; lambda], where the
+        # first N entries are the primal weights and the remainder are the dual
+        # Lagrange multipliers.  Only w is needed here.
+        w = np.linalg.solve(K, rhs)[: api.n]
+        # Return 1 as the iteration count: the direct KKT solve is a single
+        # linear-algebra step, not an iterative method.
+        return w, 1
 
     w, iters = api.constraint_active_set(fn)
     if project:

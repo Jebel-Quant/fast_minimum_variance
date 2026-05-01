@@ -61,13 +61,17 @@ def solve_minres(api: API, *, project: bool = True):
 
     def _solve(active):
         """Solve the MINRES saddle-point system for the current active set."""
-        # MINRES handles symmetric indefinite systems; the KKT saddle-point
-        # matrix is symmetric but not positive definite (it has negative
-        # eigenvalues from the zero bottom-right block).
+        # MINRES (not CG) is required here because the KKT saddle-point matrix
+        # is symmetric but indefinite: the zero bottom-right block causes negative
+        # eigenvalues, ruling out CG which requires positive definiteness.
         kkt, rhs = api.kkt_operator(active)
+        # Use a mutable list to count iterations from inside the callback.
+        # A plain int cannot be rebound in the enclosing scope via the callback;
+        # mutating a list element sidesteps that restriction without `nonlocal`.
         iters = [0]
         sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
-        # Return only the primal part w; discard the dual multipliers lambda.
+        # The solution vector is [w; lambda].  Discard the dual part (lambda)
+        # and return only the primal weights.
         return sol[: api.n], iters[0]
 
     w, iters = api.constraint_active_set(_solve)
@@ -90,6 +94,10 @@ def solve_cg(api: API, *, project: bool = True):
     basis for ``A_ext^T``, and ``w0`` is the minimum-norm particular solution
     of ``A_ext^T w = b_ext``.  The full weight vector is recovered as
     ``w = w0 + P v``.
+
+    The reduced operator ``P^T(X^T X + gamma I)P`` is SPD, so CG converges
+    in at most ``n_free`` iterations and benefits from any spectral clustering
+    induced by shrinkage (larger ``gamma`` compresses the eigenvalue spread).
 
     See ``solve_minres`` for the Ledoit-Wolf shrinkage recipe.
 
@@ -124,9 +132,16 @@ def solve_cg(api: API, *, project: bool = True):
         """Solve the CG null-space subproblem for the current active set."""
         op, rhs, w0, P = api.null_space_operator(active)  # noqa: N806
         if op is None:
+            # All free directions are pinned by the active constraints; the
+            # constraints uniquely determine w = w0 with no further optimisation.
             return w0, 0
+        # Same mutable-list trick as in solve_minres: the callback cannot rebind
+        # a plain int from the enclosing scope.
         iters = [0]
         sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
+        # Reconstruct the full weight vector: w0 is the particular solution that
+        # satisfies the constraints exactly, and P @ sol is the correction in the
+        # constraint null space that minimises the objective.
         return w0 + P @ sol, iters[0]
 
     w, iters = api.constraint_active_set(_solve)
