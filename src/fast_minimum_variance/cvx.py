@@ -2,10 +2,10 @@
 
 import cvxpy as cp
 
-from .api import API
+from .api import API, clip_and_renormalize
 
 
-def solve_cvxpy(api: API):
+def solve_cvxpy(api: API, *, project: bool = True):
     """Solve the general mean-variance portfolio via CVXPY.
 
     Solves::
@@ -20,7 +20,11 @@ def solve_cvxpy(api: API):
         s.t. sum(w) == 1,  w >= 0
 
     Args:
-        api: API dataclass holding X, A, b, C, d, rho, mu.
+        api:     API dataclass holding X, A, b, C, d, rho, mu.
+        project: If True (default), clip weights to non-negative and renormalize
+                 to sum to one after solving.  Only correct for the default
+                 long-only minimum-variance problem; set to False when using
+                 custom constraints.
 
     Returns:
         Tuple (w, n_iters) where w is the weight vector of shape (N,) and
@@ -62,5 +66,8 @@ def solve_cvxpy(api: API):
     # quadratic objective and linear constraints natively.
     problem.solve(solver=cp.CLARABEL)
 
+    result = w.value
+    if project:
+        result = clip_and_renormalize(result)
     # solver_stats.num_iters counts the interior-point iterations taken.
-    return w.value, problem.solver_stats.num_iters
+    return result, problem.solver_stats.num_iters
