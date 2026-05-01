@@ -18,9 +18,6 @@ import numpy as np
 import pandas as pd
 
 from fast_minimum_variance.api import Problem
-from fast_minimum_variance.cvx import solve_cvxpy
-from fast_minimum_variance.kkt import solve_kkt
-from fast_minimum_variance.krylov import solve_cg, solve_minres
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 
@@ -56,17 +53,17 @@ def run_solver(name, fn, repeats=3):
 
 
 configs_no_lw = [
-    ("cvxpy", lambda: solve_cvxpy(Problem(R))),
-    ("kkt", lambda: solve_kkt(Problem(R))),
-    ("minres", lambda: solve_minres(Problem(R))),
-    ("cg", lambda: solve_cg(Problem(R))),
+    ("cvxpy", lambda: Problem(R).solve_cvxpy()),
+    ("kkt", lambda: Problem(R).solve_kkt()),
+    ("minres", lambda: Problem(R).solve_minres()),
+    ("cg", lambda: Problem(R).solve_cg()),
 ]
 
 configs_lw = [
-    ("cvxpy", lambda: solve_cvxpy(Problem(R_lw, gamma=gamma_lw))),
-    ("kkt", lambda: solve_kkt(Problem(R_lw, gamma=gamma_lw))),
-    ("minres", lambda: solve_minres(Problem(R_lw, gamma=gamma_lw))),
-    ("cg", lambda: solve_cg(Problem(R_lw, gamma=gamma_lw))),
+    ("cvxpy", lambda: Problem(R_lw, gamma=gamma_lw).solve_cvxpy()),
+    ("kkt", lambda: Problem(R_lw, gamma=gamma_lw).solve_kkt()),
+    ("minres", lambda: Problem(R_lw, gamma=gamma_lw).solve_minres()),
+    ("cg", lambda: Problem(R_lw, gamma=gamma_lw).solve_cg()),
 ]
 
 display = {

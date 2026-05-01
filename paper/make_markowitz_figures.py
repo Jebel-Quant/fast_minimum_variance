@@ -18,9 +18,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from fast_minimum_variance.api import Problem
-from fast_minimum_variance.cvx import solve_cvxpy
-from fast_minimum_variance.kkt import solve_kkt
-from fast_minimum_variance.krylov import solve_cg, solve_minres
 
 mpl.rcParams.update(
     {
@@ -81,20 +78,20 @@ C_bench, d_bench = make_constraints(N_bench, 5, 0.25)
 c_lw, gamma_lw = lw_params(X_bench)
 
 configs = [
-    ("cvxpy", lambda: solve_cvxpy(Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
-    ("kkt", lambda: solve_kkt(Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
-    ("minres", lambda: solve_minres(Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
-    ("cg", lambda: solve_cg(Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
+    ("cvxpy", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_cvxpy(project=False)),
+    ("kkt", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_kkt(project=False)),
+    ("minres", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_minres(project=False)),
+    ("cg", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_cg(project=False)),
     (
         "minres_lw",
-        lambda: solve_minres(
-            Problem(np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw), project=False
-        ),
+        lambda: Problem(
+            np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw
+        ).solve_minres(project=False),
     ),
     (
         "cg_lw",
-        lambda: solve_cg(
-            Problem(np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw), project=False
+        lambda: Problem(np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw).solve_cg(
+            project=False
         ),
     ),
 ]
@@ -143,18 +140,16 @@ for n in ns:
     mu = rng2.standard_normal(n)
     C, d = make_constraints(n, 5, 0.25)
     c, gamma = lw_params(X)
-    _, t_kkt = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu: solve_kkt(Problem(x, C=cc, d=dd, rho=0.5, mu=mm), project=False)
-    )
+    _, t_kkt = run_timed(lambda x=X, cc=C, dd=d, mm=mu: Problem(x, C=cc, d=dd, rho=0.5, mu=mm).solve_kkt(project=False))
     _, t_mr = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: solve_minres(
-            Problem(np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv), project=False
-        )
+        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: Problem(
+            np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv
+        ).solve_minres(project=False)
     )
     _, t_cg = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: solve_cg(
-            Problem(np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv), project=False
-        )
+        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: Problem(
+            np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv
+        ).solve_cg(project=False)
     )
     times_markowitz["kkt"].append(t_kkt)
     times_markowitz["minres_lw"].append(t_mr)
@@ -179,20 +174,20 @@ rhos = np.linspace(0, 2, 21)
 
 def frontier_kkt():
     """Compute efficient frontier weights for all rho values using KKT direct."""
-    return [solve_kkt(Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef), project=False) for r in rhos]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=False) for r in rhos]
 
 
 def frontier_cg():
     """Compute efficient frontier weights for all rho values using CG + LW."""
     return [
-        solve_cg(Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef), project=False)
+        Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=False)
         for r in rhos
     ]
 
 
 def frontier_cvxpy():
     """Compute efficient frontier weights for all rho values using CVXPY."""
-    return [solve_cvxpy(Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef), project=False) for r in rhos]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_cvxpy(project=False) for r in rhos]
 
 
 _, t_ef_kkt = run_timed(frontier_kkt)
@@ -223,7 +218,7 @@ ax1.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.7)
 
 # Panel B: efficient frontier portfolios (return vs variance)
 ws_cg = [
-    solve_cg(Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef), project=False)[0]
+    Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=False)[0]
     for r in rhos
 ]
 rets = [mu_ef @ w for w in ws_cg]
