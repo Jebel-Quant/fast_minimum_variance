@@ -93,17 +93,12 @@ class TestSolveMinresJax:
 class TestJaxBackendValidation:
     """Tests for backend validation in Problem.__post_init__."""
 
-    def test_jax_backend_invalid_raises(self):
-        """Unknown backend string raises ValueError."""
-        X = np.random.default_rng(0).standard_normal((50, 3))  # noqa: N806
-        with pytest.raises(ValueError, match="Unknown backend"):
-            Problem(X, backend="gpu")
-
-    def test_jax_backend_unknown_raises(self):
+    @pytest.mark.parametrize("backend", ["gpu", "cupy", "cuda"])
+    def test_unknown_backend_raises(self, backend):
         """Any unrecognised backend string raises ValueError."""
         X = np.random.default_rng(0).standard_normal((50, 3))  # noqa: N806
         with pytest.raises(ValueError, match="Unknown backend"):
-            Problem(X, backend="cupy")
+            Problem(X, backend=backend)
 
 
 if __name__ == "__main__":
