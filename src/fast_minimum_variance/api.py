@@ -14,21 +14,20 @@ def clip_and_renormalize(w: np.ndarray) -> np.ndarray:
 
 
 def _minres_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
-    """MINRES solver implemented with JAX arrays for use on accelerators.
+    """MINRES solver using ``jax.lax.while_loop`` — stays fully on-device.
 
     Solves the symmetric (possibly indefinite) linear system ``A x = b`` using
-    the Minimum Residual method.  The implementation follows the algorithm of
-    Paige and Saunders (1975) and is structured after
-    ``scipy.sparse.linalg.minres``, adapted to use JAX primitives so that the
-    matrix-vector product ``matvec`` can run on a JAX accelerator backend.
+    the Minimum Residual method (Paige & Saunders 1975), ported from
+    ``scipy.sparse.linalg.minres``.
 
-    The scalar Lanczos recurrence variables are kept as Python floats so that
-    convergence tests use ordinary Python control flow (valid in JAX eager
-    mode without ``jit``).  Only the vector state (``x``, ``w``, ``r1``,
-    ``r2``, ``v``, ``y``) is held as JAX arrays so that each matvec call
-    dispatches to the accelerator.
+    The entire Lanczos recurrence — including all scalar state — runs inside a
+    single ``jax.lax.while_loop`` so there are **no host synchronisations per
+    iteration**.  This is essential for GPU / Metal performance: the only
+    device-to-host transfer is the final extraction of the iteration count.
 
-    No preconditioner and no shift are applied (``M = I``, ``shift = 0``).
+    ``jax.scipy.sparse.linalg`` does not include MINRES as of JAX 0.4–0.10,
+    so this implementation is necessary.  No preconditioner and no shift are
+    applied (``M = I``, ``shift = 0``).
 
     Parameters
     ----------
@@ -46,9 +45,10 @@ def _minres_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
     x : jax.Array
         Approximate solution vector.
     itn : int
-        Number of iterations taken.
+        Number of iterations taken (Python int; one host sync at return).
     """
     try:
+        import jax
         import jax.numpy as jnp
     except ImportError as e:
         raise ImportError(  # noqa: TRY003
@@ -61,199 +61,123 @@ def _minres_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
         maxiter = 5 * n
 
     dtype = b.dtype
-    eps = float(jnp.finfo(dtype).eps)
+    eps = jnp.finfo(dtype).eps
 
-    x = jnp.zeros(n, dtype=dtype)
+    # Eager zero-cost checks before entering the compiled loop.
+    beta1 = jnp.sqrt(jnp.dot(b, b))  # M = I, so y = r1 = b
+    if float(beta1) == 0:
+        return jnp.zeros(n, dtype=dtype), 0
 
-    # With identity preconditioner (M = I): y = r1 = b.
-    r1 = b
-    y = r1
+    # All state packed as JAX arrays (0-dim scalars + 1-dim vectors) so that
+    # lax.while_loop can compile the body into a single device kernel.
+    # Order: vectors first, then scalars, then integer control variables.
+    zeros_v = jnp.zeros(n, dtype=dtype)
+    init_state = (
+        # --- vectors ---
+        zeros_v,                                    # x
+        zeros_v,                                    # w
+        zeros_v,                                    # w2
+        b,                                          # r1
+        b,                                          # r2  (= y with M=I)
+        # --- scalar Lanczos state ---
+        jnp.array(0.0, dtype=dtype),               # oldb
+        beta1,                                      # beta
+        jnp.array(0.0, dtype=dtype),               # dbar
+        jnp.array(0.0, dtype=dtype),               # epsln
+        beta1,                                      # phibar
+        beta1,                                      # rhs1
+        jnp.array(0.0, dtype=dtype),               # rhs2
+        jnp.array(0.0, dtype=dtype),               # tnorm2
+        jnp.array(0.0, dtype=dtype),               # gmax
+        jnp.array(jnp.finfo(dtype).max, dtype=dtype),  # gmin (starts at ∞)
+        jnp.array(-1.0, dtype=dtype),              # cs
+        jnp.array(0.0, dtype=dtype),               # sn
+        # --- control ---
+        jnp.array(0, dtype=jnp.int32),             # itn
+        jnp.array(0, dtype=jnp.int32),             # istop
+    )
 
-    beta1 = float(jnp.dot(r1, y))
-    if beta1 < 0:
-        raise ValueError("indefinite preconditioner")  # noqa: TRY003
-    if beta1 == 0:
-        return x, 0
+    def cond_fun(state):
+        """Continue while itn < maxiter and not yet converged."""
+        *_, itn, istop = state
+        return (itn < maxiter) & (istop == 0)
 
-    bnorm = float(jnp.linalg.norm(b))
-    if bnorm == 0:
-        return b, 0
+    def body_fun(state):
+        """Single Lanczos step: updates all state in-place on device."""
+        (x, w, w2, r1, r2,
+         oldb, beta, dbar, epsln, phibar, rhs1, rhs2, tnorm2, gmax, gmin, cs, sn,
+         itn, istop) = state
 
-    beta1 = beta1 ** 0.5
+        itn = itn + 1
 
-    # Scalar Lanczos state — kept as Python floats so that convergence
-    # comparisons use ordinary Python control flow (valid in eager JAX).
-    oldb: float = 0.0
-    beta: float = beta1
-    dbar: float = 0.0
-    epsln: float = 0.0
-    phibar: float = beta1
-    rhs1: float = beta1
-    rhs2: float = 0.0
-    tnorm2: float = 0.0
-    gmax: float = 0.0
-    gmin: float = float("inf")
-    cs: float = -1.0
-    sn: float = 0.0
+        # Normalise current Lanczos vector.
+        v = r2 / beta  # r2 == y with M=I
 
-    # Vector state — JAX arrays so matvec dispatches to the accelerator.
-    w = jnp.zeros(n, dtype=dtype)
-    w2 = jnp.zeros(n, dtype=dtype)
-    r2 = r1
-
-    itn: int = 0
-    istop: int = 0
-
-    while itn < maxiter:
-        itn += 1
-
-        s = 1.0 / beta
-        v = s * y
-
+        # New Lanczos vector: A v - beta/oldb * r1 (skip on first iteration).
         y = matvec(v)
+        # Guard against oldb==0 on iteration 1 by using a safe denominator.
+        safe_oldb = jnp.where(oldb == 0, jnp.ones_like(oldb), oldb)
+        y = jnp.where(itn > 1, y - (beta / safe_oldb) * r1, y)
 
-        if itn >= 2:
-            y = y - (beta / oldb) * r1
-
-        alfa = float(jnp.dot(v, y))
+        alfa = jnp.dot(v, y)
         y = y - (alfa / beta) * r2
         r1 = r2
-        r2 = y
-        y = r2  # M = I: psolve(r2) = r2
+        r2 = y  # y = r2 with M=I
 
         oldb = beta
-        beta = float(jnp.dot(r2, y))
-        if beta < 0:
-            raise ValueError("non-symmetric matrix")  # noqa: TRY003
-        beta = beta ** 0.5
-        tnorm2 += alfa ** 2 + oldb ** 2 + beta ** 2
+        # Clamp to avoid sqrt of tiny negatives from floating-point rounding.
+        beta = jnp.sqrt(jnp.maximum(jnp.dot(r2, r2), 0.0))
+        tnorm2 = tnorm2 + alfa ** 2 + oldb ** 2 + beta ** 2
 
-        # Apply previous plane rotation to get [delta, gbar, epsln, dbar].
+        # Apply previous Givens rotation.
         oldeps = epsln
         delta = cs * dbar + sn * alfa
-        gbar = sn * dbar - cs * alfa
+        gbar  = sn * dbar - cs * alfa
         epsln = sn * beta
-        dbar = -cs * beta
-        root = (gbar ** 2 + dbar ** 2) ** 0.5
+        dbar  = -cs * beta
+        root  = jnp.sqrt(gbar ** 2 + dbar ** 2)
 
-        # Compute next plane rotation.
-        gamma = (gbar ** 2 + beta ** 2) ** 0.5
-        gamma = max(gamma, eps)
-        cs = gbar / gamma
-        sn = beta / gamma
-        phi = cs * phibar
+        # Compute new Givens rotation.
+        gamma = jnp.maximum(jnp.sqrt(gbar ** 2 + beta ** 2), eps)
+        cs    = gbar / gamma
+        sn    = beta / gamma
+        phi   = cs * phibar
         phibar = sn * phibar
 
-        # Update x.
-        denom = 1.0 / gamma
-        w1 = w2
-        w2 = w
-        w = (v - oldeps * w1 - delta * w2) * denom
-        x = x + phi * w
+        # Update solution.
+        w_new = (v - oldeps * w2 - delta * w) / gamma
+        x     = x + phi * w_new
 
-        gmax = max(gmax, gamma)
-        gmin = min(gmin, gamma)
-        z = rhs1 / gamma
+        gmax = jnp.maximum(gmax, gamma)
+        gmin = jnp.minimum(gmin, gamma)
+        z    = rhs1 / gamma
         rhs1 = rhs2 - delta * z
         rhs2 = -epsln * z
 
-        # Estimate convergence: test1 ≈ ||r|| / (||A|| ||x||).
-        anorm = tnorm2 ** 0.5
-        ynorm = float(jnp.linalg.norm(x))
-        test1 = phibar / (anorm * ynorm) if (anorm > 0 and ynorm > 0) else float("inf")
-        test2 = root / anorm if anorm > 0 else float("inf")
-        acond = gmax / gmin if gmin > 0 else float("inf")
+        # Convergence estimates (all stay on device — no float() calls).
+        anorm = jnp.sqrt(tnorm2)
+        ynorm = jnp.linalg.norm(x)
+        inf_  = jnp.array(jnp.inf, dtype=dtype)
+        test1 = jnp.where((anorm > 0) & (ynorm > 0), phibar / (anorm * ynorm), inf_)
+        test2 = jnp.where(anorm > 0, root / anorm, inf_)
+        acond = jnp.where(gmin > 0, gmax / gmin, inf_)
 
-        if 1.0 + test2 <= 1.0:
-            istop = 2
-        if 1.0 + test1 <= 1.0:
-            istop = 1
-        if itn >= maxiter:
-            istop = 6
-        if acond >= 0.1 / eps:
-            istop = 4
-        if test2 <= rtol:
-            istop = 2
-        if test1 <= rtol:
-            istop = 1
+        # Accumulate stopping criterion (later conditions win).
+        new_istop = istop
+        new_istop = jnp.where(test1  <= rtol,       jnp.int32(1), new_istop)
+        new_istop = jnp.where(test2  <= rtol,       jnp.int32(2), new_istop)
+        new_istop = jnp.where(acond  >= 0.1 / eps,  jnp.int32(4), new_istop)
+        new_istop = jnp.where(itn   >= maxiter,     jnp.int32(6), new_istop)
+        new_istop = jnp.where(1.0 + test1 <= 1.0,  jnp.int32(1), new_istop)
+        new_istop = jnp.where(1.0 + test2 <= 1.0,  jnp.int32(2), new_istop)
 
-        if istop != 0:
-            break
+        return (x, w_new, w, r1, r2,
+                oldb, beta, dbar, epsln, phibar, rhs1, rhs2, tnorm2, gmax, gmin, cs, sn,
+                itn, new_istop)
 
-    return x, itn
-
-
-def _cg_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
-    """CG solver implemented with JAX arrays for use on accelerators.
-
-    Solves the symmetric positive-definite system ``A x = b`` using the
-    Conjugate Gradient method.  The scalar state (residual dot-products,
-    step sizes) is kept as Python floats so that convergence tests use
-    ordinary Python control flow (valid in JAX eager mode without ``jit``).
-    Only the vector state (``x``, ``r``, ``p``) is held as JAX arrays so
-    that each matvec call dispatches to the accelerator.
-
-    Parameters
-    ----------
-    matvec : callable
-        Function computing ``A @ x`` for a JAX array ``x``.  ``A`` must be
-        symmetric positive-definite.
-    b : jax.Array
-        Right-hand side vector (``float32``).
-    rtol : float
-        Convergence tolerance on the relative residual ``||r|| / ||b||``.
-        Default ``1e-5``.
-    maxiter : int, optional
-        Maximum number of iterations; defaults to ``len(b)``.
-
-    Returns
-    -------
-    x : jax.Array
-        Approximate solution vector.
-    itn : int
-        Number of iterations taken.
-    """
-    try:
-        import jax.numpy as jnp
-    except ImportError as e:
-        raise ImportError(  # noqa: TRY003
-            "JAX is required for backend='jax'; install with: "
-            "pip install fast-minimum-variance[jax]"
-        ) from e
-
-    n = b.shape[0]
-    if maxiter is None:
-        maxiter = n
-
-    x = jnp.zeros(n, dtype=b.dtype)
-    r = b
-    p = r
-
-    r_dot: float = float(jnp.dot(r, r))
-    b_norm_sq: float = r_dot  # x0 = 0, so r0 = b
-
-    if b_norm_sq == 0:
-        return x, 0
-
-    tol_sq: float = rtol ** 2 * b_norm_sq
-    itn: int = 0
-
-    while itn < maxiter:
-        itn += 1
-        ap = matvec(p)
-        p_ap: float = float(jnp.dot(p, ap))
-        if p_ap <= 0:
-            break  # operator is not positive-definite; stop safely
-        alpha: float = r_dot / p_ap
-        x = x + alpha * p
-        r = r - alpha * ap
-        r_dot_new: float = float(jnp.dot(r, r))
-        if r_dot_new <= tol_sq:
-            break
-        beta: float = r_dot_new / r_dot
-        p = r + beta * p
-        r_dot = r_dot_new
-
+    final_state = jax.lax.while_loop(cond_fun, body_fun, init_state)
+    x   = final_state[0]
+    itn = int(final_state[-2])  # single host sync at the very end
     return x, itn
 
 
@@ -691,9 +615,17 @@ class Problem:
         per iteration run on the available JAX accelerator (e.g. Apple Silicon
         via ``jax-metal``).
 
+        ``jax.scipy.sparse.linalg.cg`` uses ``jax.lax.while_loop`` internally,
+        so the entire CG solve stays on-device with **no host synchronisations
+        per iteration**.  This is what makes the JAX path faster than NumPy on
+        GPU/Metal for large problems.
+
         All arrays are converted to ``float32`` before the JAX solve because
         ``jax-metal`` has limited ``float64`` support.  Results are returned as
         NumPy arrays so the rest of the active-set loop is unaffected.
+
+        Because ``jax.scipy.sparse.linalg.cg`` does not yet expose the
+        iteration count, ``n_iters`` is always ``0`` for the JAX backend.
 
         Requires JAX to be installed::
 
@@ -706,10 +638,11 @@ class Problem:
 
         Returns:
             Tuple (w, n_iters) where w is the weight vector of shape (N,) and
-            n_iters is the total number of CG iterations across all active-set
-            steps.
+            n_iters is 0 for the JAX backend (iteration count unavailable from
+            ``jax.scipy.sparse.linalg.cg``).
         """
         jnp, xx, aa_eq, bb_eq, cc, dd, mu_jax = self._jax_arrays()  # noqa: N806
+        from jax.scipy.sparse.linalg import cg as jax_cg
         gam = float(self.gamma)
         rho = float(self.rho)
 
@@ -743,10 +676,16 @@ class Problem:
                 pv = pp @ y
                 return pp.T @ (xx.T @ (xx @ pv)) + gam * y
 
-            sol_jax, iters = _cg_jax(_matvec, rhs_jax)
+            # jax.scipy.sparse.linalg.cg uses lax.while_loop internally —
+            # the entire CG solve stays on-device with no host syncs per
+            # iteration.  The returned info is always None (JAX does not yet
+            # expose the iteration count from its CG implementation).
+            sol_jax, _ = jax_cg(_matvec, rhs_jax)
             w_jax = w0_jax + P_jax @ sol_jax
             # Return as NumPy so the active-set loop stays backend-agnostic.
-            return np.asarray(w_jax, dtype=np.float64), iters
+            # Iteration count is unavailable from jax.scipy.sparse.linalg.cg;
+            # return 0 as a sentinel (documented in solve_cg's docstring).
+            return np.asarray(w_jax, dtype=np.float64), 0
 
         w, iters = self._constraint_active_set(_solve)
         if project:
