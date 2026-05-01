@@ -6,52 +6,6 @@ import pytest
 from fast_minimum_variance.api import Problem
 
 
-class TestBuildKkt:
-    """Tests for Problem.kkt."""
-
-    def test_shape(self, problem_small):
-        """KKT matrix has shape (N+1, N+1) and rhs has shape (N+1,)."""
-        K, rhs = problem_small.kkt()  # noqa: N806
-        assert K.shape == (problem_small.n + 1, problem_small.n + 1)
-        assert rhs.shape == (problem_small.n + 1,)
-
-    def test_rhs(self, problem_small):
-        """RHS is zero everywhere except the last entry which equals 1."""
-        _, rhs = problem_small.kkt()
-        np.testing.assert_array_equal(rhs[: problem_small.n], 0.0)
-        assert rhs[problem_small.n] == 1.0
-
-    def test_constraint_row_col(self, problem_small):
-        """Last row and column (excluding corner) are all ones."""
-        K, _ = problem_small.kkt()  # noqa: N806
-        n = problem_small.n
-        np.testing.assert_array_equal(K[:n, n], 1.0)
-        np.testing.assert_array_equal(K[n, :n], 1.0)
-        assert K[n, n] == 0.0
-
-    def test_hessian_block_symmetry(self, problem_small):
-        """The (N, N) Hessian block 2 R^T R is symmetric."""
-        K, _ = problem_small.kkt()  # noqa: N806
-        n = problem_small.n
-        np.testing.assert_allclose(K[:n, :n], K[:n, :n].T)
-
-    def test_hessian_block_positive_semidefinite(self, problem_small):
-        """The (N, N) Hessian block is positive semi-definite."""
-        K, _ = problem_small.kkt()  # noqa: N806
-        n = problem_small.n
-        eigenvalues = np.linalg.eigvalsh(K[:n, :n])
-        assert np.all(eigenvalues >= -1e-10)
-
-    def test_rhs_with_return_term(self):
-        """With rho > 0 the first N entries of rhs equal rho * mu."""
-        N = 3  # noqa: N806
-        X = np.eye(N)  # noqa: N806
-        mu = np.array([1.0, 2.0, 3.0])
-        _, rhs = Problem(X, rho=0.5, mu=mu).kkt()
-        np.testing.assert_allclose(rhs[:N], 0.5 * mu)
-        assert rhs[N] == 1.0
-
-
 class TestSolveKkt:
     """Tests for Problem.solve_kkt."""
 

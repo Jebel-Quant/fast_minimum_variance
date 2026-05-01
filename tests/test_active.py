@@ -1,4 +1,4 @@
-"""Tests for Problem.constraint_active_set."""
+"""Tests for Problem._constraint_active_set."""
 
 import numpy as np
 import pytest
@@ -13,7 +13,7 @@ def _problem(C, d):  # noqa: N803
 
 
 class TestConstraintActiveSet:
-    """Tests for Problem.constraint_active_set."""
+    """Tests for Problem._constraint_active_set."""
 
     def test_first_call_receives_empty_active_mask(self):
         """solve_fn is called with all-False active mask on the first iteration."""
@@ -26,7 +26,7 @@ class TestConstraintActiveSet:
                 first_active.append(active.copy())
             return np.array([0.5, 0.3, 0.2]), 1
 
-        p.constraint_active_set(solve_fn)
+        p._constraint_active_set(solve_fn)
 
         assert not first_active[0].any()
         assert first_active[0].shape == (3,)
@@ -36,7 +36,7 @@ class TestConstraintActiveSet:
         p = _problem(-np.eye(2), np.zeros(2))
         w_expected = np.array([0.6, 0.4])
 
-        result_w, result_iters = p.constraint_active_set(lambda _: (w_expected, 7))
+        result_w, result_iters = p._constraint_active_set(lambda _: (w_expected, 7))
 
         np.testing.assert_array_equal(result_w, w_expected)
         assert result_iters == 7
@@ -51,7 +51,7 @@ class TestConstraintActiveSet:
             call_count[0] += 1
             return np.array([0.5, 0.3, 0.2]), 1
 
-        p.constraint_active_set(solve_fn)
+        p._constraint_active_set(solve_fn)
 
         assert call_count[0] == 1
 
@@ -68,7 +68,7 @@ class TestConstraintActiveSet:
             masks.append(active.copy())
             return next(responses)
 
-        p.constraint_active_set(solve_fn)
+        p._constraint_active_set(solve_fn)
 
         assert not masks[1][0]
         assert masks[1][1]
@@ -81,7 +81,7 @@ class TestConstraintActiveSet:
         w2 = np.array([0.6, 0.4])
         responses = iter([(w1, 10), (w2, 5)])
 
-        _, total_iters = p.constraint_active_set(lambda _: next(responses))
+        _, total_iters = p._constraint_active_set(lambda _: next(responses))
 
         assert total_iters == 15
 
@@ -98,7 +98,7 @@ class TestConstraintActiveSet:
             masks.append(active.copy())
             return next(responses)
 
-        p.constraint_active_set(solve_fn)
+        p._constraint_active_set(solve_fn)
 
         assert not masks[1][0]
         assert masks[1][1]
@@ -120,7 +120,7 @@ class TestConstraintActiveSet:
             call_count[0] += 1
             return next(responses)
 
-        result_w, _ = p.constraint_active_set(solve_fn)
+        result_w, _ = p._constraint_active_set(solve_fn)
 
         np.testing.assert_array_equal(result_w, w2)
         assert call_count[0] == 2
@@ -139,7 +139,7 @@ class TestConstraintActiveSet:
             captured.append(active.copy())
             return next(responses)
 
-        p.constraint_active_set(solve_fn)
+        p._constraint_active_set(solve_fn)
 
         assert captured[1][1]
         assert not captured[1][2]
@@ -158,5 +158,5 @@ class TestConstraintActiveSet:
             call_count[0] += 1
             return w_eq, 1
 
-        p.constraint_active_set(solve_fn)
+        p._constraint_active_set(solve_fn)
         assert call_count[0] == 1
