@@ -32,21 +32,20 @@ def _():
     T_dim, N_dim = R.shape  # noqa: N806
     frob_sq = np.einsum("ti,ti->", R, R)
     gamma_lw = frob_sq / (N_dim + T_dim)
-    c_lw = T_dim / (N_dim + T_dim)
-    R_lw = np.vstack([np.sqrt(c_lw) * R, np.sqrt(gamma_lw) * np.eye(N_dim)])  # noqa: N806
+    R_lw = np.vstack([R, np.sqrt(gamma_lw) * np.eye(N_dim)])  # noqa: N806
 
     def run_all(shrinkage):
         if shrinkage:
             configs = [
-                ("cvxpy", lambda: (solve_cvxpy(R_lw), None)),
-                ("kkt", lambda: (solve_kkt(R_lw), None)),
-                ("minres", lambda: solve_minres(R, c=c_lw, gamma=gamma_lw)),
-                ("cg", lambda: solve_cg(R, c=c_lw, gamma=gamma_lw)),
+                ("cvxpy", lambda: solve_cvxpy(R_lw)),
+                ("kkt", lambda: solve_kkt(R_lw)),
+                ("minres", lambda: solve_minres(R, gamma=gamma_lw)),
+                ("cg", lambda: solve_cg(R, gamma=gamma_lw)),
             ]
         else:
             configs = [
-                ("cvxpy", lambda: (solve_cvxpy(R), None)),
-                ("kkt", lambda: (solve_kkt(R), None)),
+                ("cvxpy", lambda: solve_cvxpy(R)),
+                ("kkt", lambda: solve_kkt(R)),
                 ("minres", lambda: solve_minres(R)),
                 ("cg", lambda: solve_cg(R)),
             ]
