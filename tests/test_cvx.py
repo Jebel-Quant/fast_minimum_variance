@@ -53,3 +53,33 @@ class TestSolveCvxpy:
         w, _ = Problem(X).solve_cvxpy()
         assert abs(w.sum() - 1.0) < 1e-6
         assert np.all(w >= -1e-6)
+
+    def test_gamma_branch(self):
+        """Gamma != 0 enters the ridge regularisation branch."""
+        X = np.eye(3)  # noqa: N806
+        w, _ = Problem(X, gamma=0.1).solve_cvxpy()
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_import_error_without_cvxpy(self, monkeypatch):
+        """solve_cvxpy raises ImportError when cvxpy is unavailable."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "cvxpy":
+                raise ImportError("no cvxpy")  # noqa: TRY003
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        with pytest.raises(ImportError, match="cvxpy is required"):
+            Problem(np.eye(3)).solve_cvxpy()
+
+    def test_runtime_error_on_infeasible(self):
+        """solve_cvxpy raises RuntimeError when the problem is infeasible."""
+        X = np.eye(2)  # noqa: N806
+        # C^T w <= d with d = [-1, -1] forces w[i] <= -1, which contradicts sum(w)=1.
+        C = np.eye(2)  # noqa: N806
+        d = np.array([-1.0, -1.0])
+        with pytest.raises(RuntimeError, match="CVXPY solver failed"):
+            Problem(X, C=C, d=d).solve_cvxpy()
