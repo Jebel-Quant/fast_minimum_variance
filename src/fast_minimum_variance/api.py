@@ -183,6 +183,80 @@ def _minres_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
     return x, itn
 
 
+def _cg_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
+    """CG solver implemented with JAX arrays for use on accelerators.
+
+    Solves the symmetric positive-definite system ``A x = b`` using the
+    Conjugate Gradient method.  The scalar state (residual dot-products,
+    step sizes) is kept as Python floats so that convergence tests use
+    ordinary Python control flow (valid in JAX eager mode without ``jit``).
+    Only the vector state (``x``, ``r``, ``p``) is held as JAX arrays so
+    that each matvec call dispatches to the accelerator.
+
+    Parameters
+    ----------
+    matvec : callable
+        Function computing ``A @ x`` for a JAX array ``x``.  ``A`` must be
+        symmetric positive-definite.
+    b : jax.Array
+        Right-hand side vector (``float32``).
+    rtol : float
+        Convergence tolerance on the relative residual ``||r|| / ||b||``.
+        Default ``1e-5``.
+    maxiter : int, optional
+        Maximum number of iterations; defaults to ``len(b)``.
+
+    Returns
+    -------
+    x : jax.Array
+        Approximate solution vector.
+    itn : int
+        Number of iterations taken.
+    """
+    try:
+        import jax.numpy as jnp
+    except ImportError as e:
+        raise ImportError(  # noqa: TRY003
+            "JAX is required for backend='jax'; install with: "
+            "pip install fast-minimum-variance[jax]"
+        ) from e
+
+    n = b.shape[0]
+    if maxiter is None:
+        maxiter = n
+
+    x = jnp.zeros(n, dtype=b.dtype)
+    r = b
+    p = r
+
+    r_dot: float = float(jnp.dot(r, r))
+    b_norm_sq: float = r_dot  # x0 = 0, so r0 = b
+
+    if b_norm_sq == 0:
+        return x, 0
+
+    tol_sq: float = rtol ** 2 * b_norm_sq
+    itn: int = 0
+
+    while itn < maxiter:
+        itn += 1
+        ap = matvec(p)
+        p_ap: float = float(jnp.dot(p, ap))
+        if p_ap <= 0:
+            break  # operator is not positive-definite; stop safely
+        alpha: float = r_dot / p_ap
+        x = x + alpha * p
+        r = r - alpha * ap
+        r_dot_new: float = float(jnp.dot(r, r))
+        if r_dot_new <= tol_sq:
+            break
+        beta: float = r_dot_new / r_dot
+        p = r + beta * p
+        r_dot = r_dot_new
+
+    return x, itn
+
+
 @dataclass(frozen=True)
 class Problem:
     """Mean-variance portfolio problem specification and solver interface.
@@ -622,7 +696,6 @@ class Problem:
         """
         try:
             import jax.numpy as jnp
-            from jax.scipy.sparse.linalg import cg as jax_cg
         except ImportError as e:
             raise ImportError(  # noqa: TRY003
                 "JAX is required for backend='jax'; install with: "
@@ -669,10 +742,10 @@ class Problem:
                 pv = pp @ y
                 return pp.T @ (xx.T @ (xx @ pv)) + gam * y
 
-            sol_jax, _ = jax_cg(_matvec, rhs_jax)
+            sol_jax, iters = _cg_jax(_matvec, rhs_jax)
             w_jax = w0_jax + P_jax @ sol_jax
             # Return as NumPy so the active-set loop stays backend-agnostic.
-            return np.asarray(w_jax, dtype=np.float64), 1
+            return np.asarray(w_jax, dtype=np.float64), iters
 
         w, iters = self._constraint_active_set(_solve)
         if project:
