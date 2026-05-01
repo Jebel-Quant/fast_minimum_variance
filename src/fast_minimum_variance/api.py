@@ -13,6 +13,176 @@ def clip_and_renormalize(w: np.ndarray) -> np.ndarray:
     return w
 
 
+def _minres_jax(matvec, b, *, rtol: float = 1e-5, maxiter: int | None = None):
+    """MINRES solver implemented with JAX arrays for use on accelerators.
+
+    Solves the symmetric (possibly indefinite) linear system ``A x = b`` using
+    the Minimum Residual method.  The implementation follows the algorithm of
+    Paige and Saunders (1975) and is structured after
+    ``scipy.sparse.linalg.minres``, adapted to use JAX primitives so that the
+    matrix-vector product ``matvec`` can run on a JAX accelerator backend.
+
+    The scalar Lanczos recurrence variables are kept as Python floats so that
+    convergence tests use ordinary Python control flow (valid in JAX eager
+    mode without ``jit``).  Only the vector state (``x``, ``w``, ``r1``,
+    ``r2``, ``v``, ``y``) is held as JAX arrays so that each matvec call
+    dispatches to the accelerator.
+
+    No preconditioner and no shift are applied (``M = I``, ``shift = 0``).
+
+    Parameters
+    ----------
+    matvec : callable
+        Function computing ``A @ x`` for a JAX array ``x``.
+    b : jax.Array
+        Right-hand side vector (``float32``).
+    rtol : float
+        Relative residual tolerance for convergence.  Default ``1e-5``.
+    maxiter : int, optional
+        Maximum number of iterations; defaults to ``5 * len(b)``.
+
+    Returns
+    -------
+    x : jax.Array
+        Approximate solution vector.
+    itn : int
+        Number of iterations taken.
+    """
+    try:
+        import jax.numpy as jnp
+    except ImportError as e:
+        raise ImportError(  # noqa: TRY003
+            "JAX is required for backend='jax'; install with: "
+            "pip install fast-minimum-variance[jax]"
+        ) from e
+
+    n = b.shape[0]
+    if maxiter is None:
+        maxiter = 5 * n
+
+    dtype = b.dtype
+    eps = float(jnp.finfo(dtype).eps)
+
+    x = jnp.zeros(n, dtype=dtype)
+
+    # With identity preconditioner (M = I): y = r1 = b.
+    r1 = b
+    y = r1
+
+    beta1 = float(jnp.dot(r1, y))
+    if beta1 < 0:
+        raise ValueError("indefinite preconditioner")  # noqa: TRY003
+    if beta1 == 0:
+        return x, 0
+
+    bnorm = float(jnp.linalg.norm(b))
+    if bnorm == 0:
+        return b, 0
+
+    beta1 = beta1 ** 0.5
+
+    # Scalar Lanczos state — kept as Python floats so that convergence
+    # comparisons use ordinary Python control flow (valid in eager JAX).
+    oldb: float = 0.0
+    beta: float = beta1
+    dbar: float = 0.0
+    epsln: float = 0.0
+    phibar: float = beta1
+    rhs1: float = beta1
+    rhs2: float = 0.0
+    tnorm2: float = 0.0
+    gmax: float = 0.0
+    gmin: float = float("inf")
+    cs: float = -1.0
+    sn: float = 0.0
+
+    # Vector state — JAX arrays so matvec dispatches to the accelerator.
+    w = jnp.zeros(n, dtype=dtype)
+    w2 = jnp.zeros(n, dtype=dtype)
+    r2 = r1
+
+    itn: int = 0
+    istop: int = 0
+
+    while itn < maxiter:
+        itn += 1
+
+        s = 1.0 / beta
+        v = s * y
+
+        y = matvec(v)
+
+        if itn >= 2:
+            y = y - (beta / oldb) * r1
+
+        alfa = float(jnp.dot(v, y))
+        y = y - (alfa / beta) * r2
+        r1 = r2
+        r2 = y
+        y = r2  # M = I: psolve(r2) = r2
+
+        oldb = beta
+        beta = float(jnp.dot(r2, y))
+        if beta < 0:
+            raise ValueError("non-symmetric matrix")  # noqa: TRY003
+        beta = beta ** 0.5
+        tnorm2 += alfa ** 2 + oldb ** 2 + beta ** 2
+
+        # Apply previous plane rotation to get [delta, gbar, epsln, dbar].
+        oldeps = epsln
+        delta = cs * dbar + sn * alfa
+        gbar = sn * dbar - cs * alfa
+        epsln = sn * beta
+        dbar = -cs * beta
+        root = (gbar ** 2 + dbar ** 2) ** 0.5
+
+        # Compute next plane rotation.
+        gamma = (gbar ** 2 + beta ** 2) ** 0.5
+        gamma = max(gamma, eps)
+        cs = gbar / gamma
+        sn = beta / gamma
+        phi = cs * phibar
+        phibar = sn * phibar
+
+        # Update x.
+        denom = 1.0 / gamma
+        w1 = w2
+        w2 = w
+        w = (v - oldeps * w1 - delta * w2) * denom
+        x = x + phi * w
+
+        gmax = max(gmax, gamma)
+        gmin = min(gmin, gamma)
+        z = rhs1 / gamma
+        rhs1 = rhs2 - delta * z
+        rhs2 = -epsln * z
+
+        # Estimate convergence: test1 ≈ ||r|| / (||A|| ||x||).
+        anorm = tnorm2 ** 0.5
+        ynorm = float(jnp.linalg.norm(x))
+        test1 = phibar / (anorm * ynorm) if (anorm > 0 and ynorm > 0) else float("inf")
+        test2 = root / anorm if anorm > 0 else float("inf")
+        acond = gmax / gmin if gmin > 0 else float("inf")
+
+        if 1.0 + test2 <= 1.0:
+            istop = 2
+        if 1.0 + test1 <= 1.0:
+            istop = 1
+        if itn >= maxiter:
+            istop = 6
+        if acond >= 0.1 / eps:
+            istop = 4
+        if test2 <= rtol:
+            istop = 2
+        if test1 <= rtol:
+            istop = 1
+
+        if istop != 0:
+            break
+
+    return x, itn
+
+
 @dataclass(frozen=True)
 class Problem:
     """Mean-variance portfolio problem specification and solver interface.
@@ -237,6 +407,11 @@ class Problem:
             gamma    = frob_sq / (N + T)
             w, iters = Problem(X_scaled, gamma=gamma).solve_minres()
 
+        When ``backend='jax'`` this method dispatches to ``_solve_minres_jax``,
+        which runs the matvec kernel on JAX (e.g. Apple Silicon via
+        ``jax-metal``).  The MINRES algorithm is ported directly from SciPy
+        because ``jax.scipy.sparse.linalg`` does not include MINRES.
+
         Args:
             project: If True (default), clip weights to non-negative and renormalize
                      to sum to one after solving.  Only correct for the default
@@ -262,6 +437,8 @@ class Problem:
             >>> iters > 0
             True
         """
+        if self.backend == "jax":
+            return self._solve_minres_jax(project=project)
 
         def _solve(active):
             """Solve the MINRES saddle-point system for the current active set."""
@@ -271,6 +448,78 @@ class Problem:
             iters = [0]
             sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
             return sol[: self.n], iters[0]
+
+        w, iters = self._constraint_active_set(_solve)
+        if project:
+            w = clip_and_renormalize(w)
+        return w, iters
+
+    def _solve_minres_jax(self, *, project: bool = True):
+        """Solve via JAX-accelerated MINRES on the KKT saddle-point system.
+
+        Dispatched from ``solve_minres`` when ``backend='jax'``.  Because
+        ``jax.scipy.sparse.linalg`` does not include MINRES, the algorithm is
+        ported directly from SciPy (Paige & Saunders 1975) via the module-level
+        ``_minres_jax`` helper.  The KKT matvec runs on the JAX accelerator;
+        the scalar Lanczos recurrence stays in Python for minimal overhead.
+
+        All arrays are converted to ``float32`` before the JAX solve because
+        ``jax-metal`` has limited ``float64`` support.  Results are returned as
+        NumPy arrays so the active-set loop is unaffected.
+
+        Requires JAX to be installed::
+
+            pip install fast-minimum-variance[jax]
+            pip install jax-metal          # Apple Silicon only
+
+        Args:
+            project: If True (default), clip weights to non-negative and
+                     renormalize to sum to one after solving.
+
+        Returns:
+            Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+            n_iters is the total number of MINRES iterations across all
+            active-set steps.
+        """
+        try:
+            import jax.numpy as jnp
+        except ImportError as e:
+            raise ImportError(  # noqa: TRY003
+                "JAX is required for backend='jax'; install with: "
+                "pip install fast-minimum-variance[jax]"
+            ) from e
+
+        # Convert to float32 — jax-metal has limited float64 support.
+        xx = jnp.array(self.X, dtype=jnp.float32)  # noqa: N806
+        aa_eq = jnp.array(self.A, dtype=jnp.float32)
+        bb_eq = jnp.array(self.b, dtype=jnp.float32)
+        cc = jnp.array(self.C, dtype=jnp.float32)
+        dd = jnp.array(self.d, dtype=jnp.float32)
+        mu_jax = jnp.array(self.mu, dtype=jnp.float32) if self.mu is not None else None
+        gam = float(self.gamma)
+        rho = float(self.rho)
+        na = self.n
+
+        def _solve(active):
+            """Solve the JAX MINRES KKT subproblem for the current active set."""
+            active_np = np.asarray(active)
+            aa_np = np.hstack([np.asarray(aa_eq), np.asarray(cc)[:, active_np]])
+            ma = aa_np.shape[1]
+            aa_jax = jnp.array(aa_np, dtype=jnp.float32)  # noqa: N806
+
+            rhs = jnp.zeros(na + ma, dtype=jnp.float32)
+            if rho != 0.0 and mu_jax is not None:
+                rhs = rhs.at[:na].set(rho * mu_jax)
+            b_ext = jnp.concatenate([bb_eq, dd[active_np]])
+            rhs = rhs.at[na:].set(b_ext)
+
+            def _matvec(x, xx=xx, aa=aa_jax, gam=gam, na=na):
+                out_top = 2.0 * (xx.T @ (xx @ x[:na]) + gam * x[:na]) + aa @ x[na:]
+                out_bot = aa.T @ x[:na]
+                return jnp.concatenate([out_top, out_bot])
+
+            sol, iters = _minres_jax(_matvec, rhs)
+            return np.asarray(sol[:na], dtype=np.float64), iters
 
         w, iters = self._constraint_active_set(_solve)
         if project:
