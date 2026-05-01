@@ -84,11 +84,11 @@ class Problem:
         return self.X.shape[1]
 
     @property
-    def m(self) -> int:
+    def _m(self) -> int:
         """Number of equality constraints."""
         return self.A.shape[1]
 
-    def kkt(self, active=None):
+    def _kkt(self, active=None):
         """Build the (N+m) x (N+m) KKT saddle-point system, optionally pinning active inequalities.
 
         Args:
@@ -129,7 +129,7 @@ class Problem:
 
         return K, rhs
 
-    def kkt_operator(self, active=None):
+    def _kkt_operator(self, active=None):
         """Build the matrix-free KKT saddle-point operator and RHS for MINRES.
 
         Returns a ``LinearOperator`` that applies the (N+m) x (N+m) KKT system
@@ -171,7 +171,7 @@ class Problem:
 
         return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg]
 
-    def null_space_operator(self, active=None):
+    def _null_space_operator(self, active=None):
         """Build the reduced null-space operator and RHS for CG.
 
         Computes a ``LinearOperator`` for ``P^T (X^T X + gamma I) P``, the
@@ -239,7 +239,7 @@ class Problem:
         op = LinearOperator(shape=(n_free, n_free), matvec=_matvec)  # type: ignore[call-arg]
         return op, rhs, w0, P
 
-    def constraint_active_set(self, solve_fn):
+    def _constraint_active_set(self, solve_fn):
         """Run the constraint active-set loop, promoting violated inequalities to equalities.
 
         Starts with no inequality constraints active and iteratively adds violated
@@ -313,7 +313,7 @@ class Problem:
             """Solve the KKT system for the current active set."""
             # Pin active inequalities as equalities by appending their columns to A.
             # When active is empty, hstack returns A unchanged (C[:,active] is (n, 0)).
-            K, rhs = self.kkt(active=active)  # noqa: N806
+            K, rhs = self._kkt(active=active)  # noqa: N806
             # np.linalg.solve returns the full KKT solution [w; lambda], where the
             # first N entries are the primal weights and the remainder are the dual
             # Lagrange multipliers.  Only w is needed here.
@@ -322,7 +322,7 @@ class Problem:
             # linear-algebra step, not an iterative method.
             return w, 1
 
-        w, iters = self.constraint_active_set(fn)
+        w, iters = self._constraint_active_set(fn)
         if project:
             w = clip_and_renormalize(w)
         return w, iters
@@ -383,7 +383,7 @@ class Problem:
             # MINRES (not CG) is required here because the KKT saddle-point matrix
             # is symmetric but indefinite: the zero bottom-right block causes negative
             # eigenvalues, ruling out CG which requires positive definiteness.
-            kkt, rhs = self.kkt_operator(active)
+            kkt, rhs = self._kkt_operator(active)
             # Use a mutable list to count iterations from inside the callback.
             # A plain int cannot be rebound in the enclosing scope via the callback;
             # mutating a list element sidesteps that restriction without `nonlocal`.
@@ -393,7 +393,7 @@ class Problem:
             # and return only the primal weights.
             return sol[: self.n], iters[0]
 
-        w, iters = self.constraint_active_set(_solve)
+        w, iters = self._constraint_active_set(_solve)
         if project:
             w = clip_and_renormalize(w)
         return w, iters
@@ -447,7 +447,7 @@ class Problem:
 
         def _solve(active):
             """Solve the CG null-space subproblem for the current active set."""
-            op, rhs, w0, P = self.null_space_operator(active)  # noqa: N806
+            op, rhs, w0, P = self._null_space_operator(active)  # noqa: N806
             if op is None:
                 # All free directions are pinned by the active constraints; the
                 # constraints uniquely determine w = w0 with no further optimisation.
@@ -461,7 +461,7 @@ class Problem:
             # constraint null space that minimises the objective.
             return w0 + P @ sol, iters[0]
 
-        w, iters = self.constraint_active_set(_solve)
+        w, iters = self._constraint_active_set(_solve)
         if project:
             w = clip_and_renormalize(w)
         return w, iters
