@@ -17,6 +17,9 @@ dependencies = [
 convex = [
     "cvxpy>=1.0",
 ]
+jax = [
+    "jax>=0.4",
+]
 
 [dependency-groups]
 dev = [
