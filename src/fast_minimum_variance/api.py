@@ -297,9 +297,9 @@ class Problem:
             n_iters is the number of active-set steps taken.
 
         Examples:
+            >>> import numpy as np
             >>> from fast_minimum_variance.api import Problem
-            >>> from fast_minimum_variance.random import make_returns
-            >>> X = make_returns(100, 5, seed=0)
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_kkt()
             >>> w.shape
             (5,)
@@ -364,9 +364,9 @@ class Problem:
             steps.
 
         Examples:
+            >>> import numpy as np
             >>> from fast_minimum_variance.api import Problem
-            >>> from fast_minimum_variance.random import make_returns
-            >>> X = make_returns(100, 5, seed=0)
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_minres()
             >>> w.shape
             (5,)
@@ -431,9 +431,9 @@ class Problem:
             steps.
 
         Examples:
+            >>> import numpy as np
             >>> from fast_minimum_variance.api import Problem
-            >>> from fast_minimum_variance.random import make_returns
-            >>> X = make_returns(100, 5, seed=0)
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_cg()
             >>> w.shape
             (5,)
@@ -488,9 +488,9 @@ class Problem:
             n_iters is the number of interior-point iterations reported by CLARABEL.
 
         Examples:
+            >>> import numpy as np
             >>> from fast_minimum_variance.api import Problem
-            >>> from fast_minimum_variance.random import make_returns
-            >>> X = make_returns(100, 5, seed=0)
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_cvxpy()
             >>> w.shape
             (5,)

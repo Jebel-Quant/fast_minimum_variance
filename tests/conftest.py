@@ -4,10 +4,15 @@ Security note: Test code uses pytest assertions (S101), which are intentional
 and safe in the test context. No subprocess calls (S603/S607) are used here.
 """
 
+import numpy as np
 import pytest
 
 from fast_minimum_variance.api import Problem
-from fast_minimum_variance.random import make_returns
+
+
+def make_returns(T, N, seed=42):  # noqa: N803
+    """Generate a T x N matrix of i.i.d. standard normal returns."""
+    return np.random.default_rng(seed).standard_normal((T, N))
 
 
 @pytest.fixture(scope="session")
