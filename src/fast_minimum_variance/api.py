@@ -326,6 +326,35 @@ class Problem:
         """Number of equality constraints."""
         return self.A.shape[1]
 
+    def _jax_arrays(self):
+        """Import JAX and return all problem arrays as ``float32`` JAX arrays.
+
+        Centralises the lazy JAX import and the ``float32`` conversion that
+        both ``_solve_cg_jax`` and ``_solve_minres_jax`` need.  Raises a
+        clear ``ImportError`` if JAX is not installed.
+
+        Returns:
+            Tuple ``(jnp, xx, aa_eq, bb_eq, cc, dd, mu_jax)`` where each
+            array is a ``float32`` JAX array (``mu_jax`` is ``None`` when
+            ``self.mu`` is ``None``).
+        """
+        try:
+            import jax.numpy as jnp
+        except ImportError as e:
+            raise ImportError(  # noqa: TRY003
+                "JAX is required for backend='jax'; install with: "
+                "pip install fast-minimum-variance[jax]"
+            ) from e
+
+        # Convert to float32 — jax-metal has limited float64 support.
+        xx = jnp.array(self.X, dtype=jnp.float32)  # noqa: N806
+        aa_eq = jnp.array(self.A, dtype=jnp.float32)
+        bb_eq = jnp.array(self.b, dtype=jnp.float32)
+        cc = jnp.array(self.C, dtype=jnp.float32)
+        dd = jnp.array(self.d, dtype=jnp.float32)
+        mu_jax = jnp.array(self.mu, dtype=jnp.float32) if self.mu is not None else None
+        return jnp, xx, aa_eq, bb_eq, cc, dd, mu_jax
+
     def _kkt(self, active=None):
         """Build the (N+m) x (N+m) KKT saddle-point system."""
         if active is None:
@@ -555,21 +584,7 @@ class Problem:
             n_iters is the total number of MINRES iterations across all
             active-set steps.
         """
-        try:
-            import jax.numpy as jnp
-        except ImportError as e:
-            raise ImportError(  # noqa: TRY003
-                "JAX is required for backend='jax'; install with: "
-                "pip install fast-minimum-variance[jax]"
-            ) from e
-
-        # Convert to float32 — jax-metal has limited float64 support.
-        xx = jnp.array(self.X, dtype=jnp.float32)  # noqa: N806
-        aa_eq = jnp.array(self.A, dtype=jnp.float32)
-        bb_eq = jnp.array(self.b, dtype=jnp.float32)
-        cc = jnp.array(self.C, dtype=jnp.float32)
-        dd = jnp.array(self.d, dtype=jnp.float32)
-        mu_jax = jnp.array(self.mu, dtype=jnp.float32) if self.mu is not None else None
+        jnp, xx, aa_eq, bb_eq, cc, dd, mu_jax = self._jax_arrays()  # noqa: N806
         gam = float(self.gamma)
         rho = float(self.rho)
         na = self.n
@@ -694,21 +709,7 @@ class Problem:
             n_iters is the total number of CG iterations across all active-set
             steps.
         """
-        try:
-            import jax.numpy as jnp
-        except ImportError as e:
-            raise ImportError(  # noqa: TRY003
-                "JAX is required for backend='jax'; install with: "
-                "pip install fast-minimum-variance[jax]"
-            ) from e
-
-        # Convert to float32 — jax-metal has limited float64 support.
-        xx = jnp.array(self.X, dtype=jnp.float32)  # noqa: N806
-        aa_eq = jnp.array(self.A, dtype=jnp.float32)
-        bb_eq = jnp.array(self.b, dtype=jnp.float32)
-        cc = jnp.array(self.C, dtype=jnp.float32)
-        dd = jnp.array(self.d, dtype=jnp.float32)
-        mu_jax = jnp.array(self.mu, dtype=jnp.float32) if self.mu is not None else None
+        jnp, xx, aa_eq, bb_eq, cc, dd, mu_jax = self._jax_arrays()  # noqa: N806
         gam = float(self.gamma)
         rho = float(self.rho)
 
