@@ -14,7 +14,7 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    from fast_minimum_variance.api import API
+    from fast_minimum_variance.api import Problem
     from fast_minimum_variance.cvx import solve_cvxpy
     from fast_minimum_variance.kkt import solve_kkt
     from fast_minimum_variance.krylov import solve_cg, solve_minres
@@ -38,17 +38,17 @@ def _():
     def run_all(shrinkage):
         if shrinkage:
             configs = [
-                ("cvxpy", lambda: solve_cvxpy(API(X=R_lw))),
-                ("kkt", lambda: solve_kkt(API(X=R_lw))),
-                ("minres", lambda: solve_minres(API(X=R, gamma=gamma_lw))),
-                ("cg", lambda: solve_cg(API(X=R, gamma=gamma_lw))),
+                ("cvxpy", lambda: solve_cvxpy(Problem(X=R_lw))),
+                ("kkt", lambda: solve_kkt(Problem(X=R_lw))),
+                ("minres", lambda: solve_minres(Problem(X=R, gamma=gamma_lw))),
+                ("cg", lambda: solve_cg(Problem(X=R, gamma=gamma_lw))),
             ]
         else:
             configs = [
-                ("cvxpy", lambda: solve_cvxpy(API(X=R))),
-                ("kkt", lambda: solve_kkt(API(X=R))),
-                ("minres", lambda: solve_minres(API(X=R))),
-                ("cg", lambda: solve_cg(API(X=R))),
+                ("cvxpy", lambda: solve_cvxpy(Problem(X=R))),
+                ("kkt", lambda: solve_kkt(Problem(X=R))),
+                ("minres", lambda: solve_minres(Problem(X=R))),
+                ("cg", lambda: solve_cg(Problem(X=R))),
             ]
         out = {}
         for name, fn in configs:
