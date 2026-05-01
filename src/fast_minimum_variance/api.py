@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.sparse.linalg import LinearOperator
+from scipy.sparse.linalg import LinearOperator, cg, minres
 
 
 def clip_and_renormalize(w: np.ndarray) -> np.ndarray:
@@ -21,10 +21,10 @@ def clip_and_renormalize(w: np.ndarray) -> np.ndarray:
 
 
 @dataclass(frozen=True)
-class API:
-    """Dataclass encoding the mean-variance portfolio problem.
+class Problem:
+    """Mean-variance portfolio problem specification and solver interface.
 
-    Solves::
+    Encodes the optimization problem::
 
         min  ||X w||^2 + gamma * ||w||^2 - rho * mu^T w
         s.t. A^T w  = b      (equality constraints)
@@ -40,8 +40,15 @@ class API:
     * ``A = ones(N, 1)``, ``b = [1]``  — budget constraint: sum(w) = 1
     * ``C = -I``,         ``d = 0``    — long-only: -w <= 0, i.e. w >= 0
 
-    All solvers (KKT, MINRES, CG, CVXPY) accept an ``API`` instance and
-    delegate constraint handling to :meth:`constraint_active_set`.
+    Solvers are available as methods::
+
+        w, iters = Problem(X).solve_kkt()
+        w, iters = Problem(X).solve_minres()
+        w, iters = Problem(X).solve_cg()
+        w, iters = Problem(X).solve_cvxpy()   # requires fast-minimum-variance[convex]
+
+    Each returns ``(w, n_iters)`` where ``w`` is the weight vector and
+    ``n_iters`` is the iteration count (1 for the direct KKT solver).
     """
 
     X: np.ndarray
@@ -271,3 +278,261 @@ class API:
             active[~active] |= violations > 1e-10
 
         return w, total_iters
+
+    def solve_kkt(self, *, project: bool = True):
+        """Solve via the direct KKT system with active-set method.
+
+        Iteratively promotes violated inequality constraints to equalities until
+        all inactive constraints are satisfied, solving the KKT system exactly at
+        each iteration via ``numpy.linalg.solve``.
+
+        Args:
+            project: If True (default), clip weights to non-negative and renormalize
+                     to sum to one after solving.  Only correct for the default
+                     long-only minimum-variance problem; set to False when using
+                     custom constraints.
+
+        Returns:
+            Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+            n_iters is the number of active-set steps taken.
+
+        Examples:
+            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance.random import make_returns
+            >>> X = make_returns(100, 5, seed=0)
+            >>> w, iters = Problem(X).solve_kkt()
+            >>> w.shape
+            (5,)
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+
+        def fn(active):
+            """Solve the KKT system for the current active set."""
+            # Pin active inequalities as equalities by appending their columns to A.
+            # When active is empty, hstack returns A unchanged (C[:,active] is (n, 0)).
+            K, rhs = self.kkt(active=active)  # noqa: N806
+            # np.linalg.solve returns the full KKT solution [w; lambda], where the
+            # first N entries are the primal weights and the remainder are the dual
+            # Lagrange multipliers.  Only w is needed here.
+            w = np.linalg.solve(K, rhs)[: self.n]
+            # Return 1 as the iteration count: the direct KKT solve is a single
+            # linear-algebra step, not an iterative method.
+            return w, 1
+
+        w, iters = self.constraint_active_set(fn)
+        if project:
+            w = clip_and_renormalize(w)
+        return w, iters
+
+    def solve_minres(self, *, project: bool = True):
+        """Solve via MINRES on the KKT saddle-point system with active-set method.
+
+        Iteratively promotes violated inequality constraints to equalities.  At each
+        outer iteration the KKT saddle-point system for all assets with the currently
+        active constraints pinned as equalities
+
+            [ 2(X^T X + gamma I)   A_ext ] [ w   ]   [ rho * mu ]
+            [ A_ext^T               0    ] [ λ   ] = [ b_ext    ]
+
+        is solved matrix-free via MINRES, where ``A_ext = [A, C[:, active]]`` and
+        ``b_ext = [b, d[active]]``.  No explicit matrix is ever formed.
+
+        With the defaults (``A = ones``, ``b = [1]``, ``C = -I``, ``d = 0``) this
+        recovers the long-only minimum variance solver of the companion paper.
+
+        To apply Ledoit-Wolf shrinkage, pre-scale the return matrix and set gamma::
+
+            T, N     = X.shape
+            frob_sq  = (X * X).sum()
+            alpha    = N / (N + T)
+            X_scaled = np.sqrt(1.0 - alpha) * X
+            gamma    = frob_sq / (N + T)
+            w, iters = Problem(X_scaled, gamma=gamma).solve_minres()
+
+        Args:
+            project: If True (default), clip weights to non-negative and renormalize
+                     to sum to one after solving.  Only correct for the default
+                     long-only minimum-variance problem; set to False when using
+                     custom constraints.
+
+        Returns:
+            Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+            n_iters is the total number of MINRES iterations across all active-set
+            steps.
+
+        Examples:
+            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance.random import make_returns
+            >>> X = make_returns(100, 5, seed=0)
+            >>> w, iters = Problem(X).solve_minres()
+            >>> w.shape
+            (5,)
+            >>> float(round(w.sum(), 6))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+            >>> iters > 0
+            True
+        """
+
+        def _solve(active):
+            """Solve the MINRES saddle-point system for the current active set."""
+            # MINRES (not CG) is required here because the KKT saddle-point matrix
+            # is symmetric but indefinite: the zero bottom-right block causes negative
+            # eigenvalues, ruling out CG which requires positive definiteness.
+            kkt, rhs = self.kkt_operator(active)
+            # Use a mutable list to count iterations from inside the callback.
+            # A plain int cannot be rebound in the enclosing scope via the callback;
+            # mutating a list element sidesteps that restriction without `nonlocal`.
+            iters = [0]
+            sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
+            # The solution vector is [w; lambda].  Discard the dual part (lambda)
+            # and return only the primal weights.
+            return sol[: self.n], iters[0]
+
+        w, iters = self.constraint_active_set(_solve)
+        if project:
+            w = clip_and_renormalize(w)
+        return w, iters
+
+    def solve_cg(self, *, project: bool = True):
+        """Solve via CG in the constraint-reduced null space with active-set method.
+
+        At each active-set iteration the equality-constrained subproblem (with
+        currently active inequalities pinned as equalities) is solved by projecting
+        onto the null space of ``A_ext^T`` via QR factorisation, then applying CG
+        to the reduced positive-definite system
+
+            ((X P)^T (X P) + gamma I) v = -P^T (X^T X w0 + gamma w0 - (rho/2) mu)
+
+        where ``A_ext = [A, C[:, active]]``, ``P`` is an orthonormal null-space
+        basis for ``A_ext^T``, and ``w0`` is the minimum-norm particular solution
+        of ``A_ext^T w = b_ext``.  The full weight vector is recovered as
+        ``w = w0 + P v``.
+
+        The reduced operator ``P^T(X^T X + gamma I)P`` is SPD, so CG converges
+        in at most ``n_free`` iterations and benefits from any spectral clustering
+        induced by shrinkage (larger ``gamma`` compresses the eigenvalue spread).
+
+        See ``solve_minres`` for the Ledoit-Wolf shrinkage recipe.
+
+        Args:
+            project: If True (default), clip weights to non-negative and renormalize
+                     to sum to one after solving.  Only correct for the default
+                     long-only minimum-variance problem; set to False when using
+                     custom constraints.
+
+        Returns:
+            Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+            n_iters is the total number of CG iterations across all active-set
+            steps.
+
+        Examples:
+            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance.random import make_returns
+            >>> X = make_returns(100, 5, seed=0)
+            >>> w, iters = Problem(X).solve_cg()
+            >>> w.shape
+            (5,)
+            >>> float(round(w.sum(), 6))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+            >>> iters > 0
+            True
+        """
+
+        def _solve(active):
+            """Solve the CG null-space subproblem for the current active set."""
+            op, rhs, w0, P = self.null_space_operator(active)  # noqa: N806
+            if op is None:
+                # All free directions are pinned by the active constraints; the
+                # constraints uniquely determine w = w0 with no further optimisation.
+                return w0, 0
+            # Same mutable-list trick as in solve_minres: the callback cannot rebind
+            # a plain int from the enclosing scope.
+            iters = [0]
+            sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
+            # Reconstruct the full weight vector: w0 is the particular solution that
+            # satisfies the constraints exactly, and P @ sol is the correction in the
+            # constraint null space that minimises the objective.
+            return w0 + P @ sol, iters[0]
+
+        w, iters = self.constraint_active_set(_solve)
+        if project:
+            w = clip_and_renormalize(w)
+        return w, iters
+
+    def solve_cvxpy(self, *, project: bool = True):
+        """Solve via CVXPY (reference interior-point solver).
+
+        Solves the problem using CLARABEL via CVXPY as a reference implementation.
+        Useful for validating the KKT and Krylov solvers, but significantly slower
+        for large N.
+
+        Requires the ``convex`` extra::
+
+            pip install fast-minimum-variance[convex]
+
+        Args:
+            project: If True (default), clip weights to non-negative and renormalize
+                     to sum to one after solving.  Only correct for the default
+                     long-only minimum-variance problem; set to False when using
+                     custom constraints.
+
+        Returns:
+            Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+            n_iters is the number of interior-point iterations reported by CLARABEL.
+
+        Examples:
+            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance.random import make_returns
+            >>> X = make_returns(100, 5, seed=0)
+            >>> w, iters = Problem(X).solve_cvxpy()
+            >>> w.shape
+            (5,)
+            >>> float(round(w.sum(), 6))
+            1.0
+            >>> bool((w >= -1e-6).all())
+            True
+        """
+        try:
+            import cvxpy as cp
+        except ImportError as e:
+            raise ImportError(  # noqa: TRY003
+                "cvxpy is required for solve_cvxpy; install with: pip install fast-minimum-variance[convex]"
+            ) from e
+
+        w = cp.Variable(self.n)
+
+        # sum_squares(X @ w) = ||X w||^2 = w^T (X^T X) w.
+        # CVXPY recognises this as a quadratic form and passes it to CLARABEL as a
+        # second-order cone constraint without ever forming X^T X explicitly.
+        objective = cp.sum_squares(self.X @ w)
+
+        # Ridge / Ledoit-Wolf regularization: add gamma * ||w||^2.
+        if self.gamma != 0.0:
+            objective = objective + self.gamma * cp.sum_squares(w)
+
+        # Subtract the return term when rho > 0 (Markowitz mean-variance tilt).
+        if self.rho != 0.0:
+            objective = objective - self.rho * (self.mu @ w)
+
+        constraints = [self.A.T @ w == self.b, self.C.T @ w <= self.d]
+
+        problem = cp.Problem(cp.Minimize(objective), constraints)
+        # CLARABEL is an interior-point solver for second-order cone programs.
+        problem.solve(solver=cp.CLARABEL)
+
+        result = w.value
+        if result is None:
+            raise RuntimeError("CVXPY solver failed to find a solution")  # noqa: TRY003
+        if project:
+            result = clip_and_renormalize(result)
+        # solver_stats.num_iters is the interior-point iteration count reported by
+        # CLARABEL; it is analogous to the Krylov iteration counts returned by the
+        # other solvers, enabling a fair comparison.
+        return result, problem.solver_stats.num_iters

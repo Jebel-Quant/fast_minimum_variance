@@ -6,7 +6,7 @@ and safe in the test context. No subprocess calls (S603/S607) are used here.
 
 import pytest
 
-from fast_minimum_variance.api import API
+from fast_minimum_variance.api import Problem
 from fast_minimum_variance.random import make_returns
 
 
@@ -23,12 +23,12 @@ def X_small():  # noqa: N802
 
 
 @pytest.fixture(scope="session")
-def api(X):  # noqa: N803
-    """API dataclass wrapping the session-scoped return matrix."""
-    return API(X)
+def problem(X):  # noqa: N803
+    """Problem instance wrapping the session-scoped return matrix."""
+    return Problem(X)
 
 
 @pytest.fixture(scope="session")
-def api_small(X_small):  # noqa: N803
-    """API dataclass wrapping the small session-scoped return matrix."""
-    return API(X_small)
+def problem_small(X_small):  # noqa: N803
+    """Problem instance wrapping the small session-scoped return matrix."""
+    return Problem(X_small)

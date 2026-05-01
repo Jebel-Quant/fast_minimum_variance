@@ -3,43 +3,43 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance.api import API
+from fast_minimum_variance.api import Problem
 from fast_minimum_variance.kkt import solve_kkt
 
 
 class TestBuildKkt:
-    """Tests for API.kkt."""
+    """Tests for Problem.kkt."""
 
-    def test_shape(self, api_small):
+    def test_shape(self, problem_small):
         """KKT matrix has shape (N+1, N+1) and rhs has shape (N+1,)."""
-        K, rhs = api_small.kkt()  # noqa: N806
-        assert K.shape == (api_small.n + 1, api_small.n + 1)
-        assert rhs.shape == (api_small.n + 1,)
+        K, rhs = problem_small.kkt()  # noqa: N806
+        assert K.shape == (problem_small.n + 1, problem_small.n + 1)
+        assert rhs.shape == (problem_small.n + 1,)
 
-    def test_rhs(self, api_small):
+    def test_rhs(self, problem_small):
         """RHS is zero everywhere except the last entry which equals 1."""
-        _, rhs = api_small.kkt()
-        np.testing.assert_array_equal(rhs[: api_small.n], 0.0)
-        assert rhs[api_small.n] == 1.0
+        _, rhs = problem_small.kkt()
+        np.testing.assert_array_equal(rhs[: problem_small.n], 0.0)
+        assert rhs[problem_small.n] == 1.0
 
-    def test_constraint_row_col(self, api_small):
+    def test_constraint_row_col(self, problem_small):
         """Last row and column (excluding corner) are all ones."""
-        K, _ = api_small.kkt()  # noqa: N806
-        n = api_small.n
+        K, _ = problem_small.kkt()  # noqa: N806
+        n = problem_small.n
         np.testing.assert_array_equal(K[:n, n], 1.0)
         np.testing.assert_array_equal(K[n, :n], 1.0)
         assert K[n, n] == 0.0
 
-    def test_hessian_block_symmetry(self, api_small):
+    def test_hessian_block_symmetry(self, problem_small):
         """The (N, N) Hessian block 2 R^T R is symmetric."""
-        K, _ = api_small.kkt()  # noqa: N806
-        n = api_small.n
+        K, _ = problem_small.kkt()  # noqa: N806
+        n = problem_small.n
         np.testing.assert_allclose(K[:n, :n], K[:n, :n].T)
 
-    def test_hessian_block_positive_semidefinite(self, api_small):
+    def test_hessian_block_positive_semidefinite(self, problem_small):
         """The (N, N) Hessian block is positive semi-definite."""
-        K, _ = api_small.kkt()  # noqa: N806
-        n = api_small.n
+        K, _ = problem_small.kkt()  # noqa: N806
+        n = problem_small.n
         eigenvalues = np.linalg.eigvalsh(K[:n, :n])
         assert np.all(eigenvalues >= -1e-10)
 
@@ -48,7 +48,7 @@ class TestBuildKkt:
         N = 3  # noqa: N806
         X = np.eye(N)  # noqa: N806
         mu = np.array([1.0, 2.0, 3.0])
-        _, rhs = API(X, rho=0.5, mu=mu).kkt()
+        _, rhs = Problem(X, rho=0.5, mu=mu).kkt()
         np.testing.assert_allclose(rhs[:N], 0.5 * mu)
         assert rhs[N] == 1.0
 
@@ -56,30 +56,30 @@ class TestBuildKkt:
 class TestMinvarKkt:
     """Tests for minvar_kkt."""
 
-    def test_iters(self, api):
+    def test_iters(self, problem):
         """Output weight vector has shape (N,)."""
-        _, iters = solve_kkt(api)
+        _, iters = solve_kkt(problem)
         assert iters == 1
 
-    def test_shape(self, api):
+    def test_shape(self, problem):
         """Output weight vector has shape (N,)."""
-        w, _ = solve_kkt(api)
-        assert w.shape == (api.n,)
+        w, _ = solve_kkt(problem)
+        assert w.shape == (problem.n,)
 
-    def test_weights_sum_to_one(self, api):
+    def test_weights_sum_to_one(self, problem):
         """Weights sum to 1."""
-        w, _ = solve_kkt(api)
+        w, _ = solve_kkt(problem)
         assert abs(w.sum() - 1.0) < 1e-8
 
-    def test_weights_non_negative(self, api):
+    def test_weights_non_negative(self, problem):
         """All weights are non-negative."""
-        w, _ = solve_kkt(api)
+        w, _ = solve_kkt(problem)
         assert np.all(w >= -1e-10)
 
     def test_trivial_case(self):
         """With a single asset the full weight goes to it."""
         R = np.ones((10, 1))  # noqa: N806
-        w, _ = solve_kkt(API(X=R))
+        w, _ = solve_kkt(Problem(X=R))
         np.testing.assert_allclose(w, [1.0], atol=1e-10)
 
     @pytest.mark.parametrize("N", [2, 5, 15])
@@ -87,7 +87,7 @@ class TestMinvarKkt:
         """Solver works across a range of asset counts."""
         rng = np.random.default_rng(N)
         R = rng.standard_normal((200, N))  # noqa: N806
-        w, _ = solve_kkt(API(R))
+        w, _ = solve_kkt(Problem(R))
         assert abs(w.sum() - 1.0) < 1e-8
         assert np.all(w >= -1e-10)
 
@@ -96,8 +96,8 @@ class TestMinvarKkt:
         rng = np.random.default_rng(1)
         X = rng.standard_normal((200, 5))  # noqa: N806
         mu = np.array([0.0, 0.0, 0.0, 0.0, 1.0])
-        w_mv, _ = solve_kkt(API(X))
-        w_mk, _ = solve_kkt(API(X, rho=1.0, mu=mu))
+        w_mv, _ = solve_kkt(Problem(X))
+        w_mk, _ = solve_kkt(Problem(X, rho=1.0, mu=mu))
         assert w_mk[4] > w_mv[4]
 
     def test_all_inequalities_active_break(self):
@@ -105,7 +105,7 @@ class TestMinvarKkt:
         X = np.eye(2)  # noqa: N806
         C = np.array([[1.0], [0.0]])  # w1 <= 0.3  # noqa: N806
         d = np.array([0.3])
-        w, _ = solve_kkt(API(X, C=C, d=d))
+        w, _ = solve_kkt(Problem(X, C=C, d=d))
         np.testing.assert_allclose(w[0], 0.3, atol=1e-8)
         np.testing.assert_allclose(w[1], 0.7, atol=1e-8)
 
@@ -119,7 +119,7 @@ class TestMinvarKkt:
                 [0.0, -0.1, -0.1],
             ]
         )
-        w, _ = solve_kkt(API(X))
+        w, _ = solve_kkt(Problem(X))
         assert w[2] == pytest.approx(0.0, abs=1e-10)
         np.testing.assert_allclose(w[:2], [0.5, 0.5], atol=1e-8)
 

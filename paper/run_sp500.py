@@ -17,7 +17,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from fast_minimum_variance.api import API
+from fast_minimum_variance.api import Problem
 from fast_minimum_variance.cvx import solve_cvxpy
 from fast_minimum_variance.kkt import solve_kkt
 from fast_minimum_variance.krylov import solve_cg, solve_minres
@@ -33,7 +33,7 @@ print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}\n")
 # ── Ledoit-Wolf parameters ─────────────────────────────────────────────────────
 # Ledoit-Wolf oracle shrinkage: c scales the sample covariance toward gamma*I.
 # Equivalent to minimising c*||Xw||^2 + gamma*||w||^2; passed to solvers as
-# X_lw = sqrt(c)*X with gamma set on the API dataclass.
+# X_lw = sqrt(c)*X with gamma set on the Problem dataclass.
 
 frob_sq = np.einsum("ti,ti->", R, R)
 c_lw = T / (N + T)
@@ -56,17 +56,17 @@ def run_solver(name, fn, repeats=3):
 
 
 configs_no_lw = [
-    ("cvxpy", lambda: solve_cvxpy(API(R))),
-    ("kkt", lambda: solve_kkt(API(R))),
-    ("minres", lambda: solve_minres(API(R))),
-    ("cg", lambda: solve_cg(API(R))),
+    ("cvxpy", lambda: solve_cvxpy(Problem(R))),
+    ("kkt", lambda: solve_kkt(Problem(R))),
+    ("minres", lambda: solve_minres(Problem(R))),
+    ("cg", lambda: solve_cg(Problem(R))),
 ]
 
 configs_lw = [
-    ("cvxpy", lambda: solve_cvxpy(API(R_lw, gamma=gamma_lw))),
-    ("kkt", lambda: solve_kkt(API(R_lw, gamma=gamma_lw))),
-    ("minres", lambda: solve_minres(API(R_lw, gamma=gamma_lw))),
-    ("cg", lambda: solve_cg(API(R_lw, gamma=gamma_lw))),
+    ("cvxpy", lambda: solve_cvxpy(Problem(R_lw, gamma=gamma_lw))),
+    ("kkt", lambda: solve_kkt(Problem(R_lw, gamma=gamma_lw))),
+    ("minres", lambda: solve_minres(Problem(R_lw, gamma=gamma_lw))),
+    ("cg", lambda: solve_cg(Problem(R_lw, gamma=gamma_lw))),
 ]
 
 display = {

@@ -17,7 +17,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fast_minimum_variance.api import API
+from fast_minimum_variance.api import Problem
 from fast_minimum_variance.kkt import solve_kkt
 from fast_minimum_variance.krylov import solve_cg, solve_minres
 
@@ -62,11 +62,11 @@ for n in ns:
     T = 2 * n
     R = rng.standard_normal((T, n))
     c, gamma = lw_params(R)
-    _, t = run_timed(lambda r=R: solve_kkt(API(r)))
+    _, t = run_timed(lambda r=R: solve_kkt(Problem(r)))
     times["kkt"].append(t)
-    _, t = run_timed(lambda r=R, c=c, g=gamma: solve_minres(API(np.sqrt(c) * r, gamma=g)))
+    _, t = run_timed(lambda r=R, c=c, g=gamma: solve_minres(Problem(np.sqrt(c) * r, gamma=g)))
     times["minres"].append(t)
-    _, t = run_timed(lambda r=R, c=c, g=gamma: solve_cg(API(np.sqrt(c) * r, gamma=g)))
+    _, t = run_timed(lambda r=R, c=c, g=gamma: solve_cg(Problem(np.sqrt(c) * r, gamma=g)))
     times["cg"].append(t)
 
 # ── Panel B: iterations vs shrinkage intensity alpha ──────────────────────────
@@ -83,9 +83,9 @@ iters_minres, iters_cg = [], []
 for alpha in alphas:
     c = 1.0 - alpha
     gamma = alpha * frob_sq / n_iter
-    (_, i_m) = solve_minres(API(np.sqrt(c) * R_iter, gamma=gamma))
+    (_, i_m) = solve_minres(Problem(np.sqrt(c) * R_iter, gamma=gamma))
     iters_minres.append(i_m)
-    (_, i_c) = solve_cg(API(np.sqrt(c) * R_iter, gamma=gamma))
+    (_, i_c) = solve_cg(Problem(np.sqrt(c) * R_iter, gamma=gamma))
     iters_cg.append(i_c)
 
 # ── Plot ───────────────────────────────────────────────────────────────────────
