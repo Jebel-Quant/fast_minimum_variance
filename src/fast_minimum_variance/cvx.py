@@ -19,6 +19,14 @@ def solve_cvxpy(api: API, *, project: bool = True):
         min  ||X w||_2^2
         s.t. sum(w) == 1,  w >= 0
 
+    Note: ``api.gamma`` is **not** used in the CVXPY objective.  To apply
+    Ledoit-Wolf (or any ridge) regularization, pre-stack the scaled identity
+    into the return matrix before calling::
+
+        X_reg = np.vstack([np.sqrt(c) * X, np.sqrt(gamma) * np.eye(N)])
+
+    so that ``||X_reg w||^2 = c||Xw||^2 + gamma||w||^2``.
+
     Args:
         api:     API dataclass holding X, A, b, C, d, rho, mu.
         project: If True (default), clip weights to non-negative and renormalize
@@ -43,27 +51,27 @@ def solve_cvxpy(api: API, *, project: bool = True):
         >>> bool((w >= -1e-6).all())
         True
     """
-    # CVXPY decision variable: weight vector of length N.
     w = cp.Variable(api.n)
 
-    # Objective: portfolio variance ||X w||^2 = w^T (X^T X) w.
-    # CVXPY forms X^T X implicitly; sum_squares(X @ w) is recognised as a
-    # quadratic form and passed to the solver as a second-order cone constraint.
+    # sum_squares(X @ w) = ||X w||^2 = w^T (X^T X) w.
+    # CVXPY recognises this as a quadratic form and passes it to CLARABEL as a
+    # second-order cone constraint without ever forming X^T X explicitly.
     objective = cp.sum_squares(api.X @ w)
 
-    # Return term: subtract rho * mu^T w to tilt toward higher-expected-return
-    # assets.  Omitted when rho == 0 to keep the problem purely quadratic.
+    # Subtract the return term when rho > 0 (Markowitz mean-variance tilt).
+    # Omitting it for the pure minimum-variance case avoids introducing mu as a
+    # required parameter.
     if api.rho != 0.0:
         objective = objective - api.rho * (api.mu @ w)
 
-    # Equality constraints enforce A^T w = b (e.g. sum(w) = 1 for budget).
-    # Inequality constraints enforce C^T w <= d (e.g. w >= 0 for long-only,
-    # encoded as -I w <= 0).
+    # Equality constraints: A^T w = b  (e.g. sum(w) = 1 for budget).
+    # Inequality constraints: C^T w <= d  (e.g. -I w <= 0 for long-only).
     constraints = [api.A.T @ w == api.b, api.C.T @ w <= api.d]
 
     problem = cp.Problem(cp.Minimize(objective), constraints)
-    # CLARABEL is an interior-point solver for conic programs; it handles the
-    # quadratic objective and linear constraints natively.
+    # CLARABEL is an interior-point solver for second-order cone programs.
+    # It is CVXPY's default for QP/SOCP and handles the saddle-point structure
+    # without any user-supplied starting point.
     problem.solve(solver=cp.CLARABEL)
 
     result = w.value
@@ -71,5 +79,7 @@ def solve_cvxpy(api: API, *, project: bool = True):
         raise RuntimeError("CVXPY solver failed to find a solution")  # noqa: TRY003
     if project:
         result = clip_and_renormalize(result)
-    # solver_stats.num_iters counts the interior-point iterations taken.
+    # solver_stats.num_iters is the interior-point iteration count reported by
+    # CLARABEL; it is analogous to the Krylov iteration counts returned by the
+    # other solvers, enabling a fair comparison.
     return result, problem.solver_stats.num_iters
