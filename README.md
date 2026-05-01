@@ -24,40 +24,40 @@ where $p$ is the number of inequality constraints.
 
 ## Solvers
 
-| Solver | Module | Method | Notes |
-|---|---|---|---|
-| `solve_kkt` | `kkt` | Direct KKT via `numpy.linalg.solve` | Exact; baseline for accuracy comparisons |
-| `solve_minres` | `krylov` | MINRES on the indefinite KKT system | Matrix-free capable; handles indefiniteness correctly |
-| `solve_cg` | `krylov` | CG in the constraint-reduced space | Positive-definite reduced system; no indefinite solver needed |
-| `solve_cvxpy` | `cvx` | General-purpose convex solver via CVXPY | Reference implementation; slowest but most flexible |
+All solvers are methods on the `Problem` class:
 
-All solvers return a weight vector $w \in \mathbb{R}^N$ satisfying $\sum_i w_i = 1$ and $w_i \geq 0$.
+| Method | Approach | Notes |
+|---|---|---|
+| `solve_kkt()` | Direct KKT via `numpy.linalg.solve` | Exact; baseline for accuracy comparisons |
+| `solve_minres()` | MINRES on the indefinite KKT system | Matrix-free; handles indefiniteness correctly |
+| `solve_cg()` | CG in the constraint-reduced space | Positive-definite reduced system; fastest for large $N$ |
+| `solve_cvxpy()` | General-purpose convex solver via CVXPY | Reference implementation; requires `[convex]` extra |
+
+All solvers return `(w, n_iters)` where $w \in \mathbb{R}^N$ satisfies $\sum_i w_i = 1$ and $w_i \geq 0$.
 
 ## Quick Start
 
 ```python
-from fast_minimum_variance.api import API
-from fast_minimum_variance.random import make_returns
-from fast_minimum_variance.kkt import solve_kkt
-from fast_minimum_variance.krylov import solve_cg, solve_minres
+import numpy as np
+from fast_minimum_variance import Problem
 
-# Generate a synthetic return matrix: 500 daily returns, 20 assets
-R = make_returns(T=500, N=20, seed=42)
-api = API(X=R)
+# Returns matrix: 500 daily returns, 20 assets
+R = np.random.default_rng(42).standard_normal((500, 20))
+p = Problem(R)
 
 # Solve with any of the available solvers
-w_kkt, _ = solve_kkt(api)      # exact KKT solve
-w_minres, _ = solve_minres(api) # MINRES on the indefinite KKT system
-w_cg, _ = solve_cg(api)        # CG in the constraint-reduced space
+w_kkt,    _ = p.solve_kkt()    # exact KKT solve
+w_minres, _ = p.solve_minres() # MINRES on the indefinite KKT system
+w_cg,     _ = p.solve_cg()    # CG in the constraint-reduced space
 
 # All solutions satisfy the portfolio constraints
 assert abs(w_kkt.sum() - 1.0) < 1e-8
 assert (w_kkt >= 0).all()
 ```
 
-## The API Dataclass
+## The `Problem` Dataclass
 
-All solvers accept an `API` dataclass that bundles the problem data:
+`Problem` bundles all problem data and exposes the solvers as methods:
 
 | Field | Type | Default | Description |
 |---|---|---|---|

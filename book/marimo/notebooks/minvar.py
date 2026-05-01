@@ -14,11 +14,7 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    import numpy as np
-
     from fast_minimum_variance.api import Problem
-
-    R = np.random.default_rng(42).standard_normal((2000, 1000))
 
 
 @app.cell
@@ -27,6 +23,7 @@ def _():
 
     import numpy as np
 
+    R = np.random.default_rng(42).standard_normal((2000, 1000))  # noqa: N806
     T_dim, N_dim = R.shape  # noqa: N806
     frob_sq = np.einsum("ti,ti->", R, R)
     gamma_lw = frob_sq / (N_dim + T_dim)
