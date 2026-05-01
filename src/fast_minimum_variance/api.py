@@ -14,10 +14,10 @@ class API:
     rho: float = 0.0
     mu: np.ndarray | None = None
     gamma: float = 0.0
-    A: np.ndarray | None = field(default=None)
-    b: np.ndarray | None = field(default=None)
-    C: np.ndarray | None = field(default=None)
-    d: np.ndarray | None = field(default=None)
+    A: np.ndarray = field(default=None)  # type: ignore[assignment]
+    b: np.ndarray = field(default=None)  # type: ignore[assignment]
+    C: np.ndarray = field(default=None)  # type: ignore[assignment]
+    d: np.ndarray = field(default=None)  # type: ignore[assignment]
 
     def __post_init__(self):
         """Fill in default constraint matrices when not supplied."""
