@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance._util import API
+from fast_minimum_variance.api import API
 from fast_minimum_variance.kkt import solve_kkt
 from fast_minimum_variance.krylov import solve_cg, solve_minres
 

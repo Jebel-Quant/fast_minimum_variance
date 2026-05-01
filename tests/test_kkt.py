@@ -3,46 +3,44 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance._util import API
-from fast_minimum_variance.kkt import build_kkt, solve_kkt
+from fast_minimum_variance.api import API
+from fast_minimum_variance.kkt import solve_kkt
 
 
 class TestBuildKkt:
-    """Tests for build_kkt."""
+    """Tests for API.kkt."""
 
-    def test_shape(self, X_small):  # noqa: N803
+    def test_shape(self, api_small):
         """KKT matrix has shape (N+1, N+1) and rhs has shape (N+1,)."""
-        N = X_small.shape[1]  # noqa: N806
-        K, rhs = build_kkt(X_small)  # noqa: N806
-        assert K.shape == (N + 1, N + 1)
-        assert rhs.shape == (N + 1,)
+        K, rhs = api_small.kkt()  # noqa: N806
+        assert K.shape == (api_small.n + 1, api_small.n + 1)
+        assert rhs.shape == (api_small.n + 1,)
 
-    def test_rhs(self, X_small):  # noqa: N803
+    def test_rhs(self, api_small):
         """RHS is zero everywhere except the last entry which equals 1."""
-        N = X_small.shape[1]  # noqa: N806
-        _, rhs = build_kkt(X_small)
-        np.testing.assert_array_equal(rhs[:N], 0.0)
-        assert rhs[N] == 1.0
+        _, rhs = api_small.kkt()
+        np.testing.assert_array_equal(rhs[: api_small.n], 0.0)
+        assert rhs[api_small.n] == 1.0
 
-    def test_constraint_row_col(self, X_small):  # noqa: N803
+    def test_constraint_row_col(self, api_small):
         """Last row and column (excluding corner) are all ones."""
-        N = X_small.shape[1]  # noqa: N806
-        K, _ = build_kkt(X_small)  # noqa: N806
-        np.testing.assert_array_equal(K[:N, N], 1.0)
-        np.testing.assert_array_equal(K[N, :N], 1.0)
-        assert K[N, N] == 0.0
+        K, _ = api_small.kkt()  # noqa: N806
+        n = api_small.n
+        np.testing.assert_array_equal(K[:n, n], 1.0)
+        np.testing.assert_array_equal(K[n, :n], 1.0)
+        assert K[n, n] == 0.0
 
-    def test_hessian_block_symmetry(self, X_small):  # noqa: N803
+    def test_hessian_block_symmetry(self, api_small):
         """The (N, N) Hessian block 2 R^T R is symmetric."""
-        N = X_small.shape[1]  # noqa: N806
-        K, _ = build_kkt(X_small)  # noqa: N806
-        np.testing.assert_allclose(K[:N, :N], K[:N, :N].T)
+        K, _ = api_small.kkt()  # noqa: N806
+        n = api_small.n
+        np.testing.assert_allclose(K[:n, :n], K[:n, :n].T)
 
-    def test_hessian_block_positive_semidefinite(self, X_small):  # noqa: N803
+    def test_hessian_block_positive_semidefinite(self, api_small):
         """The (N, N) Hessian block is positive semi-definite."""
-        N = X_small.shape[1]  # noqa: N806
-        K, _ = build_kkt(X_small)  # noqa: N806
-        eigenvalues = np.linalg.eigvalsh(K[:N, :N])
+        K, _ = api_small.kkt()  # noqa: N806
+        n = api_small.n
+        eigenvalues = np.linalg.eigvalsh(K[:n, :n])
         assert np.all(eigenvalues >= -1e-10)
 
     def test_rhs_with_return_term(self):
@@ -50,7 +48,7 @@ class TestBuildKkt:
         N = 3  # noqa: N806
         X = np.eye(N)  # noqa: N806
         mu = np.array([1.0, 2.0, 3.0])
-        _, rhs = build_kkt(X, rho=0.5, mu=mu)
+        _, rhs = API(X, rho=0.5, mu=mu).kkt()
         np.testing.assert_allclose(rhs[:N], 0.5 * mu)
         assert rhs[N] == 1.0
 
@@ -66,7 +64,7 @@ class TestMinvarKkt:
     def test_shape(self, api):
         """Output weight vector has shape (N,)."""
         w, _ = solve_kkt(api)
-        assert w.shape == (api.X.shape[1],)
+        assert w.shape == (api.n,)
 
     def test_weights_sum_to_one(self, api):
         """Weights sum to 1."""
@@ -81,8 +79,7 @@ class TestMinvarKkt:
     def test_trivial_case(self):
         """With a single asset the full weight goes to it."""
         R = np.ones((10, 1))  # noqa: N806
-        api = API(X=R)
-        w, _ = solve_kkt(api)
+        w, _ = solve_kkt(API(X=R))
         np.testing.assert_allclose(w, [1.0], atol=1e-10)
 
     @pytest.mark.parametrize("N", [2, 5, 15])
