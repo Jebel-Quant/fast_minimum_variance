@@ -22,7 +22,7 @@ def solve_kkt(api: API):
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
-        >>> from fast_minimum_variance._util import API
+        >>> from fast_minimum_variance.api import API
         >>> X = make_returns(100, 5, seed=0)
         >>> w, iters = solve_kkt(API(X))
         >>> w.shape
