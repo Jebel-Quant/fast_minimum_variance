@@ -22,7 +22,7 @@ To use the Metal GPU on Apple Silicon::
     pip install jax-metal
 
 Once installed, ``jax.default_backend()`` will report ``'metal'`` and
-speedups of 5–20× are typical at N ≥ 500 on M-series chips.
+speedups of 5-20x are typical at N >= 500 on M-series chips.
 
 **JAX warmup**
 
@@ -64,14 +64,7 @@ from fast_minimum_variance.api import Problem
 # ---------------------------------------------------------------------------
 # Problem sizes to benchmark: (T, N) pairs
 # ---------------------------------------------------------------------------
-SIZES = [
-    (250, 20),
-    (500, 50),
-    (500, 100),
-    (1000, 200),
-    (1000, 500),
-    (2000, 1000),
-]
+SIZES = [(250, 20), (500, 50), (500, 100), (1000, 200), (1000, 500), (2000, 1000), (5000, 2500), (10000, 5000)]
 
 N_REPS = 5  # timed repetitions after warmup; min is reported
 
@@ -143,10 +136,7 @@ def _fmt(val, fmt=".4f", na_str="N/A"):
 
 def _run_benchmark(solver):
     """Run the full benchmark for one solver and print results."""
-    hdr = (
-        f"{'T':>6} {'N':>6}  {'time_np':>9}  {'time_jax':>9}  "
-        f"{'warmup_jax':>12}  {'speedup':>8}  {'err':>10}"
-    )
+    hdr = f"{'T':>6} {'N':>6}  {'time_np':>9}  {'time_jax':>9}  {'warmup_jax':>12}  {'speedup':>8}  {'err':>10}"
     print(f"\n{'─' * len(hdr)}")
     print(f"  {solver}")
     print(f"{'─' * len(hdr)}")
@@ -160,10 +150,7 @@ def _run_benchmark(solver):
         warmup = r["t_warmup"]
         err = r["err"]
 
-        if t_jax is not None and t_jax > 0:
-            speedup = f"{t_np / t_jax:7.2f}x"
-        else:
-            speedup = "N/A"
+        speedup = f"{t_np / t_jax:7.2f}x" if t_jax is not None and t_jax > 0 else "N/A"
 
         print(
             f"{T:>6} {N:>6}  {_fmt(t_np):>9}  {_fmt(t_jax):>9}  "
