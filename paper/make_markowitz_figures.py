@@ -17,8 +17,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fast_minimum_variance.cvx import minvar_cvxpy
-from fast_minimum_variance.kkt import minvar_kkt
+from fast_minimum_variance.api import API
+from fast_minimum_variance.cvx import solve_cvxpy
+from fast_minimum_variance.kkt import solve_kkt
 from fast_minimum_variance.krylov import solve_cg, solve_minres
 
 mpl.rcParams.update(
@@ -80,12 +81,22 @@ C_bench, d_bench = make_constraints(N_bench, 5, 0.25)
 c_lw, gamma_lw = lw_params(X_bench)
 
 configs = [
-    ("cvxpy", lambda: (minvar_cvxpy(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), None)),
-    ("kkt", lambda: (minvar_kkt(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), None)),
-    ("minres", lambda: solve_minres(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench)),
-    ("cg", lambda: solve_cg(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench)),
-    ("minres_lw", lambda: solve_minres(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, c=c_lw, gamma=gamma_lw)),
-    ("cg_lw", lambda: solve_cg(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, c=c_lw, gamma=gamma_lw)),
+    ("cvxpy", lambda: solve_cvxpy(API(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
+    ("kkt", lambda: solve_kkt(API(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
+    ("minres", lambda: solve_minres(API(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
+    ("cg", lambda: solve_cg(API(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench), project=False)),
+    (
+        "minres_lw",
+        lambda: solve_minres(
+            API(np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw), project=False
+        ),
+    ),
+    (
+        "cg_lw",
+        lambda: solve_cg(
+            API(np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw), project=False
+        ),
+    ),
 ]
 
 display = {
@@ -132,12 +143,16 @@ for n in ns:
     mu = rng2.standard_normal(n)
     C, d = make_constraints(n, 5, 0.25)
     c, gamma = lw_params(X)
-    _, t_kkt = run_timed(lambda x=X, cc=C, dd=d, mm=mu: minvar_kkt(x, C=cc, d=dd, rho=0.5, mu=mm))
+    _, t_kkt = run_timed(lambda x=X, cc=C, dd=d, mm=mu: solve_kkt(API(x, C=cc, d=dd, rho=0.5, mu=mm), project=False))
     _, t_mr = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: solve_minres(x, C=cc, d=dd, rho=0.5, mu=mm, c=cv, gamma=gv)
+        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: solve_minres(
+            API(np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv), project=False
+        )
     )
     _, t_cg = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: solve_cg(x, C=cc, d=dd, rho=0.5, mu=mm, c=cv, gamma=gv)
+        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: solve_cg(
+            API(np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv), project=False
+        )
     )
     times_markowitz["kkt"].append(t_kkt)
     times_markowitz["minres_lw"].append(t_mr)
@@ -162,17 +177,20 @@ rhos = np.linspace(0, 2, 21)
 
 def frontier_kkt():
     """Compute efficient frontier weights for all rho values using KKT direct."""
-    return [minvar_kkt(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef) for r in rhos]
+    return [solve_kkt(API(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef), project=False) for r in rhos]
 
 
 def frontier_cg():
     """Compute efficient frontier weights for all rho values using CG + LW."""
-    return [solve_cg(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, c=c_ef, gamma=gamma_ef) for r in rhos]
+    return [
+        solve_cg(API(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef), project=False)
+        for r in rhos
+    ]
 
 
 def frontier_cvxpy():
     """Compute efficient frontier weights for all rho values using CVXPY."""
-    return [minvar_cvxpy(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef) for r in rhos]
+    return [solve_cvxpy(API(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef), project=False) for r in rhos]
 
 
 _, t_ef_kkt = run_timed(frontier_kkt)
@@ -202,7 +220,9 @@ ax1.legend(framealpha=0.9)
 ax1.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.7)
 
 # Panel B: efficient frontier portfolios (return vs variance)
-ws_cg = [solve_cg(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, c=c_ef, gamma=gamma_ef)[0] for r in rhos]
+ws_cg = [
+    solve_cg(API(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef), project=False)[0] for r in rhos
+]
 rets = [mu_ef @ w for w in ws_cg]
 vols = [float(np.linalg.norm(X_ef @ w)) for w in ws_cg]
 ax2.plot(vols, rets, marker="o", markersize=3, color=colors["cg_lw"])

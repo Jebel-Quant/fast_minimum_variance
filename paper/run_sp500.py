@@ -17,6 +17,7 @@ import time
 import numpy as np
 import pandas as pd
 
+from fast_minimum_variance.api import API
 from fast_minimum_variance.cvx import solve_cvxpy
 from fast_minimum_variance.kkt import solve_kkt
 from fast_minimum_variance.krylov import solve_cg, solve_minres
@@ -52,17 +53,17 @@ def run_solver(name, fn, repeats=3):
 
 
 configs_no_lw = [
-    ("cvxpy", lambda: (solve_cvxpy(R), None)),
-    ("kkt", lambda: (solve_kkt(R), None)),
-    ("minres", lambda: solve_minres(R)),
-    ("cg", lambda: solve_cg(R)),
+    ("cvxpy", lambda: solve_cvxpy(API(R))),
+    ("kkt", lambda: solve_kkt(API(R))),
+    ("minres", lambda: solve_minres(API(R))),
+    ("cg", lambda: solve_cg(API(R))),
 ]
 
 configs_lw = [
-    ("cvxpy", lambda: (solve_cvxpy(R_lw), None)),
-    ("kkt", lambda: (solve_kkt(R_lw), None)),
-    ("minres", lambda: solve_minres(R, c=c_lw, gamma=gamma_lw)),
-    ("cg", lambda: solve_cg(R, c=c_lw, gamma=gamma_lw)),
+    ("cvxpy", lambda: solve_cvxpy(API(R_lw))),
+    ("kkt", lambda: solve_kkt(API(R_lw))),
+    ("minres", lambda: solve_minres(API(np.sqrt(c_lw) * R, gamma=gamma_lw))),
+    ("cg", lambda: solve_cg(API(np.sqrt(c_lw) * R, gamma=gamma_lw))),
 ]
 
 display = {

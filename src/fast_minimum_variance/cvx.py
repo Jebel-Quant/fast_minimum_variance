@@ -67,6 +67,8 @@ def solve_cvxpy(api: API, *, project: bool = True):
     problem.solve(solver=cp.CLARABEL)
 
     result = w.value
+    if result is None:
+        raise RuntimeError("CVXPY solver failed to find a solution")  # noqa: TRY003
     if project:
         result = clip_and_renormalize(result)
     # solver_stats.num_iters counts the interior-point iterations taken.
