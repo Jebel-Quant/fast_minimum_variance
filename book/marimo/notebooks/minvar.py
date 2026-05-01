@@ -14,11 +14,11 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    from fast_minimum_variance.api import Problem
-    from fast_minimum_variance.random import make_returns
+    import numpy as np
 
-    R = make_returns(T=2000, N=1000)
-    # R = make_correlated_returns(T=2000, N=1000)
+    from fast_minimum_variance.api import Problem
+
+    R = np.random.default_rng(42).standard_normal((2000, 1000))
 
 
 @app.cell
