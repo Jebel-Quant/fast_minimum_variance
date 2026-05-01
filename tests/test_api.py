@@ -135,6 +135,76 @@ class TestAPIKkt:
         assert K_active.shape == (K_base.shape[0] + 1, K_base.shape[1] + 1)
 
 
+class TestAPIKktOperator:
+    """Tests for API.kkt_operator."""
+
+    def test_default_active_none(self, api_small):
+        """kkt_operator() with no argument uses active=None (all-False mask)."""
+        op, rhs = api_small.kkt_operator()
+        assert op.shape == (api_small.n + 1, api_small.n + 1)
+        assert rhs.shape == (api_small.n + 1,)
+
+    def test_matvec_matches_explicit_kkt(self, api_small):
+        """Matrix-free matvec agrees with the explicit KKT matrix."""
+        op, _ = api_small.kkt_operator()
+        K, _ = api_small.kkt()  # noqa: N806
+        x = np.ones(api_small.n + 1)
+        np.testing.assert_allclose(op @ x, K @ x, atol=1e-10)
+
+    def test_rhs_matches_kkt_rhs(self, api_small):
+        """RHS from kkt_operator matches RHS from kkt."""
+        _, rhs_op = api_small.kkt_operator()
+        _, rhs_kkt = api_small.kkt()
+        np.testing.assert_allclose(rhs_op, rhs_kkt)
+
+    def test_active_inequality_extends_system(self):
+        """Pinning one inequality grows the operator size by one."""
+        X = np.eye(3)  # noqa: N806
+        api = API(X)
+        op_base, _ = api.kkt_operator()
+        active = np.array([True, False, False])
+        op_active, _ = api.kkt_operator(active=active)
+        assert op_active.shape == (op_base.shape[0] + 1, op_base.shape[1] + 1)
+
+    def test_rhs_with_return_term(self):
+        """With rho > 0 the primal RHS block equals rho * mu."""
+        X = np.eye(3)  # noqa: N806
+        mu = np.array([1.0, 2.0, 3.0])
+        _, rhs = API(X, rho=0.5, mu=mu).kkt_operator()
+        np.testing.assert_allclose(rhs[:3], 0.5 * mu)
+
+
+class TestAPINullSpaceOperator:
+    """Tests for API.null_space_operator."""
+
+    def test_default_active_none(self, api_small):
+        """null_space_operator() with no argument uses active=None (all-False mask)."""
+        op, _rhs, w0, _P = api_small.null_space_operator()  # noqa: N806
+        assert op is not None
+        assert w0.shape == (api_small.n,)
+
+    def test_particular_solution_satisfies_constraints(self, api_small):
+        """w0 from null_space_operator satisfies A^T w0 = b."""
+        _, _, w0, _ = api_small.null_space_operator()
+        np.testing.assert_allclose(api_small.A.T @ w0, api_small.b, atol=1e-10)
+
+    def test_null_space_basis_orthogonal_to_constraints(self, api_small):
+        """P spans null(A^T): A^T P = 0."""
+        _, _, _, P = api_small.null_space_operator()  # noqa: N806
+        np.testing.assert_allclose(api_small.A.T @ P, 0.0, atol=1e-10)
+
+    def test_fully_determined_returns_none_op(self):
+        """Returns (None, None, w0, None) when constraints fully determine w."""
+        X = np.eye(2)  # noqa: N806
+        api = API(X)
+        active = np.ones(api.C.shape[1], dtype=bool)
+        op, rhs, w0, P = api.null_space_operator(active=active)  # noqa: N806
+        assert op is None
+        assert rhs is None
+        assert P is None
+        assert w0.shape == (api.n,)
+
+
 class TestAPIConstraintActiveSet:
     """Tests for API.constraint_active_set."""
 
