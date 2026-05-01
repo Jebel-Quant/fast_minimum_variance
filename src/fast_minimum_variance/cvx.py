@@ -10,7 +10,7 @@ def solve_cvxpy(api: API, *, project: bool = True):
 
     Solves::
 
-        min  ||X w||_2^2 - rho * mu @ w
+        min  ||X w||_2^2 + gamma * ||w||_2^2 - rho * mu @ w
         s.t. A.T @ w == b
              C.T @ w <= d
 
@@ -19,16 +19,8 @@ def solve_cvxpy(api: API, *, project: bool = True):
         min  ||X w||_2^2
         s.t. sum(w) == 1,  w >= 0
 
-    Note: ``api.gamma`` is **not** used in the CVXPY objective.  To apply
-    Ledoit-Wolf (or any ridge) regularization, pre-stack the scaled identity
-    into the return matrix before calling::
-
-        X_reg = np.vstack([np.sqrt(c) * X, np.sqrt(gamma) * np.eye(N)])
-
-    so that ``||X_reg w||^2 = c||Xw||^2 + gamma||w||^2``.
-
     Args:
-        api:     API dataclass holding X, A, b, C, d, rho, mu.
+        api:     API dataclass holding X, A, b, C, d, rho, mu, gamma.
         project: If True (default), clip weights to non-negative and renormalize
                  to sum to one after solving.  Only correct for the default
                  long-only minimum-variance problem; set to False when using
@@ -57,6 +49,12 @@ def solve_cvxpy(api: API, *, project: bool = True):
     # CVXPY recognises this as a quadratic form and passes it to CLARABEL as a
     # second-order cone constraint without ever forming X^T X explicitly.
     objective = cp.sum_squares(api.X @ w)
+
+    # Ridge / Ledoit-Wolf regularization: add gamma * ||w||^2.
+    # sum_squares(w) is also a quadratic form recognised by CVXPY, so the
+    # combined objective remains a single SOCP handled natively by CLARABEL.
+    if api.gamma != 0.0:
+        objective = objective + api.gamma * cp.sum_squares(w)
 
     # Subtract the return term when rho > 0 (Markowitz mean-variance tilt).
     # Omitting it for the pure minimum-variance case avoids introducing mu as a

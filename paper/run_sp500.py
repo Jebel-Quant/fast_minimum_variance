@@ -31,11 +31,14 @@ print(f"S&P 500 returns: T={T} trading days, N={N} assets")
 print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}\n")
 
 # ── Ledoit-Wolf parameters ─────────────────────────────────────────────────────
+# Ledoit-Wolf oracle shrinkage: c scales the sample covariance toward gamma*I.
+# Equivalent to minimising c*||Xw||^2 + gamma*||w||^2; passed to solvers as
+# X_lw = sqrt(c)*X with gamma set on the API dataclass.
 
 frob_sq = np.einsum("ti,ti->", R, R)
 c_lw = T / (N + T)
 gamma_lw = frob_sq / (N + T)
-R_lw = np.vstack([np.sqrt(c_lw) * R, np.sqrt(gamma_lw) * np.eye(N)])
+R_lw = np.sqrt(c_lw) * R  # pre-scaled return matrix; gamma_lw passed separately
 
 # ── Benchmark ──────────────────────────────────────────────────────────────────
 
@@ -60,10 +63,10 @@ configs_no_lw = [
 ]
 
 configs_lw = [
-    ("cvxpy", lambda: solve_cvxpy(API(R_lw))),
-    ("kkt", lambda: solve_kkt(API(R_lw))),
-    ("minres", lambda: solve_minres(API(np.sqrt(c_lw) * R, gamma=gamma_lw))),
-    ("cg", lambda: solve_cg(API(np.sqrt(c_lw) * R, gamma=gamma_lw))),
+    ("cvxpy", lambda: solve_cvxpy(API(R_lw, gamma=gamma_lw))),
+    ("kkt", lambda: solve_kkt(API(R_lw, gamma=gamma_lw))),
+    ("minres", lambda: solve_minres(API(R_lw, gamma=gamma_lw))),
+    ("cg", lambda: solve_cg(API(R_lw, gamma=gamma_lw))),
 ]
 
 display = {
