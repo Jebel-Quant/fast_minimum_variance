@@ -1,10 +1,9 @@
-"""Tests for fast_minimum_variance.kkt."""
+"""Tests for Problem.solve_kkt."""
 
 import numpy as np
 import pytest
 
 from fast_minimum_variance.api import Problem
-from fast_minimum_variance.kkt import solve_kkt
 
 
 class TestBuildKkt:
@@ -53,33 +52,33 @@ class TestBuildKkt:
         assert rhs[N] == 1.0
 
 
-class TestMinvarKkt:
-    """Tests for minvar_kkt."""
+class TestSolveKkt:
+    """Tests for Problem.solve_kkt."""
 
     def test_iters(self, problem):
-        """Output weight vector has shape (N,)."""
-        _, iters = solve_kkt(problem)
+        """Direct KKT solver always returns iters==1."""
+        _, iters = problem.solve_kkt()
         assert iters == 1
 
     def test_shape(self, problem):
         """Output weight vector has shape (N,)."""
-        w, _ = solve_kkt(problem)
+        w, _ = problem.solve_kkt()
         assert w.shape == (problem.n,)
 
     def test_weights_sum_to_one(self, problem):
         """Weights sum to 1."""
-        w, _ = solve_kkt(problem)
+        w, _ = problem.solve_kkt()
         assert abs(w.sum() - 1.0) < 1e-8
 
     def test_weights_non_negative(self, problem):
         """All weights are non-negative."""
-        w, _ = solve_kkt(problem)
+        w, _ = problem.solve_kkt()
         assert np.all(w >= -1e-10)
 
     def test_trivial_case(self):
         """With a single asset the full weight goes to it."""
         R = np.ones((10, 1))  # noqa: N806
-        w, _ = solve_kkt(Problem(X=R))
+        w, _ = Problem(X=R).solve_kkt()
         np.testing.assert_allclose(w, [1.0], atol=1e-10)
 
     @pytest.mark.parametrize("N", [2, 5, 15])
@@ -87,7 +86,7 @@ class TestMinvarKkt:
         """Solver works across a range of asset counts."""
         rng = np.random.default_rng(N)
         R = rng.standard_normal((200, N))  # noqa: N806
-        w, _ = solve_kkt(Problem(R))
+        w, _ = Problem(R).solve_kkt()
         assert abs(w.sum() - 1.0) < 1e-8
         assert np.all(w >= -1e-10)
 
@@ -96,8 +95,8 @@ class TestMinvarKkt:
         rng = np.random.default_rng(1)
         X = rng.standard_normal((200, 5))  # noqa: N806
         mu = np.array([0.0, 0.0, 0.0, 0.0, 1.0])
-        w_mv, _ = solve_kkt(Problem(X))
-        w_mk, _ = solve_kkt(Problem(X, rho=1.0, mu=mu))
+        w_mv, _ = Problem(X).solve_kkt()
+        w_mk, _ = Problem(X, rho=1.0, mu=mu).solve_kkt()
         assert w_mk[4] > w_mv[4]
 
     def test_all_inequalities_active_break(self):
@@ -105,7 +104,7 @@ class TestMinvarKkt:
         X = np.eye(2)  # noqa: N806
         C = np.array([[1.0], [0.0]])  # w1 <= 0.3  # noqa: N806
         d = np.array([0.3])
-        w, _ = solve_kkt(Problem(X, C=C, d=d))
+        w, _ = Problem(X, C=C, d=d).solve_kkt()
         np.testing.assert_allclose(w[0], 0.3, atol=1e-8)
         np.testing.assert_allclose(w[1], 0.7, atol=1e-8)
 
@@ -119,7 +118,7 @@ class TestMinvarKkt:
                 [0.0, -0.1, -0.1],
             ]
         )
-        w, _ = solve_kkt(Problem(X))
+        w, _ = Problem(X).solve_kkt()
         assert w[2] == pytest.approx(0.0, abs=1e-10)
         np.testing.assert_allclose(w[:2], [0.5, 0.5], atol=1e-8)
 

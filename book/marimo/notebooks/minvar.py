@@ -15,9 +15,6 @@ app = marimo.App()
 
 with app.setup:
     from fast_minimum_variance.api import Problem
-    from fast_minimum_variance.cvx import solve_cvxpy
-    from fast_minimum_variance.kkt import solve_kkt
-    from fast_minimum_variance.krylov import solve_cg, solve_minres
     from fast_minimum_variance.random import make_returns
 
     R = make_returns(T=2000, N=1000)
@@ -38,17 +35,17 @@ def _():
     def run_all(shrinkage):
         if shrinkage:
             configs = [
-                ("cvxpy", lambda: solve_cvxpy(Problem(X=R_lw))),
-                ("kkt", lambda: solve_kkt(Problem(X=R_lw))),
-                ("minres", lambda: solve_minres(Problem(X=R, gamma=gamma_lw))),
-                ("cg", lambda: solve_cg(Problem(X=R, gamma=gamma_lw))),
+                ("cvxpy", lambda: Problem(X=R_lw).solve_cvxpy()),
+                ("kkt", lambda: Problem(X=R_lw).solve_kkt()),
+                ("minres", lambda: Problem(X=R, gamma=gamma_lw).solve_minres()),
+                ("cg", lambda: Problem(X=R, gamma=gamma_lw).solve_cg()),
             ]
         else:
             configs = [
-                ("cvxpy", lambda: solve_cvxpy(Problem(X=R))),
-                ("kkt", lambda: solve_kkt(Problem(X=R))),
-                ("minres", lambda: solve_minres(Problem(X=R))),
-                ("cg", lambda: solve_cg(Problem(X=R))),
+                ("cvxpy", lambda: Problem(X=R).solve_cvxpy()),
+                ("kkt", lambda: Problem(X=R).solve_kkt()),
+                ("minres", lambda: Problem(X=R).solve_minres()),
+                ("cg", lambda: Problem(X=R).solve_cg()),
             ]
         out = {}
         for name, fn in configs:
