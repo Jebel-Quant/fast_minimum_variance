@@ -416,9 +416,9 @@ class Problem:
                 g0 = g0 - (rho / 2.0) * mu_jax
             rhs_jax = -(P_jax.T @ g0)
 
-            def _matvec(y, pp=P_jax, x_=xx, g=gam):
+            def _matvec(y, pp=P_jax, xx=xx, gam=gam):
                 pv = pp @ y
-                return pp.T @ (x_.T @ (x_ @ pv)) + g * y
+                return pp.T @ (xx.T @ (xx @ pv)) + gam * y
 
             sol_jax, _ = jax_cg(_matvec, rhs_jax)
             w_jax = w0_jax + P_jax @ sol_jax
