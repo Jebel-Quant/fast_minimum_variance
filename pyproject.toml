@@ -21,6 +21,7 @@ convex = [
 [dependency-groups]
 dev = [
     "marimo>=0.20.0",
+    "matplotlib>=3.10.9",
 ]
 
 [tool.hatch.build.targets.wheel]
