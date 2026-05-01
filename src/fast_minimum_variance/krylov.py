@@ -3,8 +3,9 @@
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, minres
 
-from ._util import API
-from .active import constraint_active_set
+from .api import API
+
+# from .active import constraint_active_set
 
 
 def solve_minres(api: API):
@@ -44,7 +45,7 @@ def solve_minres(api: API):
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
-        >>> from fast_minimum_variance._util import API
+        >>> from fast_minimum_variance.api import API
         >>> X = make_returns(100, 5, seed=0)
         >>> w, iters = solve_minres(API(X))
         >>> w.shape
@@ -60,6 +61,7 @@ def solve_minres(api: API):
     n, rho, mu, gamma = api.n, api.rho, api.mu, api.gamma
 
     def _solve(active):
+        """Solve the MINRES saddle-point system for the current active set."""
         # Build A_ext = [A, C[:, active]]: the budget constraint columns plus one
         # column per currently-pinned inequality.  When active is all-False on the
         # first iteration, hstack returns A unchanged (C[:,active] has 0 columns).
@@ -101,7 +103,7 @@ def solve_minres(api: API):
 
     # MINRES is iterative and may not satisfy the budget constraint exactly;
     # clip and renormalise to enforce non-negativity and budget feasibility.
-    w, iters = constraint_active_set(C, d, _solve)
+    w, iters = api.constraint_active_set(_solve)
     w = np.maximum(w, 0)
     w /= w.sum()
     return w, iters
@@ -135,7 +137,6 @@ def solve_cg(api: API):
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
-        >>> from fast_minimum_variance._util import API
         >>> X = make_returns(100, 5, seed=0)
         >>> w, iters = solve_cg(API(X))
         >>> w.shape
@@ -151,6 +152,7 @@ def solve_cg(api: API):
     n, rho, mu, gamma = api.n, api.rho, api.mu, api.gamma
 
     def _solve(active):
+        """Solve the CG null-space subproblem for the current active set."""
         # Extend equality constraints with pinned inequalities.
         aa = np.hstack([A, C[:, active]])
         m_ext = aa.shape[1]
@@ -187,7 +189,7 @@ def solve_cg(api: API):
         sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
         return w0 + P @ sol, iters[0]
 
-    w, iters = constraint_active_set(C, d, _solve)
+    w, iters = api.constraint_active_set(_solve)
     w = np.maximum(w, 0)
     w /= w.sum()
     return w, iters

@@ -2,7 +2,7 @@
 
 import cvxpy as cp
 
-from ._util import API
+from .api import API
 
 
 def solve_cvxpy(api: API):

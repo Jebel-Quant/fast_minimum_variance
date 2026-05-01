@@ -6,7 +6,7 @@ and safe in the test context. No subprocess calls (S603/S607) are used here.
 
 import pytest
 
-from fast_minimum_variance._util import API
+from fast_minimum_variance.api import API
 from fast_minimum_variance.random import make_returns
 
 
