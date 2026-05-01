@@ -2,10 +2,10 @@
 
 import numpy as np
 
-from .api import API
+from .api import API, clip_and_renormalize
 
 
-def solve_kkt(api: API):
+def solve_kkt(api: API, *, project: bool = True):
     """Solve the general mean-variance portfolio via the KKT system with active-set method.
 
     Iteratively promotes violated inequality constraints to equalities until
@@ -13,7 +13,11 @@ def solve_kkt(api: API):
     each iteration via ``numpy.linalg.solve``.
 
     Args:
-        api: API dataclass holding X, A, b, C, d, rho, mu.
+        api:     API dataclass holding X, A, b, C, d, rho, mu.
+        project: If True (default), clip weights to non-negative and renormalize
+                 to sum to one after solving.  Only correct for the default
+                 long-only minimum-variance problem; set to False when using
+                 custom constraints.
 
     Returns:
         Tuple (w, n_iters) where w is the weight vector of shape (N,) and
@@ -41,6 +45,6 @@ def solve_kkt(api: API):
         return np.linalg.solve(K, rhs)[: api.n], 1
 
     w, iters = api.constraint_active_set(fn)
-    w = np.maximum(w, 0)
-    w /= w.sum()
+    if project:
+        w = clip_and_renormalize(w)
     return w, iters
