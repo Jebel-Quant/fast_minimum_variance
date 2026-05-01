@@ -6,7 +6,7 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator
 
 
-@dataclass
+@dataclass(frozen=True)
 class API:
     """Dataclass for the portfolio solver API."""
 
@@ -23,13 +23,13 @@ class API:
         """Fill in default constraint matrices when not supplied."""
         n = self.n
         if self.A is None:
-            self.A = np.ones((n, 1))
+            object.__setattr__(self, "A", np.ones((n, 1)))
         if self.b is None:
-            self.b = np.ones(1)
+            object.__setattr__(self, "b", np.ones(1))
         if self.C is None:
-            self.C = -np.eye(n)
+            object.__setattr__(self, "C", -np.eye(n))
         if self.d is None:
-            self.d = np.zeros(n)
+            object.__setattr__(self, "d", np.zeros(n))
 
     @property
     def n(self) -> int:
