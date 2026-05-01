@@ -6,6 +6,7 @@ and safe in the test context. No subprocess calls (S603/S607) are used here.
 
 import pytest
 
+from fast_minimum_variance._util import API
 from fast_minimum_variance.random import make_returns
 
 
@@ -19,3 +20,15 @@ def X():  # noqa: N802
 def X_small():  # noqa: N802
     """Return matrix of shape (100, 3) for fast solver tests."""
     return make_returns(T=100, N=3, seed=0)
+
+
+@pytest.fixture(scope="session")
+def api(X):  # noqa: N803
+    """API dataclass wrapping the session-scoped return matrix."""
+    return API(X)
+
+
+@pytest.fixture(scope="session")
+def api_small(X_small):  # noqa: N803
+    """API dataclass wrapping the small session-scoped return matrix."""
+    return API(X_small)
