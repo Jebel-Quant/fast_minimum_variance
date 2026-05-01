@@ -1,4 +1,4 @@
-"""Tests for Problem.solve_cg with backend='jax'.
+"""Tests for Problem.solve_cg and Problem.solve_minres with backend='jax'.
 
 The entire module is skipped when JAX is not installed, so CI without the JAX
 extra will not fail.
@@ -52,6 +52,42 @@ class TestSolveCgJax:
         """Output is a plain NumPy array, not a JAX array."""
         w, _ = problem_jax.solve_cg()
         assert isinstance(w, np.ndarray)
+
+
+class TestSolveMinresJax:
+    """Tests for Problem.solve_minres with backend='jax'."""
+
+    def test_jax_minres_weights_sum_to_one(self, problem_jax):
+        """Budget constraint: weights sum to 1."""
+        w, _ = problem_jax.solve_minres()
+        assert abs(w.sum() - 1.0) < 1e-4
+
+    def test_jax_minres_weights_non_negative(self, problem_jax):
+        """Long-only constraint: all weights are non-negative."""
+        w, _ = problem_jax.solve_minres()
+        assert np.all(w >= -1e-4)
+
+    def test_jax_minres_agrees_with_numpy_minres(self, X):  # noqa: N803
+        """JAX and NumPy MINRES backends agree to within float32 tolerance."""
+        w_np, _ = Problem(X, backend="numpy").solve_minres()
+        w_jax, _ = Problem(X, backend="jax").solve_minres()
+        np.testing.assert_allclose(w_jax, w_np, atol=1e-4)
+
+    def test_jax_minres_returns_shape(self, problem_jax):
+        """Output weight vector has shape (N,)."""
+        w, _ = problem_jax.solve_minres()
+        assert w.shape == (problem_jax.n,)
+
+    def test_jax_minres_returns_numpy_array(self, problem_jax):
+        """Output is a plain NumPy array, not a JAX array."""
+        w, _ = problem_jax.solve_minres()
+        assert isinstance(w, np.ndarray)
+
+    def test_jax_minres_returns_positive_iters(self, problem_jax):
+        """Iteration count is a positive integer."""
+        _, iters = problem_jax.solve_minres()
+        assert isinstance(iters, int)
+        assert iters > 0
 
 
 class TestJaxBackendValidation:

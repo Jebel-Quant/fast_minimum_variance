@@ -90,7 +90,7 @@ positive-definite reduced system of size $(N-m) \times (N-m)$.
 
 ## JAX / Metal Backend (Apple Silicon)
 
-To run the CG solver on the Apple M-series GPU via Metal:
+To run the CG and MINRES solvers on the Apple M-series GPU via Metal:
 
 ```bash
 pip install fast-minimum-variance[jax]
@@ -100,7 +100,18 @@ pip install jax-metal          # Apple Silicon only
 ```python
 p = Problem(R, backend='jax')
 w, iters = p.solve_cg()        # matvecs run on Metal GPU
+w, iters = p.solve_minres()    # also JAX-accelerated
 ```
+
+Both solvers use the same two-matvec-per-iteration kernel `X.T @ (X @ x)`,
+which maps directly to accelerated GEMVs on the M-series GPU.  The
+active-set outer loop remains on CPU.
+
+Because `jax.scipy.sparse.linalg` does not include MINRES, the MINRES
+algorithm is ported directly from SciPy (Paige & Saunders 1975): the scalar
+Lanczos recurrence variables stay as Python floats (so Python control flow
+and convergence tests work in eager mode) while the vector state is held in
+JAX arrays so each matvec dispatches to the accelerator.
 
 The JAX backend operates in `float32`. For most portfolio problems the solution
 quality is indistinguishable from `float64`, but verify residuals for
