@@ -98,9 +98,9 @@ def _run_size(T, N, solver):  # noqa: N803
     return {"t_np": t_np, "t_jax": t_jax, "t_warmup": t_warmup, "err": err}
 
 
-def _fmt(val, fmt=".4f", na="N/A"):
-    """Format a value or return na if None."""
-    return f"{val:{fmt}}" if val is not None else na
+def _fmt(val, fmt=".4f", na_str="N/A"):
+    """Format a value or return na_str if None."""
+    return f"{val:{fmt}}" if val is not None else na_str
 
 
 def _run_benchmark(solver):
