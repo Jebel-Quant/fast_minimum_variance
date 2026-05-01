@@ -1,12 +1,11 @@
 """Krylov subspace solvers for the minimum variance and Markowitz portfolio."""
 
-import numpy as np
 from scipy.sparse.linalg import cg, minres
 
-from .api import API
+from .api import API, clip_and_renormalize
 
 
-def solve_minres(api: API):
+def solve_minres(api: API, *, project: bool = True):
     """Solve the general mean-variance portfolio via MINRES with active-set method.
 
     Iteratively promotes violated inequality constraints to equalities.  At each
@@ -33,7 +32,11 @@ def solve_minres(api: API):
     and pass ``X_scaled`` and ``gamma`` explicitly via the API dataclass.
 
     Args:
-        api: API dataclass holding X, A, b, C, d, rho, mu, gamma.
+        api:     API dataclass holding X, A, b, C, d, rho, mu, gamma.
+        project: If True (default), clip weights to non-negative and renormalize
+                 to sum to one after solving.  Only correct for the default
+                 long-only minimum-variance problem; set to False when using
+                 custom constraints.
 
     Returns:
         Tuple (w, n_iters) where w is the weight vector of shape (N,) and
@@ -67,15 +70,13 @@ def solve_minres(api: API):
         # Return only the primal part w; discard the dual multipliers lambda.
         return sol[: api.n], iters[0]
 
-    # MINRES is iterative and may not satisfy the budget constraint exactly;
-    # clip and renormalise to enforce non-negativity and budget feasibility.
     w, iters = api.constraint_active_set(_solve)
-    w = np.maximum(w, 0)
-    w /= w.sum()
+    if project:
+        w = clip_and_renormalize(w)
     return w, iters
 
 
-def solve_cg(api: API):
+def solve_cg(api: API, *, project: bool = True):
     """Solve the general mean-variance portfolio via CG in the constraint-reduced space.
 
     At each active-set iteration the equality-constrained subproblem (with
@@ -93,7 +94,11 @@ def solve_cg(api: API):
     See ``solve_minres`` for the Ledoit-Wolf shrinkage recipe.
 
     Args:
-        api: API dataclass holding X, A, b, C, d, rho, mu, gamma.
+        api:     API dataclass holding X, A, b, C, d, rho, mu, gamma.
+        project: If True (default), clip weights to non-negative and renormalize
+                 to sum to one after solving.  Only correct for the default
+                 long-only minimum-variance problem; set to False when using
+                 custom constraints.
 
     Returns:
         Tuple (w, n_iters) where w is the weight vector of shape (N,) and
@@ -125,6 +130,6 @@ def solve_cg(api: API):
         return w0 + P @ sol, iters[0]
 
     w, iters = api.constraint_active_set(_solve)
-    w = np.maximum(w, 0)
-    w /= w.sum()
+    if project:
+        w = clip_and_renormalize(w)
     return w, iters

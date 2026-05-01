@@ -6,6 +6,20 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator
 
 
+def clip_and_renormalize(w: np.ndarray) -> np.ndarray:
+    """Clip weights to non-negative and renormalize to sum to one.
+
+    This is a numerical cleanup step for iterative solvers that may produce
+    small negative weights due to floating-point error.  It is only valid when
+    the problem has a single budget constraint (sum(w) = 1) and long-only
+    inequalities (w >= 0); applying it to general constraints corrupts the
+    solution.
+    """
+    w = np.maximum(w, 0)
+    w /= w.sum()
+    return w
+
+
 @dataclass(frozen=True)
 class API:
     """Dataclass for the portfolio solver API."""
