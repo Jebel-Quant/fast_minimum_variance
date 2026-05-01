@@ -88,6 +88,24 @@ door to MINRES. Alternatively, the CG solver eliminates the constraints entirely
 parameterising $w = w_0 + Pv$ where $P$ spans the null space of $A^\top$, yielding a
 positive-definite reduced system of size $(N-m) \times (N-m)$.
 
+## JAX / Metal Backend (Apple Silicon)
+
+To run the CG solver on the Apple M-series GPU via Metal:
+
+```bash
+pip install fast-minimum-variance[jax]
+pip install jax-metal          # Apple Silicon only
+```
+
+```python
+p = Problem(R, backend='jax')
+w, iters = p.solve_cg()        # matvecs run on Metal GPU
+```
+
+The JAX backend operates in `float32`. For most portfolio problems the solution
+quality is indistinguishable from `float64`, but verify residuals for
+ill-conditioned covariance structures.
+
 ## Installation
 
 ```bash

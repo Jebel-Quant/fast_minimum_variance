@@ -52,6 +52,7 @@ class Problem:
     b: np.ndarray = field(default=None)  # type: ignore[assignment]
     C: np.ndarray = field(default=None)  # type: ignore[assignment]
     d: np.ndarray = field(default=None)  # type: ignore[assignment]
+    backend: str = "numpy"
 
     def __post_init__(self):
         """Fill in default constraint matrices when not supplied."""
@@ -66,6 +67,10 @@ class Problem:
         if self.d is None:
             object.__setattr__(self, "d", np.zeros(n))
         # object.__setattr__ is required because the dataclass is frozen.
+        if self.backend not in ("numpy", "jax"):
+            raise ValueError(  # noqa: TRY003
+                f"Unknown backend {self.backend!r}. Accepted values are 'numpy' and 'jax'."
+            )
 
     @property
     def n(self) -> int:
@@ -293,6 +298,9 @@ class Problem:
 
         See ``solve_minres`` for the Ledoit-Wolf shrinkage recipe.
 
+        When ``backend='jax'`` this method dispatches to ``_solve_cg_jax``, which
+        runs the matvec kernel on JAX (e.g. Apple Silicon via ``jax-metal``).
+
         Args:
             project: If True (default), clip weights to non-negative and renormalize
                      to sum to one after solving.  Only correct for the default
@@ -318,6 +326,8 @@ class Problem:
             >>> iters > 0
             True
         """
+        if self.backend == "jax":
+            return self._solve_cg_jax(project=project)
 
         def _solve(active):
             """Solve the CG null-space subproblem for the current active set."""
@@ -329,6 +339,91 @@ class Problem:
             iters = [0]
             sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
             return w0 + P @ sol, iters[0]
+
+        w, iters = self._constraint_active_set(_solve)
+        if project:
+            w = clip_and_renormalize(w)
+        return w, iters
+
+    def _solve_cg_jax(self, *, project: bool = True):
+        """Solve via JAX-accelerated CG in the null space (JAX backend).
+
+        Implements the same null-space reduction as the NumPy CG path, but uses
+        ``jax.scipy.sparse.linalg.cg`` with JAX arrays so that the two matvecs
+        per iteration run on the available JAX accelerator (e.g. Apple Silicon
+        via ``jax-metal``).
+
+        All arrays are converted to ``float32`` before the JAX solve because
+        ``jax-metal`` has limited ``float64`` support.  Results are returned as
+        NumPy arrays so the rest of the active-set loop is unaffected.
+
+        Requires JAX to be installed::
+
+            pip install fast-minimum-variance[jax]
+            pip install jax-metal          # Apple Silicon only
+
+        Args:
+            project: If True (default), clip weights to non-negative and
+                     renormalize to sum to one after solving.
+
+        Returns:
+            Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+            n_iters is the total number of CG iterations across all active-set
+            steps.
+        """
+        try:
+            import jax.numpy as jnp
+            from jax.scipy.sparse.linalg import cg as jax_cg
+        except ImportError as e:
+            raise ImportError(  # noqa: TRY003
+                "JAX is required for backend='jax'; install with: "
+                "pip install fast-minimum-variance[jax]"
+            ) from e
+
+        # Convert to float32 — jax-metal has limited float64 support.
+        xx = jnp.array(self.X, dtype=jnp.float32)  # noqa: N806
+        aa_eq = jnp.array(self.A, dtype=jnp.float32)
+        bb_eq = jnp.array(self.b, dtype=jnp.float32)
+        cc = jnp.array(self.C, dtype=jnp.float32)
+        dd = jnp.array(self.d, dtype=jnp.float32)
+        mu_jax = jnp.array(self.mu, dtype=jnp.float32) if self.mu is not None else None
+        gam = float(self.gamma)
+        rho = float(self.rho)
+
+        def _solve(active):
+            """Solve the JAX CG null-space subproblem for the current active set."""
+            # Build the extended constraint matrix on CPU (NumPy) for QR / lstsq.
+            active_np = np.asarray(active)
+            aa_np = np.hstack([np.asarray(aa_eq), np.asarray(cc)[:, active_np]])
+            m_ext = aa_np.shape[1]
+            n_free = self.n - m_ext
+            b_ext_np = np.concatenate([np.asarray(bb_eq), np.asarray(dd)[active_np]])
+
+            w0_np = np.linalg.lstsq(aa_np.T, b_ext_np, rcond=None)[0]
+
+            if n_free <= 0:
+                return w0_np, 0
+
+            Q_np, _ = np.linalg.qr(aa_np, mode="complete")  # noqa: N806
+            P_np = Q_np[:, m_ext:]  # noqa: N806
+
+            # Move P and w0 to JAX.
+            P_jax = jnp.array(P_np, dtype=jnp.float32)  # noqa: N806
+            w0_jax = jnp.array(w0_np, dtype=jnp.float32)
+
+            g0 = xx.T @ (xx @ w0_jax) + gam * w0_jax
+            if rho != 0.0 and mu_jax is not None:
+                g0 = g0 - (rho / 2.0) * mu_jax
+            rhs_jax = -(P_jax.T @ g0)
+
+            def _matvec(y, pp=P_jax, x_=xx, g=gam):
+                pv = pp @ y
+                return pp.T @ (x_.T @ (x_ @ pv)) + g * y
+
+            sol_jax, _ = jax_cg(_matvec, rhs_jax)
+            w_jax = w0_jax + P_jax @ sol_jax
+            # Return as NumPy so the active-set loop stays backend-agnostic.
+            return np.asarray(w_jax, dtype=np.float64), 1
 
         w, iters = self._constraint_active_set(_solve)
         if project:
