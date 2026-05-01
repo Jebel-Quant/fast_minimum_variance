@@ -2,66 +2,10 @@
 
 import numpy as np
 
-
-def build_kkt(X, A=None, b=None, rho=0.0, mu=None):  # noqa: N803
-    """Build the KKT system matrix and RHS for the general mean-variance problem.
-
-    Constructs the (N+m) x (N+m) indefinite saddle-point system for::
-
-        min  ||X w||_2^2 - rho * mu @ w
-        s.t. A.T @ w == b
-
-    The system has the form::
-
-        [ 2 X^T X   A ] [ w ]   [ rho * mu ]
-        [ A^T       0 ] [ λ ] = [ b        ]
-
-    Defaults (A = ones((N,1)), b = [1]) recover the minimum variance KKT
-    system of the companion paper.
-
-    Args:
-        X:   Return matrix of shape (T, N).
-        A:   Equality constraint matrix of shape (N, m).
-             Defaults to ones((N, 1)) (budget constraint).
-        b:   Equality RHS of shape (m,). Defaults to [1.0].
-        rho: Risk-aversion parameter (>= 0). Default 0.
-        mu:  Expected return vector of shape (N,). Required when rho > 0.
-
-    Returns:
-        Tuple (K, rhs) where K is the (N+m) x (N+m) KKT matrix and rhs is
-        the (N+m,) right-hand side vector.
-
-    Examples:
-        >>> import numpy as np
-        >>> X = np.eye(3)
-        >>> K, rhs = build_kkt(X)
-        >>> K.shape
-        (4, 4)
-        >>> rhs
-        array([0., 0., 0., 1.])
-    """
-    n = X.shape[1]
-
-    if A is None:
-        A = np.ones((n, 1))  # noqa: N806
-    if b is None:
-        b = np.ones(1)
-
-    m = A.shape[1]
-    K = np.zeros((n + m, n + m))  # noqa: N806
-    K[:n, :n] = 2 * X.T @ X
-    K[:n, n:] = A
-    K[n:, :n] = A.T
-
-    rhs = np.zeros(n + m)
-    if rho != 0.0 and mu is not None:
-        rhs[:n] = rho * mu
-    rhs[n:] = b
-
-    return K, rhs
+from .api import API
 
 
-def solve_kkt(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N803
+def solve_kkt(api: API):
     """Solve the general mean-variance portfolio via the KKT system with active-set method.
 
     Iteratively promotes violated inequality constraints to equalities until
@@ -69,24 +13,18 @@ def solve_kkt(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N80
     each iteration via ``numpy.linalg.solve``.
 
     Args:
-        X:   Return matrix of shape (T, N).
-        A:   Equality constraint matrix of shape (N, m).
-             Defaults to ones((N, 1)) (budget constraint).
-        b:   Equality RHS of shape (m,). Defaults to [1.0].
-        C:   Inequality constraint matrix of shape (N, p) for C.T @ w <= d.
-             Defaults to -eye(N) (long-only constraint).
-        d:   Inequality RHS of shape (p,). Defaults to zeros(N).
-        rho: Risk-aversion parameter (>= 0). Default 0.
-        mu:  Expected return vector of shape (N,). Required when rho > 0.
+        api: API dataclass holding X, A, b, C, d, rho, mu.
 
     Returns:
-        Weight vector of shape (N,).
+        Tuple (w, n_iters) where w is the weight vector of shape (N,) and
+        n_iters is the number of active-set steps taken.
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance.random import make_returns
+        >>> from fast_minimum_variance.api import API
         >>> X = make_returns(100, 5, seed=0)
-        >>> w = solve_kkt(X)
+        >>> w, iters = solve_kkt(API(X))
         >>> w.shape
         (5,)
         >>> float(round(w.sum(), 10))
@@ -94,37 +32,15 @@ def solve_kkt(X, A=None, b=None, C=None, d=None, rho=0.0, mu=None):  # noqa: N80
         >>> bool((w >= 0).all())
         True
     """
-    n = X.shape[1]
 
-    if A is None:
-        A = np.ones((n, 1))  # noqa: N806
-    if b is None:
-        b = np.ones(1)
-    if C is None:
-        C = -np.eye(n)  # noqa: N806
-    if d is None:
-        d = np.zeros(n)
+    def fn(active):
+        """Solve the KKT system for the current active set."""
+        # Pin active inequalities as equalities by appending their columns to A.
+        # When active is empty, hstack returns A unchanged (C[:,active] is (n, 0)).
+        K, rhs = api.kkt(active=active)  # noqa: N806
+        return np.linalg.solve(K, rhs)[: api.n], 1
 
-    p = d.shape[0]
-    active = np.zeros(p, dtype=bool)
-
-    while True:
-        if active.any():
-            A_ext = np.hstack([A, C[:, active]])  # noqa: N806
-            b_ext = np.concatenate([b, d[active]])
-        else:
-            A_ext, b_ext = A, b  # noqa: N806
-
-        K, rhs = build_kkt(X, A_ext, b_ext, rho=rho, mu=mu)  # noqa: N806
-        sol = np.linalg.solve(K, rhs)
-        w = sol[:n]
-
-        inactive = ~active
-        if not inactive.any():
-            break
-        violations = C[:, inactive].T @ w - d[inactive]
-        if np.all(violations <= 1e-10):
-            break
-        active[np.where(inactive)[0][violations > 1e-10]] = True
-
-    return w
+    w, iters = api.constraint_active_set(fn)
+    w = np.maximum(w, 0)
+    w /= w.sum()
+    return w, iters

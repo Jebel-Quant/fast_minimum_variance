@@ -14,6 +14,7 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
+    from fast_minimum_variance.api import API
     from fast_minimum_variance.cvx import solve_cvxpy
     from fast_minimum_variance.kkt import solve_kkt
     from fast_minimum_variance.krylov import solve_cg, solve_minres
@@ -32,23 +33,22 @@ def _():
     T_dim, N_dim = R.shape  # noqa: N806
     frob_sq = np.einsum("ti,ti->", R, R)
     gamma_lw = frob_sq / (N_dim + T_dim)
-    c_lw = T_dim / (N_dim + T_dim)
-    R_lw = np.vstack([np.sqrt(c_lw) * R, np.sqrt(gamma_lw) * np.eye(N_dim)])  # noqa: N806
+    R_lw = np.vstack([R, np.sqrt(gamma_lw) * np.eye(N_dim)])  # noqa: N806
 
     def run_all(shrinkage):
         if shrinkage:
             configs = [
-                ("cvxpy", lambda: (solve_cvxpy(R_lw), None)),
-                ("kkt", lambda: (solve_kkt(R_lw), None)),
-                ("minres", lambda: solve_minres(R, c=c_lw, gamma=gamma_lw)),
-                ("cg", lambda: solve_cg(R, c=c_lw, gamma=gamma_lw)),
+                ("cvxpy", lambda: solve_cvxpy(API(X=R_lw))),
+                ("kkt", lambda: solve_kkt(API(X=R_lw))),
+                ("minres", lambda: solve_minres(API(X=R, gamma=gamma_lw))),
+                ("cg", lambda: solve_cg(API(X=R, gamma=gamma_lw))),
             ]
         else:
             configs = [
-                ("cvxpy", lambda: (solve_cvxpy(R), None)),
-                ("kkt", lambda: (solve_kkt(R), None)),
-                ("minres", lambda: solve_minres(R)),
-                ("cg", lambda: solve_cg(R)),
+                ("cvxpy", lambda: solve_cvxpy(API(X=R))),
+                ("kkt", lambda: solve_kkt(API(X=R))),
+                ("minres", lambda: solve_minres(API(X=R))),
+                ("cg", lambda: solve_cg(API(X=R))),
             ]
         out = {}
         for name, fn in configs:

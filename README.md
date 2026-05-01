@@ -35,6 +35,7 @@ All solvers return a weight vector $w \in \mathbb{R}^N$ satisfying $\sum_i w_i =
 ## Quick Start
 
 ```python
+from fast_minimum_variance.api import API
 from fast_minimum_variance.random import make_returns
 from fast_minimum_variance.kkt import solve_kkt
 from fast_minimum_variance.krylov import solve_cg, solve_minres
@@ -42,12 +43,13 @@ from fast_minimum_variance.cvx import solve_cvxpy
 
 # Generate a synthetic return matrix: 500 daily returns, 20 assets
 R = make_returns(T=500, N=20, seed=42)
+api = API(X=R)
 
 # Solve with any of the available solvers
-w_kkt = solve_kkt(R)  # exact KKT solve
-w_minres = solve_minres(R)  # MINRES on the indefinite KKT system
-w_cg = solve_cg(R)  # CG in the constraint-reduced space
-w_cvxpy = solve_cvxpy(R)  # CVXPY reference
+w_kkt, _ = solve_kkt(api)  # exact KKT solve
+w_minres, _ = solve_minres(api)  # MINRES on the indefinite KKT system
+w_cg, _ = solve_cg(api)  # CG in the constraint-reduced space
+w_cvxpy, _ = solve_cvxpy(api)  # CVXPY reference
 
 # All solutions satisfy the portfolio constraints
 assert abs(w_kkt.sum() - 1.0) < 1e-8
