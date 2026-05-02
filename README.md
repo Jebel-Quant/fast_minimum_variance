@@ -76,7 +76,7 @@ The defaults recover the long-only minimum variance problem. Pass custom `A`, `b
 
 The equality-constrained minimum variance problem yields the $(N+m) \times (N+m)$ KKT system:
 
-$$\begin{pmatrix} 2(R^\top R + \gamma I) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\,\mu \cr b \end{pmatrix}$$
+$$\begin{pmatrix} 2(R^\top R + \gamma I) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\mu \cr b \end{pmatrix}$$
 
 where $A \in \mathbb{R}^{N \times m}$ collects the active equality and inequality constraints.
 With the defaults ($A = \mathbf{1}$, $b = 1$, $\gamma = 0$, $\rho = 0$) this reduces to
