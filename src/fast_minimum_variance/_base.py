@@ -1,7 +1,7 @@
 """Common base for portfolio-optimisation problem classes."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -26,7 +26,7 @@ class _BaseProblem(ABC):
     X: np.ndarray
     alpha: float = 0.0
     rho: float = 0.0
-    mu: np.ndarray = field(default=None)  # type: ignore[assignment]
+    mu: np.ndarray | None = None
 
     # ------------------------------------------------------------------
     # Shared utilities

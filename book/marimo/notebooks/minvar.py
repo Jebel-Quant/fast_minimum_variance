@@ -14,7 +14,7 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    from fast_minimum_variance.problem import Problem
+    from fast_minimum_variance import Problem
 
 
 @app.cell
@@ -23,8 +23,8 @@ def _():
 
     import numpy as np
 
-    R = np.random.default_rng(42).standard_normal((2000, 1000))  # noqa: N806
-    T_dim, N_dim = R.shape  # noqa: N806
+    R = np.random.default_rng(42).standard_normal((2000, 1000))
+    T_dim, N_dim = R.shape
     alpha_lw = N_dim / (N_dim + T_dim)  # Ledoit-Wolf shrinkage intensity
 
     def run_all(shrinkage):
