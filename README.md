@@ -87,8 +87,51 @@ w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
 | `mu` | `ndarray (N,)` | `None` | Expected returns vector |
 
 When `A`, `b`, `C`, `d` are omitted, the defaults are $A = \mathbf{1}$, $b = 1$,
-$C = -I$, $d = 0$ (budget + long-only). Use `alpha = N / (N + T)` for the analytical
-Ledoit-Wolf intensity.
+$C = -I$, $d = 0$ (budget + long-only). We suggest to use `alpha = N / (N + T)` for shrinkage.
+
+## `_MinVarProblem` vs `_Problem`
+
+Under the hood, `Problem(...)` returns one of two solver classes. You never need to
+instantiate them directly — the factory does the right thing — but understanding the
+difference explains the performance characteristics.
+
+### `_MinVarProblem` — shrinking active-set
+
+Used when **no custom constraints are passed**. Designed exclusively for the long-only
+minimum-variance problem ($\sum w_i = 1$, $w_i \geq 0$).
+
+The active-set strategy works by **removing** assets: whenever an asset's optimal weight
+is negative, it is dropped from the subproblem entirely. The KKT system shrinks from
+$(N+1)\times(N+1)$ down to $(N^*+1)\times(N^*+1)$, where $N^* \ll N$ is the final
+number of assets held. On real equity data — where a minimum-variance portfolio
+concentrates in a small fraction of the universe — this can reduce MINRES iterations
+by an order of magnitude (e.g. 214 vs 1 065 on S&P 500 without shrinkage).
+
+### `_Problem` — growing active-set
+
+Used when **any of `A`, `b`, `C`, `d` are provided**. Handles arbitrary linear equality
+and inequality constraints.
+
+The active-set strategy works by **adding** violated inequalities as equalities. The
+solver always operates on the full $N$-dimensional system, and the KKT matrix grows
+from $(N+m)\times(N+m)$ (equality constraints only) up to
+$(N+m+p^*)\times(N+m+p^*)$ as $p^*$ inequality constraints are activated. This is the
+right choice whenever you need custom turnover limits, sector caps, or any constraint
+structure that goes beyond the default long-only budget problem.
+
+### The good news: you don't have to choose
+
+```python
+# Calls _MinVarProblem internally — fast shrinking active-set
+w, _ = Problem(R).solve_minres()
+
+# Calls _Problem internally — general growing active-set
+w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
+```
+
+The `Problem(...)` factory inspects whether any constraints were supplied and routes
+to the appropriate class automatically. Both expose the same four solver methods
+(`solve_kkt`, `solve_minres`, `solve_cg`, `solve_cvxpy`) and return `(w, n_iters)`.
 
 ## The KKT System
 
