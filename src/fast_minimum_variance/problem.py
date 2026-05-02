@@ -12,14 +12,16 @@ class Problem:
 
     Encodes the optimization problem::
 
-        min  ||X w||^2 + gamma * ||w||^2 - rho * mu^T w
+        min  (1-alpha)||X w||^2 + alpha*(||X||_F^2/N)*||w||^2 - rho * mu^T w
         s.t. A^T w  = b      (equality constraints)
              C^T w <= d      (inequality constraints)
 
-    The first term ``||X w||^2`` is the sample portfolio variance (X is the
-    demeaned return matrix of shape T x N).  The ``gamma`` term adds a
-    Tikhonov / Ledoit-Wolf ridge to improve conditioning.  The ``rho * mu``
-    term tilts the portfolio toward higher-expected-return assets (Markowitz).
+    The first term is the sample portfolio variance (X is the demeaned return
+    matrix of shape T x N).  The ``alpha`` term adds a Ledoit-Wolf ridge
+    ``alpha * (||X||_F^2 / N) * I`` to the covariance, improving conditioning.
+    The ridge coefficient is computed internally from X and alpha at O(TN) cost.
+    The ``rho * mu`` term tilts the portfolio toward higher-expected-return
+    assets (Markowitz).
 
     Defaults reproduce the long-only minimum-variance problem:
 
@@ -39,7 +41,7 @@ class Problem:
 
     X: np.ndarray
     rho: float = 0.0
-    gamma: float = 0.0
+    alpha: float = 0.0
     mu: np.ndarray = field(default=None)  # type: ignore[assignment]
     A: np.ndarray = field(default=None)  # type: ignore[assignment]
     b: np.ndarray = field(default=None)  # type: ignore[assignment]
@@ -84,8 +86,10 @@ class Problem:
         b = np.concatenate([self.b, self.d[active]])
         m = A.shape[1]
 
+        ridge = self.alpha * np.einsum("ti,ti->", self.X, self.X) / self.n
+        oma = 1.0 - self.alpha
         K = np.zeros((self.n + m, self.n + m))  # noqa: N806
-        K[: self.n, : self.n] = 2 * (self.X.T @ self.X + self.gamma * np.eye(self.n))
+        K[: self.n, : self.n] = 2 * (oma * (self.X.T @ self.X) + ridge * np.eye(self.n))
         K[: self.n, self.n :] = A
         K[self.n :, : self.n] = A.T
 
@@ -103,11 +107,14 @@ class Problem:
         aa = np.hstack([self.A, self.C[:, active]])
         na, ma = self.n, aa.shape[1]
 
+        ridge = self.alpha * np.einsum("ti,ti->", self.X, self.X) / self.n
+        oma = 1.0 - self.alpha
+
         # Capture as default args rather than closing over `self` to avoid
         # attribute-lookup indirection on every matvec call.
-        def _matvec(x, xx=self.X, a=aa, n_=na, m_=ma, gam=self.gamma):
+        def _matvec(x, xx=self.X, a=aa, n_=na, m_=ma, oma_=oma, rid=ridge):
             out = np.empty(n_ + m_)
-            out[:n_] = 2.0 * (xx.T @ (xx @ x[:n_]) + gam * x[:n_]) + a @ x[n_:]
+            out[:n_] = 2.0 * (oma_ * (xx.T @ (xx @ x[:n_])) + rid * x[:n_]) + a @ x[n_:]
             out[n_:] = a.T @ x[:n_]
             return out
 
@@ -139,15 +146,17 @@ class Problem:
 
         P = Q[:, m_ext:]  # noqa: N806
 
-        g0 = self.X.T @ (self.X @ w0) + self.gamma * w0
+        ridge = self.alpha * np.einsum("ti,ti->", self.X, self.X) / self.n
+        oma = 1.0 - self.alpha
+        g0 = oma * (self.X.T @ (self.X @ w0)) + ridge * w0
         if self.rho != 0.0 and self.mu is not None:
             g0 = g0 - (self.rho / 2.0) * self.mu
 
         rhs = -(P.T @ g0)
 
-        def _matvec(y, pp=P, xx=self.X, gam=self.gamma):
+        def _matvec(y, pp=P, xx=self.X, oma_=oma, rid=ridge):
             pv = pp @ y
-            return pp.T @ (xx.T @ (xx @ pv)) + gam * y
+            return oma_ * (pp.T @ (xx.T @ (xx @ pv))) + rid * y
 
         op = LinearOperator(shape=(n_free, n_free), matvec=_matvec)  # type: ignore[call-arg]
         return op, rhs, w0, P
@@ -188,7 +197,7 @@ class Problem:
 
         Examples:
             >>> import numpy as np
-            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_kkt()
             >>> w.shape
@@ -226,14 +235,11 @@ class Problem:
         With the defaults (``A = ones``, ``b = [1]``, ``C = -I``, ``d = 0``) this
         recovers the long-only minimum variance solver of the companion paper.
 
-        To apply Ledoit-Wolf shrinkage, pre-scale the return matrix and set gamma::
+        To apply Ledoit-Wolf shrinkage, pass the shrinkage intensity directly::
 
             T, N     = X.shape
-            frob_sq  = (X * X).sum()
             alpha    = N / (N + T)
-            X_scaled = np.sqrt(1.0 - alpha) * X
-            gamma    = frob_sq / (N + T)
-            w, iters = Problem(X_scaled, gamma=gamma).solve_minres()
+            w, iters = Problem(X, alpha=alpha).solve_minres()
 
         Args:
             project: If True (default), clip weights to non-negative and renormalize
@@ -248,7 +254,7 @@ class Problem:
 
         Examples:
             >>> import numpy as np
-            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_minres()
             >>> w.shape
@@ -309,7 +315,7 @@ class Problem:
 
         Examples:
             >>> import numpy as np
-            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_cg()
             >>> w.shape
@@ -361,7 +367,7 @@ class Problem:
 
         Examples:
             >>> import numpy as np
-            >>> from fast_minimum_variance.api import Problem
+            >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
             >>> w, iters = Problem(X).solve_cvxpy()
             >>> w.shape
@@ -380,9 +386,10 @@ class Problem:
 
         w = cp.Variable(self.n)
 
-        objective = cp.sum_squares(self.X @ w)
-        if self.gamma != 0.0:
-            objective = objective + self.gamma * cp.sum_squares(w)
+        ridge = self.alpha * np.einsum("ti,ti->", self.X, self.X) / self.n
+        objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w)
+        if self.alpha != 0.0:
+            objective = objective + ridge * cp.sum_squares(w)
         if self.rho != 0.0:
             objective = objective - self.rho * (self.mu @ w)
 

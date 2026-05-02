@@ -54,10 +54,10 @@ class TestSolveCvxpy:
         assert abs(w.sum() - 1.0) < 1e-6
         assert np.all(w >= -1e-6)
 
-    def test_gamma_branch(self):
-        """Gamma != 0 enters the ridge regularisation branch."""
+    def test_alpha_branch(self):
+        """Alpha != 0 enters the Ledoit-Wolf ridge regularisation branch."""
         X = np.eye(3)  # noqa: N806
-        w, _ = Problem(X, gamma=0.1).solve_cvxpy()
+        w, _ = Problem(X, alpha=0.1).solve_cvxpy()
         assert abs(w.sum() - 1.0) < 1e-6
 
     def test_import_error_without_cvxpy(self, monkeypatch):
