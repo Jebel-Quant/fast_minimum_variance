@@ -1,6 +1,6 @@
 """General mean-variance portfolio problem with growing-constraint active-set."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.linalg import qr as _scipy_qr
@@ -43,10 +43,10 @@ class _Problem(_BaseProblem):
         w, iters = Problem(X, A=A, b=b).solve_cvxpy()   # requires [convex] extra
     """
 
-    A: np.ndarray = field(default=None)  # type: ignore[assignment]
-    b: np.ndarray = field(default=None)  # type: ignore[assignment]
-    C: np.ndarray = field(default=None)  # type: ignore[assignment]
-    d: np.ndarray = field(default=None)  # type: ignore[assignment]
+    A: np.ndarray | None = None
+    b: np.ndarray | None = None
+    C: np.ndarray | None = None
+    d: np.ndarray | None = None
 
     def __post_init__(self):
         """Fill in default constraint matrices when not supplied."""
@@ -63,6 +63,7 @@ class _Problem(_BaseProblem):
     @property
     def _m(self) -> int:
         """Number of equality constraints."""
+        assert self.A is not None  # noqa: S101
         return self.A.shape[1]
 
     # ------------------------------------------------------------------
@@ -71,6 +72,8 @@ class _Problem(_BaseProblem):
 
     def _constraint_active_set(self, solve_fn):
         """Run the active-set loop, promoting violated inequalities to equalities."""
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
         p = self.d.size
         active = np.zeros(p, dtype=bool)
         total_iters = 0
@@ -112,6 +115,10 @@ class _Problem(_BaseProblem):
 
     def _cvxpy_constraints(self, w, cp):
         """Return equality and inequality constraints for CVXPY."""
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
         return [self.A.T @ w == self.b, self.C.T @ w <= self.d]
 
     # ------------------------------------------------------------------
@@ -120,6 +127,10 @@ class _Problem(_BaseProblem):
 
     def _kkt(self, active=None):
         """Build the (N+m) x (N+m) KKT saddle-point system."""
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
         if active is None:
             active = np.zeros(self.C.shape[1], dtype=bool)
         A = np.hstack([self.A, self.C[:, active]])  # noqa: N806
@@ -142,6 +153,10 @@ class _Problem(_BaseProblem):
 
     def _kkt_operator(self, active=None):
         """Build the matrix-free KKT saddle-point operator and RHS for MINRES."""
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
         if active is None:
             active = np.zeros(self.C.shape[1], dtype=bool)
         aa = np.hstack([self.A, self.C[:, active]])
@@ -172,6 +187,10 @@ class _Problem(_BaseProblem):
         Setup: O(n m²) for QR + WY factor.  Per-matvec: O(n m) via BLAS, where
         m = number of active equality + inequality constraints.
         """
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
         if active is None:
             active = np.zeros(self.C.shape[1], dtype=bool)
         aa = np.hstack([self.A, self.C[:, active]])
