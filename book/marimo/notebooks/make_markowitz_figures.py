@@ -9,7 +9,7 @@
 #     "marimo"
 # ]
 # [tool.uv.sources]
-# fast-minimum-variance = { path = "../..", editable = true }
+# fast-minimum-variance = { path = "../../..", editable = true }
 # ///
 
 import marimo
