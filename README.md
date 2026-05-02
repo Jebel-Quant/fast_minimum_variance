@@ -17,10 +17,10 @@ $\|Rw\|^2$, which can be evaluated using two matrix-vector products $w \mapsto R
 without constructing $R^\top R$ explicitly. This reframing connects the portfolio
 optimisation literature directly to Krylov subspace methods.
 
-Linear equality and inequality constraints ($A^\top w = b$, $C^\top w \leq d$) are
-handled via an **active-set method**: violated inequalities are promoted to equalities
-one outer iteration at a time, and the process terminates in at most $p$ iterations
-where $p$ is the number of inequality constraints.
+For the default long-only problem, assets with negative optimal weights are **dropped**
+iteratively until all remaining weights are non-negative — no classic active-set logic
+is needed.  For custom constraints ($A^\top w = b$, $C^\top w \leq d$), violated
+inequalities are promoted to equalities one outer iteration at a time.
 
 ## Solvers
 
@@ -44,7 +44,7 @@ from fast_minimum_variance import Problem
 # Returns matrix: 500 daily returns, 20 assets
 R = np.random.default_rng(42).standard_normal((500, 20))
 
-# No custom constraints → fast shrinking active-set solver
+# No custom constraints → fast iterative asset-elimination solver
 p = Problem(R)
 w_kkt,    _ = p.solve_kkt()    # exact KKT solve
 w_minres, _ = p.solve_minres() # MINRES on the indefinite KKT system
@@ -57,7 +57,7 @@ assert (w_kkt >= 0).all()
 T, N = R.shape
 w, iters = Problem(R, alpha=N / (N + T)).solve_minres()
 
-# Custom constraints → general growing active-set solver
+# Custom constraints → general active-set solver
 import numpy as np
 A = np.ones((N, 1))          # budget constraint only
 b = np.ones(1)
@@ -70,9 +70,9 @@ w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
 
 `Problem(X, ...)` is the single entry point. It dispatches automatically:
 
-- **No `A`, `b`, `C`, `d`** → shrinking active-set (faster; KKT system shrinks from
-  $(N+1)\times(N+1)$ to $(N^*+1)\times(N^*+1)$ where $N^*$ is the final portfolio size)
-- **Any of `A`, `b`, `C`, `d` provided** → growing active-set (handles arbitrary linear
+- **No `A`, `b`, `C`, `d`** → iterative asset elimination (faster; KKT system shrinks
+  from $(N+1)\times(N+1)$ to $(N^*+1)\times(N^*+1)$ where $N^*$ is the final portfolio size)
+- **Any of `A`, `b`, `C`, `d` provided** → active-set (handles arbitrary linear
   equality and inequality constraints)
 
 | Parameter | Type | Default | Description |
@@ -95,17 +95,19 @@ Under the hood, `Problem(...)` returns one of two solver classes. You never need
 instantiate them directly — the factory does the right thing — but understanding the
 difference explains the performance characteristics.
 
-### `_MinVarProblem` — shrinking active-set
+### `_MinVarProblem` — iterative asset elimination
 
 Used when **no custom constraints are passed**. Designed exclusively for the long-only
 minimum-variance problem ($\sum w_i = 1$, $w_i \geq 0$).
 
-The active-set strategy works by **removing** assets: whenever an asset's optimal weight
-is negative, it is dropped from the subproblem entirely. The KKT system shrinks from
-$(N+1)\times(N+1)$ down to $(N^*+1)\times(N^*+1)$, where $N^* \ll N$ is the final
-number of assets held. On real equity data — where a minimum-variance portfolio
-concentrates in a small fraction of the universe — this can reduce MINRES iterations
-by an order of magnitude (e.g. 214 vs 1 065 on S&P 500 without shrinkage).
+The outer loop is a **primal-dual procedure**: the *primal step* solves the budget-only
+equality system and drops any asset with a negative weight; once all active weights are
+non-negative, the *dual step* checks the KKT gradient condition for every excluded asset
+and re-adds any that would decrease portfolio variance if included.  The loop terminates
+only when both conditions hold simultaneously, guaranteeing global optimality.  The KKT
+system shrinks from $(N+1)\times(N+1)$ down to $(N^*+1)\times(N^*+1)$, where $N^* \ll N$
+is the final portfolio size.  On real equity data this can reduce MINRES iterations by an
+order of magnitude (e.g. 214 vs 1 065 on S&P 500 without shrinkage).
 
 ### `_Problem` — growing active-set
 
@@ -122,10 +124,10 @@ structure that goes beyond the default long-only budget problem.
 ### The good news: you don't have to choose
 
 ```python
-# Calls _MinVarProblem internally — fast shrinking active-set
+# Calls _MinVarProblem internally — fast iterative asset elimination
 w, _ = Problem(R).solve_minres()
 
-# Calls _Problem internally — general growing active-set
+# Calls _Problem internally — general active-set
 w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
 ```
 
@@ -137,7 +139,7 @@ to the appropriate class automatically. Both expose the same four solver methods
 
 The equality-constrained minimum variance problem yields the $(N+m) \times (N+m)$ KKT system:
 
-$$\begin{pmatrix} 2\!\left(R^\top R + \tfrac{\alpha\|R\|_F^2}{N} I\right) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\mu \cr b \end{pmatrix}$$
+$$\begin{pmatrix} 2\left(R^\top R + \tfrac{\alpha\|R\|_F^2}{N} I\right) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\mu \cr b \end{pmatrix}$$
 
 where $A \in \mathbb{R}^{N \times m}$ collects the active equality and inequality constraints.
 With the defaults ($A = \mathbf{1}$, $b = 1$, $\alpha = 0$, $\rho = 0$) this reduces to
