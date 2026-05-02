@@ -17,7 +17,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fast_minimum_variance.api import Problem
+from fast_minimum_variance.problem import Problem
 
 mpl.rcParams.update(
     {
@@ -31,13 +31,6 @@ mpl.rcParams.update(
         "figure.dpi": 150,
     }
 )
-
-
-def lw_params(X):  # noqa: N803
-    """Return (c, gamma) Ledoit-Wolf shrinkage parameters for returns matrix X."""
-    T, N = X.shape  # noqa: N806
-    frob_sq = np.einsum("ti,ti->", X, X)
-    return T / (N + T), frob_sq / (N + T)
 
 
 def run_timed(fn, repeats=3):
@@ -75,7 +68,7 @@ N_bench, T_bench = 1000, 2000
 X_bench = rng.standard_normal((T_bench, N_bench))
 mu_bench = rng.standard_normal(N_bench)
 C_bench, d_bench = make_constraints(N_bench, 5, 0.25)
-c_lw, gamma_lw = lw_params(X_bench)
+alpha_bench = N_bench / (N_bench + T_bench)
 
 configs = [
     ("cvxpy", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_cvxpy(project=False)),
@@ -84,15 +77,13 @@ configs = [
     ("cg", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_cg(project=False)),
     (
         "minres_lw",
-        lambda: Problem(
-            np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw
-        ).solve_minres(project=False),
+        lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, alpha=alpha_bench).solve_minres(
+            project=False
+        ),
     ),
     (
         "cg_lw",
-        lambda: Problem(np.sqrt(c_lw) * X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, gamma=gamma_lw).solve_cg(
-            project=False
-        ),
+        lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, alpha=alpha_bench).solve_cg(project=False),
     ),
 ]
 
@@ -139,17 +130,17 @@ for n in ns:
     X = rng2.standard_normal((T, n))
     mu = rng2.standard_normal(n)
     C, d = make_constraints(n, 5, 0.25)
-    c, gamma = lw_params(X)
+    alpha = n / (n + T)
     _, t_kkt = run_timed(lambda x=X, cc=C, dd=d, mm=mu: Problem(x, C=cc, d=dd, rho=0.5, mu=mm).solve_kkt(project=False))
     _, t_mr = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: Problem(
-            np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv
-        ).solve_minres(project=False)
+        lambda x=X, cc=C, dd=d, mm=mu, av=alpha: Problem(x, C=cc, d=dd, rho=0.5, mu=mm, alpha=av).solve_minres(
+            project=False
+        )
     )
     _, t_cg = run_timed(
-        lambda x=X, cc=C, dd=d, mm=mu, cv=c, gv=gamma: Problem(
-            np.sqrt(cv) * x, C=cc, d=dd, rho=0.5, mu=mm, gamma=gv
-        ).solve_cg(project=False)
+        lambda x=X, cc=C, dd=d, mm=mu, av=alpha: Problem(x, C=cc, d=dd, rho=0.5, mu=mm, alpha=av).solve_cg(
+            project=False
+        )
     )
     times_markowitz["kkt"].append(t_kkt)
     times_markowitz["minres_lw"].append(t_mr)
@@ -168,36 +159,55 @@ N_ef, T_ef = 500, 1000
 X_ef = np.random.default_rng(2).standard_normal((T_ef, N_ef))
 mu_ef = np.random.default_rng(3).standard_normal(N_ef)
 C_ef, d_ef = make_constraints(N_ef, 5, 0.25)
-c_ef, gamma_ef = lw_params(X_ef)
+alpha_ef = N_ef / (N_ef + T_ef)
 rhos = np.linspace(0, 2, 21)
 
 
 def frontier_kkt():
     """Compute efficient frontier weights for all rho values using KKT direct."""
-    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=False) for r in rhos]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=True) for r in rhos]
+
+
+def frontier_minres():
+    """Compute efficient frontier weights for all rho values using MINRES + LW."""
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_minres(project=True) for r in rhos]
 
 
 def frontier_cg():
     """Compute efficient frontier weights for all rho values using CG + LW."""
-    return [
-        Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=False)
-        for r in rhos
-    ]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_cg(project=True) for r in rhos]
 
 
 def frontier_cvxpy():
-    """Compute efficient frontier weights for all rho values using CVXPY."""
-    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_cvxpy(project=False) for r in rhos]
+    """Compute efficient frontier weights for all rho values using CVXPY (no LW)."""
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_cvxpy(project=True) for r in rhos]
+
+
+def frontier_cvxpy_lw():
+    """Compute efficient frontier weights for all rho values using CVXPY + LW."""
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_cvxpy(project=True) for r in rhos]
 
 
 _, t_ef_kkt = run_timed(frontier_kkt)
+_, t_ef_minres = run_timed(frontier_minres)
 _, t_ef_cg = run_timed(frontier_cg)
 _, t_ef_cvxpy = run_timed(frontier_cvxpy)
+_, t_ef_cvxpy_lw = run_timed(frontier_cvxpy_lw)
 
-print(f"  cvxpy  : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
-print(f"  kkt    : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
-print(f"  cg+lw  : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
-print(f"  speedup cg vs cvxpy: {t_ef_cvxpy / t_ef_cg:.1f}x")
+print(f"  cvxpy (no LW)  : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
+print(f"  cvxpy + LW     : {t_ef_cvxpy_lw:.3f} s  ({t_ef_cvxpy_lw / len(rhos) * 1000:.1f} ms/point)")
+print(f"  kkt            : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
+print(f"  minres + LW    : {t_ef_minres:.3f} s  ({t_ef_minres / len(rhos) * 1000:.1f} ms/point)")
+print(f"  cg + LW        : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
+print()
+print("  --- Algorithmic speedup (same problem, no LW) ---")
+print(f"  MINRES (no LW) vs cvxpy (no LW): {t_ef_cvxpy / t_ef_kkt:.1f}x (KKT direct)")
+print()
+print("  --- Regularised speedup (both with LW, same problem) ---")
+print(f"  MINRES+LW vs cvxpy+LW : {t_ef_cvxpy_lw / t_ef_minres:.1f}x")
+print(f"  CG+LW vs cvxpy+LW     : {t_ef_cvxpy_lw / t_ef_cg:.1f}x")
+print()
+print(f"  Note: applying LW to cvxpy changes its runtime by {abs(t_ef_cvxpy_lw / t_ef_cvxpy - 1) * 100:.1f}%")
 
 
 # ── Plot ──────────────────────────────────────────────────────────────────────
@@ -216,14 +226,17 @@ ax1.set_title(r"(a) Runtime vs.\ $n$  (5 sector caps, $\rho=0.5$, LW)")
 ax1.legend(framealpha=0.9)
 ax1.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.7)
 
-# Panel B: efficient frontier portfolios (return vs variance)
-ws_cg = [
-    Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=False)[0]
-    for r in rhos
+# Panel B: efficient frontier portfolios (return vs variance), using alpha=alpha_ef to
+# match the Krylov experiments so the figure and timing comparisons are consistent.
+ws_kkt = [
+    Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_kkt(project=True)[0]
+    for r in np.linspace(0, 2, 51)
 ]
-rets = [mu_ef @ w for w in ws_cg]
-vols = [float(np.linalg.norm(X_ef @ w)) for w in ws_cg]
-ax2.plot(vols, rets, marker="o", markersize=3, color=colors["cg_lw"])
+rets = [mu_ef @ w for w in ws_kkt]
+vols = [float(np.linalg.norm(X_ef @ w)) for w in ws_kkt]
+# Sort by risk so the frontier traces left-to-right.
+_order = np.argsort(vols)
+ax2.plot(np.array(vols)[_order], np.array(rets)[_order], marker="o", markersize=3, color=colors["kkt"])
 ax2.set_xlabel(r"Portfolio risk $\|Xw\|$")
 ax2.set_ylabel(r"Expected return $\mu^\top w$")
 ax2.set_title(r"(b) Efficient frontier  ($n=500$, 5 sector caps)")
