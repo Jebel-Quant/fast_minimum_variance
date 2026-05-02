@@ -57,17 +57,17 @@ class _BaseProblem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _kkt_step(self, mask):  # pragma: no cover
+    def _kkt_step(self, active):  # pragma: no cover
         """Solve one inner direct-KKT step; return ``(w, iters)``."""
         raise NotImplementedError
 
     @abstractmethod
-    def _minres_step(self, mask):  # pragma: no cover
+    def _minres_step(self, active):  # pragma: no cover
         """Solve one inner MINRES step; return ``(w, iters)``."""
         raise NotImplementedError
 
     @abstractmethod
-    def _cg_step(self, mask):  # pragma: no cover
+    def _cg_step(self, active):  # pragma: no cover
         """Solve one inner CG null-space step; return ``(w, iters)``."""
         raise NotImplementedError
 

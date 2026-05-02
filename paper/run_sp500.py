@@ -28,14 +28,8 @@ print(f"S&P 500 returns: T={T} trading days, N={N} assets")
 print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}\n")
 
 # ── Ledoit-Wolf parameters ─────────────────────────────────────────────────────
-# Ledoit-Wolf oracle shrinkage: c scales the sample covariance toward gamma*I.
-# Equivalent to minimising c*||Xw||^2 + gamma*||w||^2; passed to solvers as
-# X_lw = sqrt(c)*X with gamma set on the Problem dataclass.
 
-frob_sq = np.einsum("ti,ti->", R, R)
-c_lw = T / (N + T)
-gamma_lw = frob_sq / (N + T)
-R_lw = np.sqrt(c_lw) * R  # pre-scaled return matrix; gamma_lw passed separately
+alpha_lw = N / (N + T)  # Ledoit-Wolf shrinkage intensity; ridge = alpha * ||R||_F^2/N
 
 # ── Benchmark ──────────────────────────────────────────────────────────────────
 
@@ -60,10 +54,10 @@ configs_no_lw = [
 ]
 
 configs_lw = [
-    ("cvxpy", lambda: Problem(R_lw, gamma=gamma_lw).solve_cvxpy()),
-    ("kkt", lambda: Problem(R_lw, gamma=gamma_lw).solve_kkt()),
-    ("minres", lambda: Problem(R_lw, gamma=gamma_lw).solve_minres()),
-    ("cg", lambda: Problem(R_lw, gamma=gamma_lw).solve_cg()),
+    ("cvxpy", lambda: Problem(R, alpha=alpha_lw).solve_cvxpy()),
+    ("kkt", lambda: Problem(R, alpha=alpha_lw).solve_kkt()),
+    ("minres", lambda: Problem(R, alpha=alpha_lw).solve_minres()),
+    ("cg", lambda: Problem(R, alpha=alpha_lw).solve_cg()),
 ]
 
 display = {
