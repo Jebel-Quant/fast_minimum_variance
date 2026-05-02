@@ -17,7 +17,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fast_minimum_variance.api import Problem
+from fast_minimum_variance.problem import Problem
 
 mpl.rcParams.update(
     {

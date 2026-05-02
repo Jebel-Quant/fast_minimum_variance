@@ -17,7 +17,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from fast_minimum_variance.api import Problem
+from fast_minimum_variance.problem import Problem
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 
