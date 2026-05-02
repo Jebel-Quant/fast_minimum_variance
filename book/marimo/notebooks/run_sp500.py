@@ -6,6 +6,7 @@
 #     "pandas",
 #     "numpy",
 #     "pyarrow",
+#     "marimo",
 #     "fast-minimum-variance[convex]",
 # ]
 # [tool.uv.sources]
