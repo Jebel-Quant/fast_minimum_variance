@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance.problem import Problem
+from fast_minimum_variance.problem import _Problem as Problem
 
 # ---------------------------------------------------------------------------
 # Fixtures
