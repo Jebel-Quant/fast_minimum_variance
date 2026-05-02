@@ -6,13 +6,6 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, minres
 
 
-def clip_and_renormalize(w: np.ndarray) -> np.ndarray:
-    """Clip weights to non-negative and renormalize to sum to one."""
-    w = np.maximum(w, 0)
-    w /= w.sum()
-    return w
-
-
 @dataclass(frozen=True)
 class Problem:
     """Mean-variance portfolio problem specification and solver interface.
@@ -66,6 +59,12 @@ class Problem:
         if self.d is None:
             object.__setattr__(self, "d", np.zeros(n))
         # object.__setattr__ is required because the dataclass is frozen.
+
+    @staticmethod
+    def _clip_and_renormalize(w: np.ndarray) -> np.ndarray:
+        w = np.maximum(w, 0)
+        w /= w.sum()
+        return w
 
     @property
     def n(self) -> int:
@@ -128,13 +127,15 @@ class Problem:
         n_free = self.n - m_ext
         b_ext = np.concatenate([self.b, self.d[active]])
 
+        if n_free <= 0:
+            # Over-determined (more active constraints than assets): use lstsq for w0.
+            w0 = np.linalg.lstsq(aa.T, b_ext, rcond=None)[0]
+            return None, None, w0, None
+
         Q, R = np.linalg.qr(aa, mode="complete")  # noqa: N806
         # Minimum-norm particular solution via triangular solve on leading R block,
         # reusing the QR already computed rather than calling lstsq separately.
         w0 = Q[:, :m_ext] @ np.linalg.solve(R[:m_ext].T, b_ext)
-
-        if n_free <= 0:
-            return None, None, w0, None
 
         P = Q[:, m_ext:]  # noqa: N806
 
@@ -206,7 +207,7 @@ class Problem:
 
         w, iters = self._constraint_active_set(fn)
         if project:
-            w = clip_and_renormalize(w)
+            w = self._clip_and_renormalize(w)
         return w, iters
 
     def solve_minres(self, *, project: bool = True):
@@ -271,7 +272,7 @@ class Problem:
 
         w, iters = self._constraint_active_set(_solve)
         if project:
-            w = clip_and_renormalize(w)
+            w = self._clip_and_renormalize(w)
         return w, iters
 
     def solve_cg(self, *, project: bool = True):
@@ -334,7 +335,7 @@ class Problem:
 
         w, iters = self._constraint_active_set(_solve)
         if project:
-            w = clip_and_renormalize(w)
+            w = self._clip_and_renormalize(w)
         return w, iters
 
     def solve_cvxpy(self, *, project: bool = True):
@@ -394,5 +395,5 @@ class Problem:
         if result is None:
             raise RuntimeError("CVXPY solver failed to find a solution")  # noqa: TRY003
         if project:
-            result = clip_and_renormalize(result)
+            result = self._clip_and_renormalize(result)
         return result, problem.solver_stats.num_iters
