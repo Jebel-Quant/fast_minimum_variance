@@ -179,21 +179,35 @@ def frontier_cg():
 
 
 def frontier_cvxpy():
-    """Compute efficient frontier weights for all rho values using CVXPY."""
+    """Compute efficient frontier weights for all rho values using CVXPY (no LW)."""
     return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_cvxpy(project=True) for r in rhos]
+
+
+def frontier_cvxpy_lw():
+    """Compute efficient frontier weights for all rho values using CVXPY + LW."""
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_cvxpy(project=True) for r in rhos]
 
 
 _, t_ef_kkt = run_timed(frontier_kkt)
 _, t_ef_minres = run_timed(frontier_minres)
 _, t_ef_cg = run_timed(frontier_cg)
 _, t_ef_cvxpy = run_timed(frontier_cvxpy)
+_, t_ef_cvxpy_lw = run_timed(frontier_cvxpy_lw)
 
-print(f"  cvxpy      : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
-print(f"  kkt        : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
-print(f"  minres+lw  : {t_ef_minres:.3f} s  ({t_ef_minres / len(rhos) * 1000:.1f} ms/point)")
-print(f"  cg+lw      : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
-print(f"  speedup minres vs cvxpy: {t_ef_cvxpy / t_ef_minres:.1f}x")
-print(f"  speedup cg vs cvxpy: {t_ef_cvxpy / t_ef_cg:.1f}x")
+print(f"  cvxpy (no LW)  : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
+print(f"  cvxpy + LW     : {t_ef_cvxpy_lw:.3f} s  ({t_ef_cvxpy_lw / len(rhos) * 1000:.1f} ms/point)")
+print(f"  kkt            : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
+print(f"  minres + LW    : {t_ef_minres:.3f} s  ({t_ef_minres / len(rhos) * 1000:.1f} ms/point)")
+print(f"  cg + LW        : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
+print()
+print("  --- Algorithmic speedup (same problem, no LW) ---")
+print(f"  MINRES (no LW) vs cvxpy (no LW): {t_ef_cvxpy / t_ef_kkt:.1f}x (KKT direct)")
+print()
+print("  --- Regularised speedup (both with LW, same problem) ---")
+print(f"  MINRES+LW vs cvxpy+LW : {t_ef_cvxpy_lw / t_ef_minres:.1f}x")
+print(f"  CG+LW vs cvxpy+LW     : {t_ef_cvxpy_lw / t_ef_cg:.1f}x")
+print()
+print(f"  Note: applying LW to cvxpy changes its runtime by {abs(t_ef_cvxpy_lw / t_ef_cvxpy - 1) * 100:.1f}%")
 
 
 # ── Plot ──────────────────────────────────────────────────────────────────────
@@ -212,9 +226,12 @@ ax1.set_title(r"(a) Runtime vs.\ $n$  (5 sector caps, $\rho=0.5$, LW)")
 ax1.legend(framealpha=0.9)
 ax1.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.7)
 
-# Panel B: efficient frontier portfolios (return vs variance).
-# Use the exact KKT solver for the shape illustration; timing is benchmarked in panel (a).
-ws_kkt = [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=True)[0] for r in np.linspace(0, 2, 51)]
+# Panel B: efficient frontier portfolios (return vs variance), using alpha=alpha_ef to
+# match the Krylov experiments so the figure and timing comparisons are consistent.
+ws_kkt = [
+    Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_kkt(project=True)[0]
+    for r in np.linspace(0, 2, 51)
+]
 rets = [mu_ef @ w for w in ws_kkt]
 vols = [float(np.linalg.norm(X_ef @ w)) for w in ws_kkt]
 # Sort by risk so the frontier traces left-to-right.
