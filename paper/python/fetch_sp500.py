@@ -59,7 +59,7 @@ log_returns = np.log(raw / raw.shift(1)).dropna()
 print(f"Return matrix shape: {log_returns.shape}  (T={log_returns.shape[0]}, N={log_returns.shape[1]})")
 
 # ── 5. Save ───────────────────────────────────────────────────────────────────
-file = Path(__file__).parent / "data" / "sp500_returns.parquet"
+file = Path(__file__).parent.parent / "data" / "sp500_returns.parquet"
 
 log_returns.to_parquet(file)
 print("\nSaved data/sp500_returns.parquet")

@@ -8,7 +8,7 @@
 #     "fast-minimum-variance[convex]",
 # ]
 # [tool.uv.sources]
-# fast-minimum-variance = { path = "..", editable = true }
+# fast-minimum-variance = { path = "../..", editable = true }
 # ///
 
 import time
@@ -244,7 +244,7 @@ ax2.set_title(r"(b) Efficient frontier  ($n=500$, 5 sector caps)")
 ax2.grid(True, linestyle=":", linewidth=0.5, alpha=0.7)
 
 fig.tight_layout(pad=1.0)
-folder = Path(__file__).parent / "graphs"
+folder = Path(__file__).parent.parent / "graphs"
 
 fig.savefig(folder / "markowitz_scaling.pdf", bbox_inches="tight")
 fig.savefig(folder / "markowitz_scaling.png", bbox_inches="tight", dpi=150)

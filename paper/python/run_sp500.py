@@ -9,19 +9,21 @@
 #     "fast-minimum-variance[convex]",
 # ]
 # [tool.uv.sources]
-# fast-minimum-variance = { path = "..", editable = true }
+# fast-minimum-variance = { path = "../..", editable = true }
 # ///
 
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from fast_minimum_variance.problem import Problem
+# from fast_minimum_variance.problem import Problem
+from fast_minimum_variance.minvar_problem import MinVarProblem as Problem
 
 # ── Load data ──────────────────────────────────────────────────────────────────
-
-df = pd.read_parquet("paper/sp500_returns.parquet")
+file = Path(__file__).parent.parent / "data" / "sp500_returns.parquet"
+df = pd.read_parquet(file)
 R = df.to_numpy()
 T, N = R.shape
 print(f"S&P 500 returns: T={T} trading days, N={N} assets")
