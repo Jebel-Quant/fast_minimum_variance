@@ -42,6 +42,9 @@ paper/*.thm
 paper/*.toc
 paper/*.pdf
 paper/*.tex
+paper/report.md
+paper/report2.md
+paper/report3.md
 
 # temp file used by Junie
 .output.txt
@@ -131,3 +134,4 @@ local.mk
 
 .bandit-baseline.json
 
+/paper/report2.md

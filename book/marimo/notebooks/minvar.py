@@ -14,7 +14,7 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    from fast_minimum_variance.api import Problem
+    from fast_minimum_variance.problem import Problem
 
 
 @app.cell
@@ -25,17 +25,15 @@ def _():
 
     R = np.random.default_rng(42).standard_normal((2000, 1000))  # noqa: N806
     T_dim, N_dim = R.shape  # noqa: N806
-    frob_sq = np.einsum("ti,ti->", R, R)
-    gamma_lw = frob_sq / (N_dim + T_dim)
-    R_lw = np.vstack([R, np.sqrt(gamma_lw) * np.eye(N_dim)])  # noqa: N806
+    alpha_lw = N_dim / (N_dim + T_dim)  # Ledoit-Wolf shrinkage intensity
 
     def run_all(shrinkage):
         if shrinkage:
             configs = [
-                ("cvxpy", lambda: Problem(X=R_lw).solve_cvxpy()),
-                ("kkt", lambda: Problem(X=R_lw).solve_kkt()),
-                ("minres", lambda: Problem(X=R, gamma=gamma_lw).solve_minres()),
-                ("cg", lambda: Problem(X=R, gamma=gamma_lw).solve_cg()),
+                ("cvxpy", lambda: Problem(X=R, alpha=alpha_lw).solve_cvxpy()),
+                ("kkt", lambda: Problem(X=R, alpha=alpha_lw).solve_kkt()),
+                ("minres", lambda: Problem(X=R, alpha=alpha_lw).solve_minres()),
+                ("cg", lambda: Problem(X=R, alpha=alpha_lw).solve_cg()),
             ]
         else:
             configs = [
