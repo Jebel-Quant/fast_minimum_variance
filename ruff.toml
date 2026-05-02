@@ -117,7 +117,9 @@ line-ending = "auto"
 # Marimo notebooks - allow flexible coding patterns for interactive exploration
 "**/notebooks/*.py" = [
     "D100",    # No module docstring - marimo requires `import marimo` as the first statement
-    "N803",    # Allow non-lowercase variable names in notebooks
+    "N803",    # Allow non-lowercase argument names in notebooks (e.g. X, A, C)
+    "N806",    # Allow non-lowercase variable names in notebooks (e.g. R, T, N)
+    "RUF059",  # Allow unused unpacked variables in notebooks (e.g. w, _)
     "S101",    # Allow assert statements in notebooks
     "PLC0415", # Allow imports not at top-level in notebooks
     "B018",    # Allow useless expressions in notebooks
