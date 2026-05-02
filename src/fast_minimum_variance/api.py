@@ -47,7 +47,7 @@ class Problem:
     X: np.ndarray
     rho: float = 0.0
     gamma: float = 0.0
-    mu: np.ndarray = field(default=None)
+    mu: np.ndarray = field(default=None)  # type: ignore[assignment]
     A: np.ndarray = field(default=None)  # type: ignore[assignment]
     b: np.ndarray = field(default=None)  # type: ignore[assignment]
     C: np.ndarray = field(default=None)  # type: ignore[assignment]
