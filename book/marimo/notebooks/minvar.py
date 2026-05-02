@@ -14,7 +14,7 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    from fast_minimum_variance.problem import Problem
+    from fast_minimum_variance import Problem
 
 
 @app.cell
