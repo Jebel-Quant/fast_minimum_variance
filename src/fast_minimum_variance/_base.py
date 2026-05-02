@@ -12,7 +12,7 @@ class _BaseProblem(ABC):
 
     Subclasses must implement the five abstract hooks:
 
-    * ``_constraint_active_set(solve_fn)`` — outer active-set loop
+    * ``_constraint_active_set(solve_fn)`` — outer constraint-handling loop
     * ``_kkt_step(mask) -> (w, iters)`` — one direct-KKT inner step
     * ``_minres_step(mask) -> (w, iters)`` — one MINRES inner step
     * ``_cg_step(mask) -> (w, iters)`` — one CG inner step
@@ -53,7 +53,7 @@ class _BaseProblem(ABC):
     # ------------------------------------------------------------------
     @abstractmethod
     def _constraint_active_set(self, solve_fn):  # pragma: no cover
-        """Run the outer active-set loop, calling ``solve_fn`` each iteration."""
+        """Run the outer constraint-handling loop, calling ``solve_fn`` each iteration."""
         raise NotImplementedError
 
     @abstractmethod
@@ -81,7 +81,7 @@ class _BaseProblem(ABC):
     # ------------------------------------------------------------------
 
     def solve_kkt(self, *, project: bool = True):
-        """Solve via the direct KKT system with active-set method.
+        """Solve via the direct KKT system.
 
         Args:
             project: Clip weights to ``[0, ∞)`` and renormalize to sum to 1
@@ -89,7 +89,7 @@ class _BaseProblem(ABC):
 
         Returns:
             ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
-            active-set steps taken.
+            outer iterations taken.
 
         Examples:
             >>> import numpy as np
@@ -107,10 +107,10 @@ class _BaseProblem(ABC):
         return w, iters
 
     def solve_minres(self, *, project: bool = True):
-        """Solve via MINRES with active-set method.
+        """Solve via MINRES.
 
-        Each active-set step solves a KKT saddle-point system matrix-free
-        using MINRES.  No explicit covariance matrix is formed.
+        Each outer step solves a KKT saddle-point system matrix-free using
+        MINRES.  No explicit covariance matrix is formed.
 
         To apply Ledoit-Wolf shrinkage::
 
@@ -122,7 +122,7 @@ class _BaseProblem(ABC):
 
         Returns:
             ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total
-            MINRES iterations across all active-set steps.
+            MINRES iterations across all outer steps.
 
         Examples:
             >>> import numpy as np
@@ -142,17 +142,17 @@ class _BaseProblem(ABC):
         return w, iters
 
     def solve_cg(self, *, project: bool = True):
-        """Solve via CG in the constraint-eliminated null space with active-set.
+        """Solve via CG in the constraint-eliminated null space.
 
-        Each active-set step eliminates the equality constraints via QR,
-        then applies CG to the reduced positive-definite system.
+        Each outer step eliminates the equality constraints via QR, then
+        applies CG to the reduced positive-definite system.
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
 
         Returns:
             ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total
-            CG iterations across all active-set steps.
+            CG iterations across all outer steps.
 
         Examples:
             >>> import numpy as np

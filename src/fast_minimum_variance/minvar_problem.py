@@ -1,4 +1,4 @@
-"""Minimum-variance solver with shrinking active-set strategy."""
+"""Minimum-variance solver: primal asset elimination with dual-feasibility check."""
 
 from dataclasses import dataclass
 
@@ -11,19 +11,28 @@ from ._base import _BaseProblem
 
 @dataclass(frozen=True)
 class _MinVarProblem(_BaseProblem):
-    """Minimum-variance portfolio with shrinking active-set solvers.
+    """Minimum-variance portfolio solver via iterative asset elimination.
 
     Specialised for::
 
         min  (1-alpha)||X w||^2 + alpha*(||X||_F^2/N)*||w||^2 - rho*mu^T w
         s.t. 1^T w = 1,  w >= 0
 
-    Unlike :class:`~fast_minimum_variance.problem._Problem`, the active-set
-    here *removes* assets with negative weights from the subproblem instead
-    of pinning them as equality constraints.  The KKT system shrinks from
-    ``(n+1)x(n+1)`` down to ``(n*+1)x(n*+1)`` where ``n*`` is the final
-    portfolio size, yielding dramatically fewer MINRES iterations on real
-    equity data (e.g. 214 vs 1065 on S&P 500 without shrinkage).
+    The long-only constraint is enforced by a primal--dual outer loop.  Each
+    iteration solves the equality-only (budget) KKT system over the current
+    asset universe.  In the *primal step* any asset whose weight is negative is
+    dropped.  Once all active weights are non-negative, a *dual step* checks the
+    KKT gradient condition for every excluded asset: asset ``i`` may remain
+    excluded only if its objective gradient satisfies
+    ``2*((1-alpha)*(X^T X w)_i + ridge*w_i) - rho*mu_i >= lambda``, where
+    ``lambda`` is the budget Lagrange multiplier.  Any excluded asset that
+    violates this condition is re-added and the loop repeats.  The loop
+    terminates only when both primal and dual feasibility hold simultaneously,
+    which — together with stationarity from the KKT solve — is sufficient for
+    global optimality.  The KKT system shrinks from ``(n+1)x(n+1)`` down to
+    ``(n*+1)x(n*+1)`` where ``n*`` is the final portfolio size, yielding
+    dramatically fewer MINRES iterations on real equity data (e.g. 214 vs 1065
+    on S&P 500 without shrinkage).
 
     Use ``alpha = N/(N+T)`` for Ledoit-Wolf shrinkage intensity::
 
@@ -44,11 +53,25 @@ class _MinVarProblem(_BaseProblem):
     # No extra fields — X, alpha, rho, mu all inherited from _BaseProblem.
 
     # ------------------------------------------------------------------
-    # Active-set loop (shrinking: remove assets with negative weights)
+    # Outer loop: primal elimination + dual feasibility check
     # ------------------------------------------------------------------
 
     def _constraint_active_set(self, solve_fn):
-        """Shrinking active-set: remove assets with negative weights.
+        """Primal-dual outer loop for the long-only constraint.
+
+        Each iteration solves the equality-only (budget) subproblem over the
+        current asset universe.
+
+        * **Primal step**: any asset with weight < ``-1e-10`` is dropped.
+        * **Dual step**: once all active weights are non-negative, the KKT
+          gradient condition is verified for every excluded asset.  An excluded
+          asset ``i`` must satisfy ``grad[i] >= lambda`` where
+          ``grad[i] = 2*((1-alpha)*(X^T X w)_i + ridge*w_i) - rho*mu_i``
+          and ``lambda = mean(grad[active])``.  Any asset that fails this
+          condition is re-added and the loop repeats.
+
+        Termination (both conditions hold simultaneously) is sufficient for
+        global optimality together with stationarity from the KKT solve.
 
         ``solve_fn(asset_active)`` receives a boolean mask of shape ``(n,)``
         and returns ``(w_a, step_iters)`` where ``w_a`` is the weight vector
@@ -57,17 +80,31 @@ class _MinVarProblem(_BaseProblem):
         n = self.n
         asset_active = np.ones(n, dtype=bool)
         total_iters = 0
+        ridge = self._ridge()
+        oma = 1.0 - self.alpha
 
         while True:
             w_a, step_iters = solve_fn(asset_active)
             total_iters += step_iters
-            if np.all(w_a >= -1e-10):
-                break
-            idx = np.where(asset_active)[0]
-            asset_active[idx[w_a < 0]] = False
 
-        w = np.zeros(n)
-        w[asset_active] = w_a
+            if np.any(w_a < -1e-10):
+                # Primal step: drop assets with negative weights.
+                idx = np.where(asset_active)[0]
+                asset_active[idx[w_a < 0]] = False
+                continue
+
+            # Primal feasible. Dual step: check the KKT gradient condition.
+            w = np.zeros(n)
+            w[asset_active] = w_a
+            grad = 2.0 * (oma * (self.X.T @ (self.X @ w)) + ridge * w)
+            if self.rho != 0.0 and self.mu is not None:
+                grad = grad - self.rho * self.mu
+            lambda_ = grad[asset_active].mean()
+            dual_viol = (~asset_active) & (grad < lambda_ - 1e-10)
+            if not np.any(dual_viol):
+                break  # KKT conditions satisfied: globally optimal.
+            asset_active |= dual_viol
+
         return w, total_iters
 
     # ------------------------------------------------------------------

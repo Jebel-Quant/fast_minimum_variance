@@ -1,4 +1,4 @@
-"""Tests for MinVarProblem — shrinking active-set solver for long-only min-var."""
+"""Tests for MinVarProblem — primal-dual outer loop solver for long-only min-var."""
 
 import numpy as np
 import pytest
@@ -103,8 +103,10 @@ class TestConstraintActiveSet:
         assert len(calls) == 1
 
     def test_iters_accumulated(self):
-        """Total iters is the sum across all active-set rounds."""
-        X = np.eye(3)  # noqa: N806
+        """Total iters is the sum across all solver calls (primal + dual steps)."""
+        # X chosen so that excluding asset 0 at w=[0,0.5,0.5] is dual-feasible:
+        # X.T@X = [[4,2,2],[2,2,1],[2,1,2]]; grad=[4,3,3], lambda=3 -> grad[0]>=lambda.
+        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
         p = MinVarProblem(X)
         call_count = [0]
 
@@ -119,7 +121,8 @@ class TestConstraintActiveSet:
 
     def test_negative_asset_removed(self):
         """An asset with negative weight is excluded from the second call."""
-        X = np.eye(3)  # noqa: N806
+        # Same X as test_iters_accumulated: excluding asset 0 is dual-feasible.
+        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
         p = MinVarProblem(X)
         masks = []
 
@@ -137,7 +140,7 @@ class TestConstraintActiveSet:
 
     def test_zero_weight_padded_correctly(self):
         """Assets excluded from the sub-problem receive weight 0 in the output."""
-        X = np.eye(3)  # noqa: N806
+        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
         p = MinVarProblem(X)
         call_count = [0]
 
@@ -150,6 +153,17 @@ class TestConstraintActiveSet:
         w, _ = p._constraint_active_set(solve_fn)
         assert w[0] == pytest.approx(0.0)
         assert w.shape == (3,)
+
+    def test_dual_step_readds_asset(self):
+        """An excluded asset is re-added when the dual feasibility condition fails."""
+        # X = np.eye(3): optimal is equal-weight; excluding any asset fails dual check
+        # (grad[i]=0 < lambda=2/3 for any excluded asset i with w_i=0).
+        X = np.eye(3)  # noqa: N806
+        p = MinVarProblem(X)
+
+        w, _ = p._constraint_active_set(p._kkt_step)
+        # All assets should be in the final portfolio (equal-weight is optimal).
+        assert (w > 0).all()
 
 
 # ---------------------------------------------------------------------------
