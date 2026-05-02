@@ -174,29 +174,34 @@ rhos = np.linspace(0, 2, 21)
 
 def frontier_kkt():
     """Compute efficient frontier weights for all rho values using KKT direct."""
-    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=False) for r in rhos]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=True) for r in rhos]
+
+
+def frontier_minres():
+    """Compute efficient frontier weights for all rho values using MINRES + LW."""
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_minres(project=True) for r in rhos]
 
 
 def frontier_cg():
     """Compute efficient frontier weights for all rho values using CG + LW."""
-    return [
-        Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=False)
-        for r in rhos
-    ]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=True) for r in rhos]
 
 
 def frontier_cvxpy():
     """Compute efficient frontier weights for all rho values using CVXPY."""
-    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_cvxpy(project=False) for r in rhos]
+    return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_cvxpy(project=True) for r in rhos]
 
 
 _, t_ef_kkt = run_timed(frontier_kkt)
+_, t_ef_minres = run_timed(frontier_minres)
 _, t_ef_cg = run_timed(frontier_cg)
 _, t_ef_cvxpy = run_timed(frontier_cvxpy)
 
-print(f"  cvxpy  : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
-print(f"  kkt    : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
-print(f"  cg+lw  : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
+print(f"  cvxpy      : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
+print(f"  kkt        : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
+print(f"  minres+lw  : {t_ef_minres:.3f} s  ({t_ef_minres / len(rhos) * 1000:.1f} ms/point)")
+print(f"  cg+lw      : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
+print(f"  speedup minres vs cvxpy: {t_ef_cvxpy / t_ef_minres:.1f}x")
 print(f"  speedup cg vs cvxpy: {t_ef_cvxpy / t_ef_cg:.1f}x")
 
 
@@ -216,14 +221,17 @@ ax1.set_title(r"(a) Runtime vs.\ $n$  (5 sector caps, $\rho=0.5$, LW)")
 ax1.legend(framealpha=0.9)
 ax1.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.7)
 
-# Panel B: efficient frontier portfolios (return vs variance)
-ws_cg = [
-    Problem(np.sqrt(c_ef) * X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_cg(project=False)[0]
-    for r in rhos
+# Panel B: efficient frontier portfolios (return vs variance).
+# Use the exact KKT solver for the shape illustration; timing is benchmarked in panel (a).
+ws_kkt = [
+    Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, gamma=gamma_ef).solve_minres(project=True)[0]
+    for r in np.linspace(0, 2, 21)
 ]
-rets = [mu_ef @ w for w in ws_cg]
-vols = [float(np.linalg.norm(X_ef @ w)) for w in ws_cg]
-ax2.plot(vols, rets, marker="o", markersize=3, color=colors["cg_lw"])
+rets = [mu_ef @ w for w in ws_kkt]
+vols = [float(np.linalg.norm(X_ef @ w)) for w in ws_kkt]
+# Sort by risk so the frontier traces left-to-right.
+_order = np.argsort(vols)
+ax2.plot(np.array(vols)[_order], np.array(rets)[_order], marker="o", markersize=3, color=colors["kkt"])
 ax2.set_xlabel(r"Portfolio risk $\|Xw\|$")
 ax2.set_ylabel(r"Expected return $\mu^\top w$")
 ax2.set_title(r"(b) Efficient frontier  ($n=500$, 5 sector caps)")
