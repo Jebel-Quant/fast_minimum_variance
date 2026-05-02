@@ -12,6 +12,7 @@
 # ///
 
 import time
+from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -243,7 +244,9 @@ ax2.set_title(r"(b) Efficient frontier  ($n=500$, 5 sector caps)")
 ax2.grid(True, linestyle=":", linewidth=0.5, alpha=0.7)
 
 fig.tight_layout(pad=1.0)
-fig.savefig("paper/markowitz_scaling.pdf", bbox_inches="tight")
-fig.savefig("paper/markowitz_scaling.png", bbox_inches="tight", dpi=150)
+folder = Path(__file__).parent / "graphs"
+
+fig.savefig(folder / "markowitz_scaling.pdf", bbox_inches="tight")
+fig.savefig(folder / "markowitz_scaling.png", bbox_inches="tight", dpi=150)
 print()
-print("Saved paper/markowitz_scaling.pdf and paper/markowitz_scaling.png")
+print("Saved graphs/markowitz_scaling.pdf and graphs/markowitz_scaling.png")

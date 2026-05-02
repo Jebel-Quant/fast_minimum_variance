@@ -13,6 +13,7 @@
 # ///
 
 import io
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -58,9 +59,10 @@ log_returns = np.log(raw / raw.shift(1)).dropna()
 print(f"Return matrix shape: {log_returns.shape}  (T={log_returns.shape[0]}, N={log_returns.shape[1]})")
 
 # ── 5. Save ───────────────────────────────────────────────────────────────────
+file = Path(__file__).parent / "data" / "sp500_returns.parquet"
 
-log_returns.to_parquet("paper/sp500_returns.parquet")
-print("\nSaved paper/sp500_returns.parquet")
+log_returns.to_parquet(file)
+print("\nSaved data/sp500_returns.parquet")
 print(f"Date range: {log_returns.index[0].date()} → {log_returns.index[-1].date()}")
 print(f"Assets: {log_returns.shape[1]}")
 print(f"Trading days: {log_returns.shape[0]}")
