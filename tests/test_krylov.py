@@ -138,7 +138,3 @@ class TestSolveCg:
         w_mv, _ = Problem(X).solve_cg()
         w_mk, _ = Problem(X, rho=1.0, mu=mu).solve_cg()
         assert w_mk[4] > w_mv[4]
-
-
-if __name__ == "__main__":
-    pytest.main()

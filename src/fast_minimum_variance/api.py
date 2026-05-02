@@ -46,8 +46,8 @@ class Problem:
 
     X: np.ndarray
     rho: float = 0.0
-    mu: np.ndarray | None = None
     gamma: float = 0.0
+    mu: np.ndarray = field(default=None)
     A: np.ndarray = field(default=None)  # type: ignore[assignment]
     b: np.ndarray = field(default=None)  # type: ignore[assignment]
     C: np.ndarray = field(default=None)  # type: ignore[assignment]
@@ -128,12 +128,14 @@ class Problem:
         n_free = self.n - m_ext
         b_ext = np.concatenate([self.b, self.d[active]])
 
-        w0 = np.linalg.lstsq(aa.T, b_ext, rcond=None)[0]
+        Q, R = np.linalg.qr(aa, mode="complete")  # noqa: N806
+        # Minimum-norm particular solution via triangular solve on leading R block,
+        # reusing the QR already computed rather than calling lstsq separately.
+        w0 = Q[:, :m_ext] @ np.linalg.solve(R[:m_ext].T, b_ext)
 
         if n_free <= 0:
             return None, None, w0, None
 
-        Q, _ = np.linalg.qr(aa, mode="complete")  # noqa: N806
         P = Q[:, m_ext:]  # noqa: N806
 
         g0 = self.X.T @ (self.X @ w0) + self.gamma * w0
