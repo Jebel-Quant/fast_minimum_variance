@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from fast_minimum_variance.api import Problem
+from fast_minimum_variance.problem import Problem
 
 
 class TestProblemDefaults:

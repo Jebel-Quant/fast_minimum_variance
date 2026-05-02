@@ -7,7 +7,7 @@ and safe in the test context. No subprocess calls (S603/S607) are used here.
 import numpy as np
 import pytest
 
-from fast_minimum_variance.api import Problem
+from fast_minimum_variance.problem import Problem
 
 
 def make_returns(T, N, seed=42):  # noqa: N803
