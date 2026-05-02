@@ -3,8 +3,10 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance.minvar_problem import MinVarProblem
-from fast_minimum_variance.problem import Problem
+from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
+
+# we have some cross-validation tests that need to access the _Problem class
+from fast_minimum_variance.problem import _Problem as Problem
 
 # ---------------------------------------------------------------------------
 # Session-scoped fixtures

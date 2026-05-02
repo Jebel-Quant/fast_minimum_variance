@@ -10,7 +10,7 @@ from ._base import _BaseProblem
 
 
 @dataclass(frozen=True)
-class MinVarProblem(_BaseProblem):
+class _MinVarProblem(_BaseProblem):
     """Minimum-variance portfolio with shrinking active-set solvers.
 
     Specialised for::
@@ -18,7 +18,7 @@ class MinVarProblem(_BaseProblem):
         min  (1-alpha)||X w||^2 + alpha*(||X||_F^2/N)*||w||^2 - rho*mu^T w
         s.t. 1^T w = 1,  w >= 0
 
-    Unlike :class:`~fast_minimum_variance.problem.Problem`, the active-set
+    Unlike :class:`~fast_minimum_variance.problem._Problem`, the active-set
     here *removes* assets with negative weights from the subproblem instead
     of pinning them as equality constraints.  The KKT system shrinks from
     ``(n+1)x(n+1)`` down to ``(n*+1)x(n*+1)`` where ``n*`` is the final
@@ -28,13 +28,13 @@ class MinVarProblem(_BaseProblem):
     Use ``alpha = N/(N+T)`` for Ledoit-Wolf shrinkage intensity::
 
         T, N = X.shape
-        w, iters = MinVarProblem(X, alpha=N/(N+T)).solve_minres()
+        w, iters = Problem(X, alpha=N/(N+T)).solve_minres()
 
     Examples:
         >>> import numpy as np
-        >>> from fast_minimum_variance.minvar_problem import MinVarProblem
+        >>> from fast_minimum_variance import Problem
         >>> X = np.random.default_rng(0).standard_normal((100, 5))
-        >>> w, iters = MinVarProblem(X).solve_minres()
+        >>> w, iters = Problem(X).solve_minres()
         >>> float(round(w.sum(), 6))
         1.0
         >>> bool((w >= 0).all())
