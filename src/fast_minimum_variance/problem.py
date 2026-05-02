@@ -10,8 +10,8 @@ from ._base import _BaseProblem
 
 
 @dataclass(frozen=True)
-class Problem(_BaseProblem):
-    """Mean-variance portfolio problem specification and solver interface.
+class _Problem(_BaseProblem):
+    """Mean-variance portfolio problem with arbitrary linear constraints.
 
     Encodes the optimization problem::
 
@@ -32,15 +32,15 @@ class Problem(_BaseProblem):
 
     The active-set loop *adds* violated inequality constraints as equalities
     (growing approach), operating on the full N-dimensional system throughout.
-    See :class:`~fast_minimum_variance.minvar_problem.MinVarProblem` for the
+    See :class:`~fast_minimum_variance.minvar_problem._MinVarProblem` for the
     complementary shrinking approach optimised for the default long-only case.
 
     Solvers::
 
-        w, iters = Problem(X).solve_kkt()
-        w, iters = Problem(X).solve_minres()
-        w, iters = Problem(X).solve_cg()
-        w, iters = Problem(X).solve_cvxpy()   # requires [convex] extra
+        w, iters = Problem(X, A=A, b=b).solve_kkt()
+        w, iters = Problem(X, A=A, b=b).solve_minres()
+        w, iters = Problem(X, A=A, b=b).solve_cg()
+        w, iters = Problem(X, A=A, b=b).solve_cvxpy()   # requires [convex] extra
     """
 
     A: np.ndarray = field(default=None)  # type: ignore[assignment]
