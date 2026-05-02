@@ -41,9 +41,9 @@ class TestProblemDefaults:
         """Default mu is None."""
         assert problem.mu is None
 
-    def test_gamma_default(self, problem):
-        """Default gamma is 0.0."""
-        assert problem.gamma == 0.0
+    def test_alpha_default(self, problem):
+        """Default alpha is 0.0."""
+        assert problem.alpha == 0.0
 
 
 class TestProblemCustomConstraints:
@@ -117,13 +117,20 @@ class TestProblemKkt:
         _, rhs = Problem(X, rho=0.5, mu=mu)._kkt()
         np.testing.assert_allclose(rhs[:3], 0.5 * mu)
 
-    def test_gamma_shifts_hessian(self):
-        """Gamma adds 2*gamma*I to the Hessian block."""
-        X = np.eye(3)  # noqa: N806
-        K_base, _ = Problem(X)._kkt()  # noqa: N806
-        K_reg, _ = Problem(X, gamma=1.0)._kkt()  # noqa: N806
-        diff = K_reg[:3, :3] - K_base[:3, :3]
-        np.testing.assert_allclose(diff, 2.0 * np.eye(3))
+    def test_alpha_shifts_hessian(self):
+        """Alpha adds a ridge 2*(alpha*||X||_F^2/n)*I to the Hessian block."""
+        np.eye(3)
+        # With X = I_3, ||X||_F^2 = 3, n = 3, so ridge = alpha * 3/3 = alpha.
+        # The (1,1) block becomes 2*((1-alpha)*I + alpha*I) = 2*I regardless of alpha.
+        # Use a non-identity X to get a non-trivial shift.
+        X2 = np.array([[1.0, 0.0], [0.0, 2.0], [0.0, 0.0]])  # noqa: N806
+        K_base, _ = Problem(X2)._kkt()  # noqa: N806
+        K_reg, _ = Problem(X2, alpha=0.5)._kkt()  # noqa: N806
+        # ridge = 0.5 * (1+0+0+0+4+0)/2 = 0.5 * 5/2 = 1.25
+        ridge = 0.5 * np.einsum("ti,ti->", X2, X2) / X2.shape[1]
+        expected_diff = 2 * (0.5 * (X2.T @ X2) - X2.T @ X2) + 2 * ridge * np.eye(X2.shape[1])
+        diff = K_reg[:2, :2] - K_base[:2, :2]
+        np.testing.assert_allclose(diff, expected_diff, atol=1e-12)
 
     def test_active_inequality_extends_system(self):
         """Pinning one inequality grows the KKT system by one row/col."""
