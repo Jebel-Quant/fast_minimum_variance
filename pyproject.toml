@@ -23,7 +23,9 @@ dev = [
     "marimo>=0.20.0",
     "matplotlib>=3.10.9",
     "pandas>=3.0",
-    "pyarrow>=24.0.0"
+    "pyarrow>=24.0.0",
+    "requests>=2.0",
+    "yfinance>=0.2"
 ]
 
 [tool.hatch.build.targets.wheel]
