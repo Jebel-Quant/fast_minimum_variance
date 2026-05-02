@@ -74,23 +74,23 @@ class MinVarProblem(_BaseProblem):
     # Inner steps
     # ------------------------------------------------------------------
 
-    def _kkt_step(self, asset_active):
+    def _kkt_step(self, active):
         """Solve the reduced KKT system directly; return ``(w_a, 1)``."""
-        K, rhs = self._kkt_reduced(asset_active)  # noqa: N806
-        n_a = int(asset_active.sum())
+        K, rhs = self._kkt_reduced(active)  # noqa: N806
+        n_a = int(active.sum())
         return np.linalg.solve(K, rhs)[:n_a], 1
 
-    def _minres_step(self, asset_active):
+    def _minres_step(self, active):
         """Solve the reduced KKT system via MINRES; return ``(w_a, iters)``."""
-        kkt, rhs = self._kkt_operator_reduced(asset_active)
-        n_a = int(asset_active.sum())
+        kkt, rhs = self._kkt_operator_reduced(active)
+        n_a = int(active.sum())
         iters = [0]
         sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
         return sol[:n_a], iters[0]
 
-    def _cg_step(self, asset_active):
+    def _cg_step(self, active):
         """Solve via CG in the null space of the budget constraint; return ``(w_a, iters)``."""
-        op, rhs, w0, reconstruct = self._null_space_operator_reduced(asset_active)
+        op, rhs, w0, reconstruct = self._null_space_operator_reduced(active)
         if op is None:
             return w0, 0
         iters = [0]
