@@ -5,18 +5,16 @@ import numpy as np
 from .minvar_problem import _MinVarProblem
 from .problem import _Problem
 
-_UNSET = object()
-
 
 def Problem(  # noqa: N802
     X: np.ndarray,  # noqa: N803
-    A=_UNSET,  # noqa: N803
-    b=_UNSET,
-    C=_UNSET,  # noqa: N803
-    d=_UNSET,
+    A: np.ndarray | None = None,  # noqa: N803
+    b: np.ndarray | None = None,
+    C: np.ndarray | None = None,  # noqa: N803
+    d: np.ndarray | None = None,
     alpha: float = 0.0,
     rho: float = 0.0,
-    mu=None,
+    mu: np.ndarray | None = None,
 ):
     """Create a portfolio optimisation problem.
 
@@ -48,18 +46,18 @@ def Problem(  # noqa: N802
         >>> bool((w >= 0).all())
         True
     """
-    if all(v is _UNSET for v in (A, b, C, d)):
+    if A is None and b is None and C is None and d is None:
         return _MinVarProblem(X, alpha=alpha, rho=rho, mu=mu)
-    return _Problem(
-        X,
-        A=None if A is _UNSET else A,
-        b=None if b is _UNSET else b,
-        C=None if C is _UNSET else C,
-        d=None if d is _UNSET else d,
-        alpha=alpha,
-        rho=rho,
-        mu=mu,
-    )
+
+    # number of assets
+    n = X.shape[1]
+
+    A = A if A is not None else np.ones((n, 0))  # noqa: N806
+    b = b if b is not None else np.ones(1)
+    C = C if C is not None else -np.eye(n)  # noqa: N806
+    d = d if d is not None else np.zeros(n)
+
+    return _Problem(X, A=A, b=b, C=C, d=d, alpha=alpha, rho=rho, mu=mu)
 
 
 __all__ = ["Problem"]
