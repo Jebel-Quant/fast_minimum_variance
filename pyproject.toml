@@ -22,6 +22,8 @@ convex = [
 dev = [
     "marimo>=0.20.0",
     "matplotlib>=3.10.9",
+    "pandas>=3.0",
+    "pyarrow>=24.0.0"
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -32,9 +34,9 @@ optional_dependencies_dev_groups = ["dev"]
 
 [tool.deptry.package_module_name_map]
 numpy = "numpy"
-plotly = "plotly"
 polars = "polars"
 scipy = "scipy"
-kaleido = "kaleido"
 marimo = "marimo"
 cvxpy = "cvxpy"
+pandas = "pandas"
+pyarrow = "pyarrow"
