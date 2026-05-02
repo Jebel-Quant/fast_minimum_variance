@@ -24,7 +24,7 @@ where $p$ is the number of inequality constraints.
 
 ## Solvers
 
-All solvers are methods on the `Problem` class:
+All solvers are methods on both `Problem` and `MinVarProblem`:
 
 | Method | Approach | Notes |
 |---|---|---|
@@ -43,43 +43,61 @@ from fast_minimum_variance import Problem
 
 # Returns matrix: 500 daily returns, 20 assets
 R = np.random.default_rng(42).standard_normal((500, 20))
-p = Problem(R)
 
-# Solve with any of the available solvers
+# No custom constraints → fast shrinking active-set solver
+p = Problem(R)
 w_kkt,    _ = p.solve_kkt()    # exact KKT solve
 w_minres, _ = p.solve_minres() # MINRES on the indefinite KKT system
 w_cg,     _ = p.solve_cg()    # CG in the constraint-reduced space
 
-# All solutions satisfy the portfolio constraints
 assert abs(w_kkt.sum() - 1.0) < 1e-8
 assert (w_kkt >= 0).all()
+
+# Ledoit-Wolf shrinkage
+T, N = R.shape
+w, iters = Problem(R, alpha=N / (N + T)).solve_minres()
+
+# Custom constraints → general growing active-set solver
+import numpy as np
+A = np.ones((N, 1))          # budget constraint only
+b = np.ones(1)
+C = -np.eye(N)               # long-only
+d = np.zeros(N)
+w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
 ```
 
-## The `Problem` Dataclass
+## The `Problem` Factory
 
-`Problem` bundles all problem data and exposes the solvers as methods:
+`Problem(X, ...)` is the single entry point. It dispatches automatically:
 
-| Field | Type | Default | Description |
+- **No `A`, `b`, `C`, `d`** → shrinking active-set (faster; KKT system shrinks from
+  $(N+1)\times(N+1)$ to $(N^*+1)\times(N^*+1)$ where $N^*$ is the final portfolio size)
+- **Any of `A`, `b`, `C`, `d` provided** → growing active-set (handles arbitrary linear
+  equality and inequality constraints)
+
+| Parameter | Type | Default | Description |
 |---|---|---|---|
 | `X` | `ndarray (T, N)` | required | Returns matrix |
-| `A` | `ndarray (N, m)` | `ones((N,1))` | Equality constraint matrix: $A^\top w = b$ |
-| `b` | `ndarray (m,)` | `[1.0]` | Equality RHS (budget constraint by default) |
-| `C` | `ndarray (N, p)` | `-eye(N)` | Inequality constraint matrix: $C^\top w \leq d$ |
-| `d` | `ndarray (p,)` | `zeros(N)` | Inequality RHS (long-only by default) |
+| `A` | `ndarray (N, m)` | — | Equality constraint matrix: $A^\top w = b$ |
+| `b` | `ndarray (m,)` | — | Equality RHS |
+| `C` | `ndarray (N, p)` | — | Inequality constraint matrix: $C^\top w \leq d$ |
+| `d` | `ndarray (p,)` | — | Inequality RHS |
+| `alpha` | `float` | `0.0` | Ledoit-Wolf shrinkage intensity; ridge = $\alpha \|X\|_F^2 / N$ |
 | `rho` | `float` | `0.0` | Return tilt strength for mean-variance |
 | `mu` | `ndarray (N,)` | `None` | Expected returns vector |
-| `gamma` | `float` | `0.0` | L2 regularisation (e.g. Ledoit-Wolf shrinkage) |
 
-The defaults recover the long-only minimum variance problem. Pass custom `A`, `b`, `C`, `d` for arbitrary linear equality and inequality constraints.
+When `A`, `b`, `C`, `d` are omitted, the defaults are $A = \mathbf{1}$, $b = 1$,
+$C = -I$, $d = 0$ (budget + long-only). Use `alpha = N / (N + T)` for the analytical
+Ledoit-Wolf intensity.
 
 ## The KKT System
 
 The equality-constrained minimum variance problem yields the $(N+m) \times (N+m)$ KKT system:
 
-$$\begin{pmatrix} 2(R^\top R + \gamma I) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\mu \cr b \end{pmatrix}$$
+$$\begin{pmatrix} 2\!\left(R^\top R + \tfrac{\alpha\|R\|_F^2}{N} I\right) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\mu \cr b \end{pmatrix}$$
 
 where $A \in \mathbb{R}^{N \times m}$ collects the active equality and inequality constraints.
-With the defaults ($A = \mathbf{1}$, $b = 1$, $\gamma = 0$, $\rho = 0$) this reduces to
+With the defaults ($A = \mathbf{1}$, $b = 1$, $\alpha = 0$, $\rho = 0$) this reduces to
 the familiar $(N+1) \times (N+1)$ budget-constraint system.
 
 This system is **symmetric but indefinite** — the zero bottom-right block introduces
