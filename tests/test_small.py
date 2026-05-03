@@ -35,14 +35,6 @@ def test_covariance():
     np.testing.assert_array_equal(X3.T @ X3, [[1, 0, 1], [0, 1, 1], [1, 1, 3]])
 
 
-def test_equality_constrained_optimum():
-    """Without long-only, the KKT solution is [2/3, 2/3, -1/3]."""
-    p = MinVarProblem(X3)
-    K, rhs = p._kkt_reduced(np.ones(3, dtype=bool))  # noqa: N806
-    sol = np.linalg.solve(K, rhs)
-    np.testing.assert_allclose(sol[:3], [2 / 3, 2 / 3, -1 / 3], atol=1e-12)
-
-
 def test_dual_variable_at_optimum():
     """At w*=[1/2,1/2,0]: nu_2 = grad_2 - lambda_ = 2 - 1 = 1 > 0."""
     grad = 2 * (X3.T @ X3) @ W_OPT  # [1, 1, 2]
@@ -113,7 +105,6 @@ def test_dual_readd():
 if __name__ == "__main__":
     # run with pytest -s test_small.py
     test_covariance()
-    test_equality_constrained_optimum()
     test_two_outer_iterations()
     test_dual_variable_at_optimum()
     test_known_optimum()

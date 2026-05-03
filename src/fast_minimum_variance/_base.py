@@ -52,23 +52,13 @@ class _BaseProblem(ABC):
     # Abstract hooks (raise NotImplementedError — subclasses must override)
     # ------------------------------------------------------------------
     @abstractmethod
-    def _constraint_active_set(self, solve_fn):  # pragma: no cover
+    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):  # pragma: no cover
         """Run the outer constraint-handling loop, calling ``solve_fn`` each iteration."""
         raise NotImplementedError
 
     @abstractmethod
     def _kkt_step(self, active):  # pragma: no cover
         """Solve one inner direct-KKT step; return ``(w, iters)``."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _minres_step(self, active):  # pragma: no cover
-        """Solve one inner MINRES step; return ``(w, iters)``."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _cg_step(self, active):  # pragma: no cover
-        """Solve one inner CG null-space step; return ``(w, iters)``."""
         raise NotImplementedError
 
     @abstractmethod
@@ -102,71 +92,6 @@ class _BaseProblem(ABC):
             True
         """
         w, iters = self._constraint_active_set(self._kkt_step)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, iters
-
-    def solve_minres(self, *, project: bool = True):
-        """Solve via MINRES.
-
-        Each outer step solves a KKT saddle-point system matrix-free using
-        MINRES.  No explicit covariance matrix is formed.
-
-        To apply Ledoit-Wolf shrinkage::
-
-            T, N = X.shape
-            w, iters = Problem(X, alpha=N/(N+T)).solve_minres()
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total
-            MINRES iterations across all outer steps.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_minres()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= 0).all())
-            True
-            >>> iters > 0
-            True
-        """
-        w, iters = self._constraint_active_set(self._minres_step)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, iters
-
-    def solve_cg(self, *, project: bool = True):
-        """Solve via CG in the constraint-eliminated null space.
-
-        Each outer step eliminates the equality constraints via QR, then
-        applies CG to the reduced positive-definite system.
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total
-            CG iterations across all outer steps.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_cg()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= 0).all())
-            True
-            >>> iters > 0
-            True
-        """
-        w, iters = self._constraint_active_set(self._cg_step)
         if project:
             w = self._clip_and_renormalize(w)
         return w, iters
