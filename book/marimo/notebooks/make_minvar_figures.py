@@ -262,6 +262,7 @@ def _():
     fig2.savefig(folder / "minvar_loglog.pdf", bbox_inches="tight")
     fig2.savefig(folder / "minvar_loglog.png", bbox_inches="tight", dpi=150)
     print("Saved graphs/minvar_loglog.pdf and graphs/minvar_loglog.png")
+    return
 
 
 if __name__ == "__main__":
