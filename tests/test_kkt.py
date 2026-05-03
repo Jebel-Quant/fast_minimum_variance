@@ -1,72 +1,82 @@
-"""Tests for kkt.kkt_minres.
-
-Three-asset problem:
-
-    X = [[1, 0, 1],    X^T X = [[1, 0, 1],
-         [0, 1, 1],              [0, 1, 1],
-         [0, 0, 1]]              [1, 1, 3]]
-
-Long-only optimum: w* = [1/2, 1/2, 0].
-"""
+"""Cross-validation: KKT solver vs CVXPY reference for _MinVarProblem."""
 
 import numpy as np
 import pytest
 
-from fast_minimum_variance.kkt import pd_projected_qp_solver as kkt_minres
-
-X3 = np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]])
+from fast_minimum_variance import Problem
 
 
-def test_budget_constraint():
-    """Weights sum to 1."""
-    w, _, _ = kkt_minres(X3)
-    assert w.sum() == pytest.approx(1.0, abs=1e-4)
+def make_returns(T, N, seed=0):  # noqa: N803
+    """Generate a T x N matrix of i.i.d. standard normal returns."""
+    return np.random.default_rng(seed).standard_normal((T, N))
 
 
-def test_long_only():
-    """All weights are non-negative."""
-    w, _, _ = kkt_minres(X3)
-    assert np.all(w >= -1e-6)
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
-def test_known_optimum_x3():
-    """Recovers the analytic long-only optimum [1/2, 1/2, 0] for X3."""
-    w, _, _ = kkt_minres(X3)
-    np.testing.assert_allclose(w, [0.5, 0.5, 0.0], atol=1e-4)
+@pytest.fixture(scope="session")
+def X():  # noqa: N802
+    """Return matrix of shape (200, 10) with a fixed seed."""
+    return make_returns(T=200, N=10, seed=42)
 
 
-def test_known_optimum_identity():
-    """X = I_n → equal-weight portfolio is the unique long-only minimum."""
-    n = 5
-    w, _, _ = kkt_minres(np.eye(n))
-    np.testing.assert_allclose(w, np.ones(n) / n, atol=1e-4)
+@pytest.fixture(scope="session")
+def X_small():  # noqa: N802
+    """Return matrix of shape (100, 5) with a fixed seed."""
+    return make_returns(T=100, N=5, seed=7)
 
 
-def test_iters_respects_maxiter():
-    """Returned iteration count never exceeds maxiter."""
-    for m in (50, 100, 200):
-        _, _, iters = kkt_minres(X3, maxiter=m)
-        assert iters <= m
+# ---------------------------------------------------------------------------
+# KKT vs CVXPY
+# ---------------------------------------------------------------------------
 
 
-def test_return_types():
-    """Return signature is (ndarray, float, int)."""
-    w, lam, iters = kkt_minres(X3)
-    assert w.shape == (3,)
-    assert isinstance(float(lam), float)
-    assert isinstance(iters, int)
+class TestKktVsCvxpy:
+    """KKT and CVXPY must return the same portfolio up to solver tolerance."""
 
+    def test_plain_minvar(self, X):  # noqa: N803
+        """Plain minimum variance (alpha=0, rho=0)."""
+        w_kkt, _ = Problem(X).solve_kkt()
+        w_cvx, _ = Problem(X).solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
 
-def test_mu_none_equals_zero_rho():
-    """mu=None (default) should give the same result as rho=0."""
-    w1, _, _ = kkt_minres(X3)
-    w2, _, _ = kkt_minres(X3, mu=np.zeros(3), rho=0.0)
-    np.testing.assert_allclose(w1, w2, atol=1e-10)
+    def test_with_shrinkage(self, X):  # noqa: N803
+        """Ledoit-Wolf shrinkage (alpha > 0)."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w_kkt, _ = Problem(X, alpha=alpha).solve_kkt()
+        w_cvx, _ = Problem(X, alpha=alpha).solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
 
+    def test_with_return_tilt(self, X):  # noqa: N803
+        """Return tilt (rho != 0, mu given)."""
+        rng = np.random.default_rng(1)
+        mu = rng.standard_normal(X.shape[1])
+        w_kkt, _ = Problem(X, rho=0.5, mu=mu).solve_kkt()
+        w_cvx, _ = Problem(X, rho=0.5, mu=mu).solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
 
-def test_return_tilt_shifts_weight():
-    """A large positive return on asset 0 should increase its weight."""
-    mu = np.array([1.0, 0.0, 0.0])
-    w_base, _, _ = kkt_minres(X3)
-    w_tilt, _, _ = kkt_minres(X3, mu=mu, rho=1.0)
-    assert w_tilt[0] > w_base[0]
+    def test_small_problem(self, X_small):  # noqa: N803
+        """Small problem (T=100, N=5)."""
+        w_kkt, _ = Problem(X_small).solve_kkt()
+        w_cvx, _ = Problem(X_small).solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+
+    def test_shrinkage_and_tilt(self, X):  # noqa: N803
+        """Shrinkage and return tilt combined."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        mu = np.ones(N) / N
+        w_kkt, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_kkt()
+        w_cvx, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+
+    @pytest.mark.parametrize("N", [2, 5, 20])
+    def test_various_sizes(self, N):  # noqa: N803
+        """Agreement holds for several problem sizes."""
+        X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
+        w_kkt, _ = Problem(X).solve_kkt()
+        w_cvx, _ = Problem(X).solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
