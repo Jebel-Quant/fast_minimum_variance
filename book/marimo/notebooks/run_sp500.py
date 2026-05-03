@@ -26,6 +26,7 @@ with app.setup:
     import pandas as pd
 
     from fast_minimum_variance import Problem
+    from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
 
 @app.cell
@@ -57,24 +58,29 @@ def _():
 
     configs_no_lw = [
         ("cvxpy", lambda: Problem(R).solve_cvxpy()),
-        ("kkt", lambda: Problem(R).solve_kkt()),
-        ("minres", lambda: Problem(R).solve_minres()),
-        ("cg", lambda: Problem(R).solve_cg()),
+        ("clarabel", lambda: MinVarProblem(R).solve_clarabel()),
+        ("kkt", lambda: MinVarProblem(R).solve_kkt()),
+        ("cg", lambda: MinVarProblem(R).solve_cg()),
+        ("nnls", lambda: MinVarProblem(R).solve_nnls()),
     ]
 
     configs_lw = [
         ("cvxpy", lambda: Problem(R, alpha=alpha_lw).solve_cvxpy()),
-        ("kkt", lambda: Problem(R, alpha=alpha_lw).solve_kkt()),
-        ("minres", lambda: Problem(R, alpha=alpha_lw).solve_minres()),
-        ("cg", lambda: Problem(R, alpha=alpha_lw).solve_cg()),
+        ("clarabel", lambda: MinVarProblem(R, alpha=alpha_lw).solve_clarabel()),
+        ("kkt", lambda: MinVarProblem(R, alpha=alpha_lw).solve_kkt()),
+        ("cg", lambda: MinVarProblem(R, alpha=alpha_lw).solve_cg()),
+        ("nnls", lambda: MinVarProblem(R, alpha=alpha_lw).solve_nnls()),
     ]
 
     display = {
         "cvxpy": "cvxpy (Clarabel)",
+        "clarabel": "Clarabel (direct API)",
         "kkt": "KKT direct",
-        "minres": "MINRES",
-        "cg": "CG (constraint-eliminated)",
+        "cg": "CG (SPD)",
+        "nnls": "NNLS (Lawson-Hanson)",
     }
+
+    row_order = ("cvxpy", "clarabel", "kkt", "cg", "nnls")
 
     panels = [
         ("Without Ledoit-Wolf shrinkage", configs_no_lw),
@@ -88,6 +94,7 @@ def _():
         print("-" * 62)
         panel = {}
         for key, fn in configs:
+            print(f"  Running {display[key]}...")
             r = run_solver(key, fn)
             panel[key] = r
             iters_str = str(r["iters"]) if r["iters"] is not None else "-"
@@ -100,28 +107,28 @@ def _():
     def tex_row(dn, v, ref):
         """Format one LaTeX table row."""
         iters_str = str(v["iters"]) if v["iters"] is not None else "--"
-        cols = f"{v['norm']:.4f} & {v['time_s']:.4f} & {iters_str:>6} & {ref / v['time_s']:.1f}x"
+        cols = f"{v['time_s']:.4f} & {iters_str:>6} & {ref / v['time_s']:.1f}x"
         return f"{dn:<35} & {cols} \\\\"
 
     lines = [
         r"\begin{table}[h]",
         r"\centering",
-        r"\begin{tabular}{lcccc}",
+        r"\begin{tabular}{lccc}",
         r"\toprule",
-        r"Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\",
+        r"Method & Time (s) & Iterations & Speedup \\",
         r"\midrule",
-        r"\multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]",
+        r"\multicolumn{4}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]",
     ]
     panel_no = all_results["Without Ledoit-Wolf shrinkage"]
     ref_no = panel_no["cvxpy"]["time_s"]
-    for key in ("cvxpy", "kkt", "minres", "cg"):
+    for key in row_order:
         lines.append(tex_row(display[key], panel_no[key], ref_no))
 
     lines.append(r"\midrule")
-    lines.append(r"\multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]")
+    lines.append(r"\multicolumn{4}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]")
     panel_lw = all_results["With Ledoit-Wolf shrinkage"]
     ref_lw = panel_lw["cvxpy"]["time_s"]
-    for key in ("cvxpy", "kkt", "minres", "cg"):
+    for key in row_order:
         lines.append(tex_row(display[key], panel_lw[key], ref_lw))
 
     lines += [
@@ -136,6 +143,7 @@ def _():
 
     print("\n% LaTeX table")
     print("\n".join(lines))
+    return
 
 
 if __name__ == "__main__":

@@ -32,14 +32,12 @@ def _():
             configs = [
                 ("cvxpy", lambda: Problem(X=R, alpha=alpha_lw).solve_cvxpy()),
                 ("kkt", lambda: Problem(X=R, alpha=alpha_lw).solve_kkt()),
-                ("minres", lambda: Problem(X=R, alpha=alpha_lw).solve_minres()),
                 ("cg", lambda: Problem(X=R, alpha=alpha_lw).solve_cg()),
             ]
         else:
             configs = [
                 ("cvxpy", lambda: Problem(X=R).solve_cvxpy()),
                 ("kkt", lambda: Problem(X=R).solve_kkt()),
-                ("minres", lambda: Problem(X=R).solve_minres()),
                 ("cg", lambda: Problem(X=R).solve_cg()),
             ]
         out = {}
@@ -52,7 +50,7 @@ def _():
     res_no_lw = run_all(shrinkage=False)
     res_lw = run_all(shrinkage=True)
 
-    display_names = {"cvxpy": "cvxpy", "kkt": "KKT direct", "minres": "MINRES", "cg": "CG (constraint-eliminated)"}
+    display_names = {"cvxpy": "cvxpy", "kkt": "KKT direct", "cg": "CG (constraint-eliminated)"}
 
     for label, results in [("Without LW shrinkage", res_no_lw), ("With LW shrinkage", res_lw)]:
         ref = results["cvxpy"]["time_s"]
