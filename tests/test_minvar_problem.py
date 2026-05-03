@@ -247,6 +247,61 @@ class TestSolveKkt:
 # ---------------------------------------------------------------------------
 
 
+class TestSolveClarabel:
+    """Tests for _MinVarProblem.solve_clarabel (direct Clarabel API)."""
+
+    def test_shape(self, mvp):
+        """Output weight vector has shape (N,)."""
+        w, _ = mvp.solve_clarabel()
+        assert w.shape == (mvp.n,)
+
+    def test_weights_sum_to_one(self, mvp):
+        """Weights sum to 1."""
+        w, _ = mvp.solve_clarabel()
+        assert w.sum() == pytest.approx(1.0, abs=1e-5)
+
+    def test_weights_non_negative(self, mvp):
+        """All weights are non-negative."""
+        w, _ = mvp.solve_clarabel()
+        assert np.all(w >= -1e-6)
+
+    def test_close_to_kkt(self, mvp):
+        """Clarabel direct agrees with KKT direct to solver tolerance."""
+        w_clar, _ = mvp.solve_clarabel()
+        w_kkt, _ = mvp.solve_kkt()
+        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-5)
+
+    def test_with_shrinkage(self, X_small):  # noqa: N803
+        """Shrinkage branch (gamma > 0) agrees with KKT."""
+        T, N = X_small.shape  # noqa: N806
+        alpha = N / (N + T)
+        p = MinVarProblem(X_small, alpha=alpha)
+        w_clar, _ = p.solve_clarabel()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-5)
+
+    def test_return_tilt_branch(self, X_small):  # noqa: N803
+        """Return-tilt (rho != 0) sets q = -rho*mu."""
+        _T, N = X_small.shape  # noqa: N806
+        mu = np.random.default_rng(7).standard_normal(N)
+        p = MinVarProblem(X_small, rho=0.5, mu=mu)
+        w_clar, _ = p.solve_clarabel()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
+
+    def test_project_false(self, mvp):
+        """project=False returns raw Clarabel solution without clipping."""
+        w, iters = mvp.solve_clarabel(project=False)
+        assert w.shape == (mvp.n,)
+        assert iters >= 1
+
+    def test_import_error_without_clarabel(self, mvp, monkeypatch):
+        """solve_clarabel raises ImportError when clarabel is absent."""
+        monkeypatch.setitem(__import__("sys").modules, "clarabel", None)
+        with pytest.raises(ImportError, match="clarabel"):
+            mvp.solve_clarabel()
+
+
 class TestCrossValidation:
     """MinVarProblem and Problem should produce identical portfolios."""
 
