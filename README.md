@@ -6,34 +6,20 @@
 
 ## Overview
 
-**fast-minimum-variance** is a Python library for computing minimum variance and
-mean-variance portfolios without ever forming the sample covariance matrix. By operating
-directly on the returns matrix $R \in \mathbb{R}^{T \times N}$, it exposes a clean
-hierarchy of solvers — from an exact direct KKT solve to matrix-free Krylov methods —
-that scale gracefully as $N$ grows.
+**fast-minimum-variance** solves the long-only minimum variance portfolio without ever
+forming the sample covariance matrix. The key observation is that the KKT stationarity
+condition $2\Sigma w = \lambda\mathbf{1}$ immediately gives $w \propto \Sigma^{-1}\mathbf{1}$:
+the entire problem reduces to one symmetric positive definite linear system $\Sigma v =
+\mathbf{1}$, solved matrix-free by conjugate gradients. The budget constraint is recovered
+by a single rescaling $w = v / (\mathbf{1}^\top v)$.
 
-The core insight is that minimising portfolio variance is equivalent to minimising
-$\|Rw\|^2$, which can be evaluated using two matrix-vector products $w \mapsto R^\top(Rw)$
-without constructing $R^\top R$ explicitly. This reframing connects the portfolio
-optimisation literature directly to Krylov subspace methods.
-
-For the default long-only problem, assets with negative optimal weights are **dropped**
-iteratively until all remaining weights are non-negative — no classic active-set logic
-is needed.  For custom constraints ($A^\top w = b$, $C^\top w \leq d$), violated
-inequalities are promoted to equalities one outer iteration at a time.
-
-## Solvers
-
-All solvers are methods on both `Problem` and `MinVarProblem`:
-
-| Method | Approach | Notes |
-|---|---|---|
-| `solve_kkt()` | Direct KKT via `numpy.linalg.solve` | Exact; baseline for accuracy comparisons |
-| `solve_minres()` | MINRES on the indefinite KKT system | Matrix-free; handles indefiniteness correctly |
-| `solve_cg()` | CG in the constraint-reduced space | Positive-definite reduced system; fastest for large $N$ |
-| `solve_cvxpy()` | General-purpose convex solver via CVXPY | Reference implementation; requires `[convex]` extra |
-
-All solvers return `(w, n_iters)` where $w \in \mathbb{R}^N$ satisfies $\sum_i w_i = 1$ and $w_i \geq 0$.
+Working directly with the returns matrix $X \in \mathbb{R}^{T \times N}$ — rather than
+the assembled covariance $X^\top X$ — has two consequences. First, each conjugate gradient
+iteration costs $O(TN)$ rather than $O(N^2)$, and $X^\top X$ is never stored. Second,
+Ledoit-Wolf shrinkage enters as a simple row-augmentation of $X$: stacking
+$[\sqrt{1-\alpha}\,X;\,\sqrt{\gamma}\,I]$ yields a matrix whose Gram matrix equals
+$\Sigma_{\text{LW}}$. The same CG code handles both the plain and shrunk problem without
+modification.
 
 ## Quick Start
 
@@ -41,115 +27,172 @@ All solvers return `(w, n_iters)` where $w \in \mathbb{R}^N$ satisfies $\sum_i w
 import numpy as np
 from fast_minimum_variance import Problem
 
-# Returns matrix: 500 daily returns, 20 assets
-R = np.random.default_rng(42).standard_normal((500, 20))
+# 500 daily returns, 20 assets
+X = np.random.default_rng(42).standard_normal((500, 20))
 
-# No custom constraints → fast iterative asset-elimination solver
-p = Problem(R)
-w_kkt,    _ = p.solve_kkt()    # exact KKT solve
-w_minres, _ = p.solve_minres() # MINRES on the indefinite KKT system
-w_cg,     _ = p.solve_cg()    # CG in the constraint-reduced space
+w, iters = Problem(X).solve_cg()   # matrix-free CG — recommended
+w, iters = Problem(X).solve_kkt()  # direct dense solve — exact baseline
 
-assert abs(w_kkt.sum() - 1.0) < 1e-8
-assert (w_kkt >= 0).all()
-
-# Ledoit-Wolf shrinkage
-T, N = R.shape
-w, iters = Problem(R, alpha=N / (N + T)).solve_minres()
-
-# Custom constraints → general active-set solver
-import numpy as np
-A = np.ones((N, 1))          # budget constraint only
-b = np.ones(1)
-C = -np.eye(N)               # long-only
-d = np.zeros(N)
-w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
+assert abs(w.sum() - 1.0) < 1e-8
+assert (w >= 0).all()
 ```
 
-## The `Problem` Factory
+## Ledoit-Wolf Shrinkage
 
-`Problem(X, ...)` is the single entry point. It dispatches automatically:
-
-- **No `A`, `b`, `C`, `d`** → iterative asset elimination (faster; KKT system shrinks
-  from $(N+1)\times(N+1)$ to $(N^*+1)\times(N^*+1)$ where $N^*$ is the final portfolio size)
-- **Any of `A`, `b`, `C`, `d` provided** → active-set (handles arbitrary linear
-  equality and inequality constraints)
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `X` | `ndarray (T, N)` | required | Returns matrix |
-| `A` | `ndarray (N, m)` | — | Equality constraint matrix: $A^\top w = b$ |
-| `b` | `ndarray (m,)` | — | Equality RHS |
-| `C` | `ndarray (N, p)` | — | Inequality constraint matrix: $C^\top w \leq d$ |
-| `d` | `ndarray (p,)` | — | Inequality RHS |
-| `alpha` | `float` | `0.0` | Ledoit-Wolf shrinkage intensity; ridge = $\alpha \|X\|_F^2 / N$ |
-| `rho` | `float` | `0.0` | Return tilt strength for mean-variance |
-| `mu` | `ndarray (N,)` | `None` | Expected returns vector |
-
-When `A`, `b`, `C`, `d` are omitted, the defaults are $A = \mathbf{1}$, $b = 1$,
-$C = -I$, $d = 0$ (budget + long-only). We suggest to use `alpha = N / (N + T)` for shrinkage.
-
-## `_MinVarProblem` vs `_Problem`
-
-Under the hood, `Problem(...)` returns one of two solver classes. You never need to
-instantiate them directly — the factory does the right thing — but understanding the
-difference explains the performance characteristics.
-
-### `_MinVarProblem` — iterative asset elimination
-
-Used when **no custom constraints are passed**. Designed exclusively for the long-only
-minimum-variance problem ($\sum w_i = 1$, $w_i \geq 0$).
-
-The outer loop is a **primal-dual procedure**: the *primal step* solves the budget-only
-equality system and drops any asset with a negative weight; once all active weights are
-non-negative, the *dual step* checks the KKT gradient condition for every excluded asset
-and re-adds any that would decrease portfolio variance if included.  The loop terminates
-only when both conditions hold simultaneously, guaranteeing global optimality.  The KKT
-system shrinks from $(N+1)\times(N+1)$ down to $(N^*+1)\times(N^*+1)$, where $N^* \ll N$
-is the final portfolio size.  On real equity data this can reduce MINRES iterations by an
-order of magnitude (e.g. 214 vs 1 065 on S&P 500 without shrinkage).
-
-### `_Problem` — growing active-set
-
-Used when **any of `A`, `b`, `C`, `d` are provided**. Handles arbitrary linear equality
-and inequality constraints.
-
-The active-set strategy works by **adding** violated inequalities as equalities. The
-solver always operates on the full $N$-dimensional system, and the KKT matrix grows
-from $(N+m)\times(N+m)$ (equality constraints only) up to
-$(N+m+p^*)\times(N+m+p^*)$ as $p^*$ inequality constraints are activated. This is the
-right choice whenever you need custom turnover limits, sector caps, or any constraint
-structure that goes beyond the default long-only budget problem.
-
-### The good news: you don't have to choose
+Ledoit-Wolf shrinkage plays a dual role: statistically it reduces estimation error; numerically
+it compresses the eigenvalue spectrum and directly cuts CG iteration counts. Use
+`alpha = N / (N + T)` as a simple analytical estimate of the optimal shrinkage intensity:
 
 ```python
-# Calls _MinVarProblem internally — fast iterative asset elimination
-w, _ = Problem(R).solve_minres()
-
-# Calls _Problem internally — general active-set
-w, _ = Problem(R, A=A, b=b, C=C, d=d).solve_kkt()
+T, N = X.shape
+w, iters = Problem(X, alpha=N / (N + T)).solve_cg()
 ```
 
-The `Problem(...)` factory inspects whether any constraints were supplied and routes
-to the appropriate class automatically. Both expose the same four solver methods
-(`solve_kkt`, `solve_minres`, `solve_cg`, `solve_cvxpy`) and return `(w, n_iters)`.
+On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations from 685 to
+205 and makes the matrix-free solver the fastest option by a wide margin.
 
-## The KKT System
+## Solvers
 
-The equality-constrained minimum variance problem yields the $(N+m) \times (N+m)$ KKT system:
+All solvers are methods on `Problem` and return `(w, iters)` where
+$w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
 
-$$\begin{pmatrix} 2\left(R^\top R + \tfrac{\alpha\|R\|_F^2}{N} I\right) & A \cr A^\top & 0 \end{pmatrix} \begin{pmatrix} w \cr \lambda \end{pmatrix} = \begin{pmatrix} \rho\mu \cr b \end{pmatrix}$$
+| Method | Approach | When to use |
+|---|---|---|
+| `solve_cg()` | Matrix-free conjugate gradients on the SPD reduced system | Default — fastest for large $N$, especially with shrinkage |
+| `solve_kkt()` | Direct dense factorisation via `numpy.linalg.solve` | Small problems or when an exact solve is needed |
+| `solve_nnls()` | Non-negative least squares via Lawson-Hanson | Single-shot; useful when no outer loop is desired |
+| `solve_clarabel()` | Clarabel interior-point solver (direct API) | Comparison baseline without CVXPY overhead |
+| `solve_cvxpy()` | CVXPY + Clarabel | Ground-truth reference; requires `[convex]` extra |
 
-where $A \in \mathbb{R}^{N \times m}$ collects the active equality and inequality constraints.
-With the defaults ($A = \mathbf{1}$, $b = 1$, $\alpha = 0$, $\rho = 0$) this reduces to
-the familiar $(N+1) \times (N+1)$ budget-constraint system.
+### `solve_cg` — matrix-free conjugate gradients
 
-This system is **symmetric but indefinite** — the zero bottom-right block introduces
-negative eigenvalues. This rules out standard CG on the full system, but it opens the
-door to MINRES. Alternatively, the CG solver eliminates the constraints entirely by
-parameterising $w = w_0 + Pv$ where $P$ spans the null space of $A^\top$, yielding a
-positive-definite reduced system of size $(N-m) \times (N-m)$.
+The inner step builds a `LinearOperator` that applies
+
+$$v \;\mapsto\; (1-\alpha)\,X_a^\top(X_a v) + \gamma v, \qquad \gamma = \frac{\alpha\|X\|_F^2}{N}$$
+
+to a vector using two matrix-vector products with the active-asset submatrix $X_a$, without
+ever forming $\Sigma_a = X_a^\top X_a$. Standard CG then solves $\Sigma_a v = \mathbf{1}$.
+Ledoit-Wolf shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and reduces
+iteration counts dramatically — from nearly 2000 iterations at $\alpha \approx 0$ to
+single digits at $\alpha \approx 1$ in rank-deficient settings.
+
+### `solve_kkt` — direct dense solve
+
+Assembles $\Sigma_a = (1-\alpha)X_a^\top X_a + \gamma I$ explicitly and calls
+`numpy.linalg.solve`. Exact to machine precision. Scales as $O(N^3)$ in the active
+portfolio size, so it becomes expensive for $N \gtrsim 500$ without shrinkage (which
+reduces the number of active assets). With shrinkage, the active-set outer loop converges
+in 2–4 steps and the inner systems are small, making the direct solve competitive.
+
+### `solve_nnls` — non-negative least squares
+
+Reformulates the problem as a non-negative least squares problem on an augmented matrix:
+
+$$\min_{w \geq 0}\;\left\|\begin{pmatrix}\sqrt{1-\alpha}\,X \\ \sqrt{\gamma}\,I \\ M\mathbf{1}^\top\end{pmatrix}w - \begin{pmatrix}\mathbf{0} \\ \mathbf{0} \\ M\end{pmatrix}\right\|^2$$
+
+where $M = \|X\|_F \cdot T$ enforces the budget constraint as a large penalty. The
+Lawson-Hanson algorithm handles $w \geq 0$ natively, so no outer primal-dual loop is
+needed. Single-shot but does not benefit from the matrix-free structure: Lawson-Hanson
+implicitly forms normal equations of the augmented matrix. With shrinkage the augmented
+matrix grows from $T \times N$ to $(T+N) \times N$, making `solve_nnls` slower with
+shrinkage than without.
+
+### `solve_clarabel` — Clarabel direct API
+
+Calls the Clarabel interior-point solver directly, bypassing CVXPY's problem-construction
+overhead. Assembles $P = 2\Sigma_{\text{LW}}$ as a sparse CSC matrix and solves the
+standard QP. Useful for benchmarking: on a 1000-asset synthetic problem, Clarabel direct
+takes 0.28 s while the CVXPY wrapper takes 8.2 s — over 97% of `solve_cvxpy`'s time is
+Python interface overhead, not solving. CG is still 15× faster than Clarabel direct.
+
+## The Primal-Dual Active-Set Loop
+
+Long-only weights are enforced by an outer loop that wraps any inner solver:
+
+1. **Primal step.** Solve the budget-only equality system over the current active asset
+   set. Drop any asset with weight below $-\varepsilon$ (multiple assets at once if
+   violations are large).
+2. **Dual step.** Once all active weights are non-negative, compute the gradient
+   $\nabla_i f(w) = 2[(1-\alpha)(X^\top X w)_i + \gamma w_i] - \rho\mu_i$ for every
+   excluded asset. If any excluded asset has $\nabla_i f(w) < \lambda$ (the budget
+   multiplier), it would decrease variance if added — re-insert the most-violated asset
+   and repeat.
+3. **Termination.** The loop exits when primal and dual feasibility hold simultaneously.
+   Combined with stationarity from the inner solve, this is sufficient for global optimality.
+
+With Ledoit-Wolf shrinkage at the analytically optimal $\alpha$, the loop typically
+converges in 2–4 outer iterations on real equity data.
+
+## Problem Variants
+
+The same solver handles a range of portfolio construction problems by choosing $\alpha$, $\rho$, $\mu$:
+
+| Problem | `alpha` | `rho` | `mu` |
+|---|---|---|---|
+| Minimum variance | $0$ | $0$ | — |
+| Mean-variance (Markowitz) | any | $> 0$ | expected returns |
+| Minimum tracking error to benchmark $b$ | any | $2$ | `X.T @ (X @ b)` |
+| LW-regularised minimum variance | $N/(N+T)$ | $0$ | — |
+
+```python
+# Mean-variance
+mu = np.array([...])  # expected returns, shape (N,)
+w, _ = Problem(X, rho=1.0, mu=mu).solve_cg()
+
+# Minimum tracking error to benchmark b
+b = np.ones(N) / N  # equal-weight benchmark
+mu_te = X.T @ (X @ b)
+w, _ = Problem(X, rho=2.0, mu=mu_te).solve_cg()
+```
+
+When `rho != 0`, two SPD solves are performed per outer step: $\Sigma_a v_1 = \mathbf{1}$
+and $\Sigma_a v_2 = \mu_a$. The budget multiplier $\lambda$ is recovered analytically
+from the budget constraint, avoiding the full saddle-point system.
+
+## Custom Constraints
+
+For problems beyond budget + long-only (sector limits, turnover bounds, factor-exposure
+constraints), pass explicit constraint matrices:
+
+```python
+A = np.ones((N, 1))   # budget: 1'w = 1
+b = np.ones(1)
+C = -np.eye(N)        # long-only: w >= 0
+d = np.zeros(N)
+w, _ = Problem(X, A=A, b=b, C=C, d=d).solve_kkt()
+```
+
+This routes to a general active-set solver that handles arbitrary linear equality and
+inequality constraints. Use this path sparingly — the default path (no `A`, `b`, `C`, `d`)
+is significantly faster for the standard long-only problem.
+
+## Benchmarks
+
+All timings on Apple M4 Pro, Python 3.12, NumPy 2.4, SciPy 1.17.
+
+### Synthetic: $N=1000$, $T=2000$, i.i.d. Gaussian returns
+
+| Method | Time (s) | Speedup vs CVXPY |
+|---|---|---|
+| `solve_cvxpy` | 8.16 | 1× |
+| `solve_clarabel` | 0.28 | 29× |
+| `solve_kkt` | 0.063 | 129× |
+| **`solve_cg`** | **0.019** | **430×** |
+| `solve_nnls` | 1.69 | 5× |
+
+*With Ledoit-Wolf shrinkage ($\alpha = 0.333$), 56 CG iterations.*
+
+### S&P 500: $N=495$, $T=1192$ (Jul 2021–Apr 2026)
+
+| Method | Time (s) | Speedup vs CVXPY |
+|---|---|---|
+| `solve_cvxpy` | 1.48 | 1× |
+| `solve_clarabel` | 0.067 | 22× |
+| `solve_kkt` | 0.018 | 84× |
+| **`solve_cg`** | **0.0091** | **162×** |
+| `solve_nnls` | 0.088 | 17× |
+
+*With Ledoit-Wolf shrinkage ($\alpha = 0.293$), 205 CG iterations.*
 
 ## Installation
 
@@ -157,7 +200,7 @@ positive-definite reduced system of size $(N-m) \times (N-m)$.
 pip install fast-minimum-variance
 ```
 
-To use the CVXPY reference solver:
+To use the CVXPY and Clarabel reference solvers:
 
 ```bash
 pip install fast-minimum-variance[convex]
@@ -176,7 +219,7 @@ make install
 - Python 3.11+
 - numpy
 - scipy
-- cvxpy *(optional, only required for `solve_cvxpy`)*
+- cvxpy *(optional, only required for `solve_cvxpy` and `solve_clarabel`)*
 
 ## Citing
 

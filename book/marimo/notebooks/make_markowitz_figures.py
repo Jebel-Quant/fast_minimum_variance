@@ -111,6 +111,7 @@ def _():
     print(f"{'method':<30} {'time_s':>10} {'iters':>8}")
     print("-" * 52)
     for key, fn in configs:
+        print(f"Running {display[key]}...")
         (w, iters), t = run_timed(fn)
         bench_results[key] = {"time_s": t, "iters": iters, "w": w}
         iters_str = str(iters) if iters is not None else "--"
