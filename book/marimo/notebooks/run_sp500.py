@@ -11,7 +11,7 @@
 #     "fast-minimum-variance[convex]",
 # ]
 # [tool.uv.sources]
-# fast-minimum-variance[convex] = { path = "../../..", editable = true }
+# fast-minimum-variance = { path = "../../..", editable = true }
 # ///
 
 import marimo
