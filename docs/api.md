@@ -7,9 +7,9 @@ icon: material/code-tags
 The public interface of `fast_minimum_variance`:
 
 ```python
-from fast_minimum_variance import Problem, clip_and_renormalize
+from fast_minimum_variance import Problem
 ```
 
 ---
 
-::: fast_minimum_variance.api
+::: fast_minimum_variance
