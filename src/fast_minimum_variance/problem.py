@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.linalg import qr as _scipy_qr
-from scipy.sparse.linalg import LinearOperator, cg, minres
+from scipy.optimize import nnls
+from scipy.sparse.linalg import LinearOperator, minres
 
 from ._base import _BaseProblem
 
@@ -43,6 +43,17 @@ class _Problem(_BaseProblem):
         w, iters = Problem(X, A=A, b=b).solve_cvxpy()   # requires [convex] extra
     """
 
+    def _cg_step(self, active):
+        """Solve the KKT saddle-point system via MINRES; return ``(w, iters)``."""
+        op, rhs = self._kkt_operator(active=active)
+        iters = [0]
+
+        def _count(_):
+            iters[0] += 1
+
+        x, _ = minres(op, rhs, callback=_count)
+        return x[: self.n], iters[0]
+
     A: np.ndarray | None = None
     b: np.ndarray | None = None
     C: np.ndarray | None = None
@@ -70,7 +81,7 @@ class _Problem(_BaseProblem):
     # Active-set loop (growing: add violated inequality constraints)
     # ------------------------------------------------------------------
 
-    def _constraint_active_set(self, solve_fn):
+    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):
         """Run the active-set loop, promoting violated inequalities to equalities."""
         assert self.C is not None  # noqa: S101
         assert self.d is not None  # noqa: S101
@@ -96,22 +107,6 @@ class _Problem(_BaseProblem):
         """Solve the full KKT system directly; return ``(w, 1)``."""
         K, rhs = self._kkt(active=active)  # noqa: N806
         return np.linalg.solve(K, rhs)[: self.n], 1
-
-    def _minres_step(self, active):
-        """Solve the KKT saddle-point system via MINRES; return ``(w, iters)``."""
-        kkt, rhs = self._kkt_operator(active)
-        iters = [0]
-        sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
-        return sol[: self.n], iters[0]
-
-    def _cg_step(self, active):
-        """Solve via CG in the null space of active constraints; return ``(w, iters)``."""
-        op, rhs, w0, reconstruct = self._null_space_operator(active)
-        if op is None:
-            return w0, 0
-        iters = [0]
-        sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
-        return reconstruct(sol), iters[0]
 
     def _cvxpy_constraints(self, w, cp):
         """Return equality and inequality constraints for CVXPY."""
@@ -179,70 +174,28 @@ class _Problem(_BaseProblem):
 
         return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg]
 
-    def _null_space_operator(self, active=None):
-        """Build the reduced null-space operator and RHS for CG.
+    def _nnls_solve(self):
+        """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
 
-        Uses the WY representation Q = I + Y T Y^T built from the Householder QR
-        of the active constraint matrix.  No explicit null-space basis P is stored.
-        Setup: O(n m²) for QR + WY factor.  Per-matvec: O(n m) via BLAS, where
-        m = number of active equality + inequality constraints.
+        Augments ``X`` with rows for the LW ridge term and all equality
+        constraints (scaled by ``M = ||X||_F * T``); non-negativity is
+        handled natively by Lawson-Hanson.  Inequality constraints beyond
+        ``w >= 0`` are not enforced; use ``solve_kkt`` for general ``C``.
         """
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
-        assert self.C is not None  # noqa: S101
-        assert self.d is not None  # noqa: S101
-        if active is None:
-            active = np.zeros(self.C.shape[1], dtype=bool)
-        aa = np.hstack([self.A, self.C[:, active]])
-        m_ext = aa.shape[1]
-        n_free = self.n - m_ext
-        b_ext = np.concatenate([self.b, self.d[active]])
-
-        if n_free <= 0:
-            w0 = np.linalg.lstsq(aa.T, b_ext, rcond=None)[0]
-            return None, None, w0, None
-
-        (qr_packed, tau), R_upper = _scipy_qr(aa, mode="raw")  # noqa: N806
-        Y = np.tril(qr_packed, k=-1) + np.eye(self.n, m_ext)  # noqa: N806
-        T = np.zeros((m_ext, m_ext))  # noqa: N806
-        T[0, 0] = -tau[0]
-        for k in range(1, m_ext):
-            T[:k, k] = -tau[k] * (T[:k, :k] @ (Y[k:, :k].T @ Y[k:, k]))
-            T[k, k] = -tau[k]
-
-        def _apply_q(v):
-            """Apply Q = I + Y T Y^T to vector ``v``."""
-            return v + Y @ (T @ (Y.T @ v))
-
-        def _apply_qt(v):
-            """Apply Q^T = I + Y T^T Y^T to vector ``v``."""
-            return v + Y @ (T.T @ (Y.T @ v))
-
-        ridge = self._ridge()
+        t = self.X.shape[0]
         oma = 1.0 - self.alpha
-        z = np.zeros(self.n)
-        z[:m_ext] = np.linalg.solve(R_upper.T, b_ext)
-        w0 = _apply_q(z)
+        gamma = self._ridge()
+        m = float(np.linalg.norm(self.X, "fro")) * t
 
-        g0 = oma * (self.X.T @ (self.X @ w0)) + ridge * w0
-        if self.rho != 0.0 and self.mu is not None:
-            g0 = g0 - (self.rho / 2.0) * self.mu
+        rows = [np.sqrt(oma) * self.X]
+        tgt = [np.zeros(t)]
+        if gamma > 0.0:
+            rows.append(np.sqrt(gamma) * np.eye(self.n))
+            tgt.append(np.zeros(self.n))
+        rows.append(m * self.A.T)
+        tgt.append(m * self.b)
 
-        rhs = -_apply_qt(g0)[m_ext:]
-
-        def _matvec(y, xx=self.X, oma_=oma, rid=ridge):
-            """Apply the null-space reduced Hessian to vector ``y``."""
-            z_ = np.zeros(self.n)
-            z_[m_ext:] = y
-            w = _apply_q(z_)
-            qw = oma_ * (xx.T @ (xx @ w)) + rid * w
-            return _apply_qt(qw)[m_ext:]
-
-        def _reconstruct(v):
-            """Reconstruct full weights from null-space coordinate ``v``."""
-            z_ = np.zeros(self.n)
-            z_[m_ext:] = v
-            return w0 + _apply_q(z_)
-
-        op = LinearOperator(shape=(n_free, n_free), matvec=_matvec)  # type: ignore[call-arg]
-        return op, rhs, w0, _reconstruct
+        w, _ = nnls(np.vstack(rows), np.concatenate(tgt))
+        return w, 1

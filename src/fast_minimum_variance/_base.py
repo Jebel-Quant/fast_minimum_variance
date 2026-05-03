@@ -12,7 +12,7 @@ class _BaseProblem(ABC):
 
     Subclasses must implement the five abstract hooks:
 
-    * ``_constraint_active_set(solve_fn)`` — outer active-set loop
+    * ``_constraint_active_set(solve_fn)`` — outer constraint-handling loop
     * ``_kkt_step(mask) -> (w, iters)`` — one direct-KKT inner step
     * ``_minres_step(mask) -> (w, iters)`` — one MINRES inner step
     * ``_cg_step(mask) -> (w, iters)`` — one CG inner step
@@ -52,8 +52,8 @@ class _BaseProblem(ABC):
     # Abstract hooks (raise NotImplementedError — subclasses must override)
     # ------------------------------------------------------------------
     @abstractmethod
-    def _constraint_active_set(self, solve_fn):  # pragma: no cover
-        """Run the outer active-set loop, calling ``solve_fn`` each iteration."""
+    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):  # pragma: no cover
+        """Run the outer constraint-handling loop, calling ``solve_fn`` each iteration."""
         raise NotImplementedError
 
     @abstractmethod
@@ -62,18 +62,18 @@ class _BaseProblem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _minres_step(self, active):  # pragma: no cover
-        """Solve one inner MINRES step; return ``(w, iters)``."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _cg_step(self, active):  # pragma: no cover
-        """Solve one inner CG null-space step; return ``(w, iters)``."""
-        raise NotImplementedError
-
-    @abstractmethod
     def _cvxpy_constraints(self, w, cp):  # pragma: no cover
         """Return the list of CVXPY constraints for ``solve_cvxpy``."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def _cg_step(self, active):
+        """Solve one inner CG step; return ``(w, iters)``."""
+        raise NotImplementedError  # pragma: no cover
+
+    @abstractmethod
+    def _nnls_solve(self):  # pragma: no cover
+        """Solve via NNLS directly (no outer loop); return ``(w, 1)``."""
         raise NotImplementedError
 
     # ------------------------------------------------------------------
@@ -81,7 +81,7 @@ class _BaseProblem(ABC):
     # ------------------------------------------------------------------
 
     def solve_kkt(self, *, project: bool = True):
-        """Solve via the direct KKT system with active-set method.
+        """Solve via the direct KKT system.
 
         Args:
             project: Clip weights to ``[0, ∞)`` and renormalize to sum to 1
@@ -89,7 +89,7 @@ class _BaseProblem(ABC):
 
         Returns:
             ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
-            active-set steps taken.
+            outer iterations taken.
 
         Examples:
             >>> import numpy as np
@@ -102,71 +102,6 @@ class _BaseProblem(ABC):
             True
         """
         w, iters = self._constraint_active_set(self._kkt_step)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, iters
-
-    def solve_minres(self, *, project: bool = True):
-        """Solve via MINRES with active-set method.
-
-        Each active-set step solves a KKT saddle-point system matrix-free
-        using MINRES.  No explicit covariance matrix is formed.
-
-        To apply Ledoit-Wolf shrinkage::
-
-            T, N = X.shape
-            w, iters = Problem(X, alpha=N/(N+T)).solve_minres()
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total
-            MINRES iterations across all active-set steps.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_minres()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= 0).all())
-            True
-            >>> iters > 0
-            True
-        """
-        w, iters = self._constraint_active_set(self._minres_step)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, iters
-
-    def solve_cg(self, *, project: bool = True):
-        """Solve via CG in the constraint-eliminated null space with active-set.
-
-        Each active-set step eliminates the equality constraints via QR,
-        then applies CG to the reduced positive-definite system.
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total
-            CG iterations across all active-set steps.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_cg()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= 0).all())
-            True
-            >>> iters > 0
-            True
-        """
-        w, iters = self._constraint_active_set(self._cg_step)
         if project:
             w = self._clip_and_renormalize(w)
         return w, iters
@@ -219,3 +154,61 @@ class _BaseProblem(ABC):
         if project:
             result = self._clip_and_renormalize(result)
         return result, problem.solver_stats.num_iters
+
+    def solve_cg(self, *, project: bool = True):
+        """Solve via matrix-free conjugate gradients.
+
+        Args:
+            project: Clip weights to ``[0, ∞)`` and renormalize to sum to 1
+                     after solving.  Set to ``False`` for custom constraints.
+
+        Returns:
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total CG
+            iteration count across all outer active-set steps.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_cg()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        w, iters = self._constraint_active_set(self._cg_step)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, iters
+
+    def solve_nnls(self, *, project: bool = True):
+        """Solve via non-negative least squares (scipy.optimize.nnls).
+
+        The budget constraint is enforced by augmenting the return matrix
+        with a heavily weighted all-ones row; non-negativity is handled
+        natively by the Lawson-Hanson algorithm.  The covariance matrix
+        ``X'X`` is formed internally by scipy.  Return tilt (``rho != 0``)
+        is not supported.
+
+        Args:
+            project: Renormalize weights to sum to 1 after solving.
+                     Clipping is a no-op (NNLS already gives ``w >= 0``).
+
+        Returns:
+            ``(w, 1)`` — weight vector of shape ``(N,)`` and iteration
+            count (always 1; NNLS is a single direct solve).
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_nnls()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        w, iters = self._nnls_solve()
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, iters

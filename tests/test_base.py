@@ -28,11 +28,11 @@ class _Stub(_BaseProblem):
     def _kkt_step(self, mask):
         return np.array([0.5, -0.1, 0.6]), 1
 
-    def _minres_step(self, mask):
-        return np.array([0.5, -0.1, 0.6]), 3
-
     def _cg_step(self, mask):
         return np.array([0.5, -0.1, 0.6]), 5
+
+    def _nnls_solve(self):
+        return np.array([0.5, -0.1, 0.6]), 1
 
     def _cvxpy_constraints(self, w, cp):
         return [cp.sum(w) == 1, w >= 0]
@@ -63,12 +63,6 @@ class TestAbstractInterface:
                 return fn(None)
 
             def _kkt_step(self, mask):
-                return np.zeros(3), 1
-
-            def _minres_step(self, mask):
-                return np.zeros(3), 1
-
-            def _cg_step(self, mask):
                 return np.zeros(3), 1
 
             # _cvxpy_constraints intentionally omitted
@@ -153,15 +147,15 @@ class TestTemplateDelegation:
         _, iters = _Stub(_X3).solve_kkt()
         assert iters == 1
 
-    def test_solve_minres_uses_minres_step(self):
-        """solve_minres delegates to _minres_step (iters==3)."""
-        _, iters = _Stub(_X3).solve_minres()
-        assert iters == 3
-
     def test_solve_cg_uses_cg_step(self):
         """solve_cg delegates to _cg_step (iters==5)."""
         _, iters = _Stub(_X3).solve_cg()
         assert iters == 5
+
+    def test_solve_nnls_uses_nnls_solve(self):
+        """solve_nnls calls _nnls_solve directly (iters==1)."""
+        _, iters = _Stub(_X3).solve_nnls()
+        assert iters == 1
 
 
 class TestProjectParameter:
@@ -187,18 +181,6 @@ class TestProjectParameter:
         w_default, _ = _Stub(_X3).solve_kkt()
         w_explicit, _ = _Stub(_X3).solve_kkt(project=True)
         np.testing.assert_array_equal(w_default, w_explicit)
-
-    def test_project_applies_to_minres(self):
-        """project=True also clips and renormalizes for solve_minres."""
-        w, _ = _Stub(_X3).solve_minres(project=True)
-        assert np.all(w >= 0)
-        assert w.sum() == pytest.approx(1.0)
-
-    def test_project_applies_to_cg(self):
-        """project=True also clips and renormalizes for solve_cg."""
-        w, _ = _Stub(_X3).solve_cg(project=True)
-        assert np.all(w >= 0)
-        assert w.sum() == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

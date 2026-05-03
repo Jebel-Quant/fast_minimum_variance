@@ -1,40 +1,42 @@
-"""Minimum-variance solver with shrinking active-set strategy."""
+"""Minimum-variance solver: primal asset elimination with dual-feasibility check."""
 
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.linalg import qr as _scipy_qr
-from scipy.sparse.linalg import LinearOperator, cg, minres
+from scipy.optimize import nnls
+from scipy.sparse.linalg import LinearOperator, cg
 
 from ._base import _BaseProblem
 
 
 @dataclass(frozen=True)
 class _MinVarProblem(_BaseProblem):
-    """Minimum-variance portfolio with shrinking active-set solvers.
+    """Minimum-variance portfolio solver via primal-dual active-set iteration.
 
-    Specialised for::
+    Solves::
 
         min  (1-alpha)||X w||^2 + alpha*(||X||_F^2/N)*||w||^2 - rho*mu^T w
         s.t. 1^T w = 1,  w >= 0
 
-    Unlike :class:`~fast_minimum_variance.problem._Problem`, the active-set
-    here *removes* assets with negative weights from the subproblem instead
-    of pinning them as equality constraints.  The KKT system shrinks from
-    ``(n+1)x(n+1)`` down to ``(n*+1)x(n*+1)`` where ``n*`` is the final
-    portfolio size, yielding dramatically fewer MINRES iterations on real
-    equity data (e.g. 214 vs 1065 on S&P 500 without shrinkage).
+    Each inner step solves the equality-constrained subproblem over the current
+    active asset set.  Stationarity gives ``2*Sigma_a*w_a = lambda*1 + rho*mu_a``
+    where ``Sigma_a = (1-alpha)*X_a^T X_a + ridge*I``.  Solving the ``n_a x n_a``
+    SPD system ``Sigma_a v = 1`` (and ``Sigma_a v2 = mu_a`` when ``rho != 0``)
+    and recovering ``lambda`` from the budget constraint avoids the indefinite
+    ``(n_a+1) x (n_a+1)`` saddle-point system entirely.  The outer primal-dual
+    loop enforces ``w >= 0`` and terminates when both primal and dual feasibility
+    hold simultaneously.
 
     Use ``alpha = N/(N+T)`` for Ledoit-Wolf shrinkage intensity::
 
         T, N = X.shape
-        w, iters = Problem(X, alpha=N/(N+T)).solve_minres()
+        w, iters = Problem(X, alpha=N/(N+T)).solve_kkt()
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance import Problem
         >>> X = np.random.default_rng(0).standard_normal((100, 5))
-        >>> w, iters = Problem(X).solve_minres()
+        >>> w, iters = Problem(X).solve_kkt()
         >>> float(round(w.sum(), 6))
         1.0
         >>> bool((w >= 0).all())
@@ -44,30 +46,83 @@ class _MinVarProblem(_BaseProblem):
     # No extra fields — X, alpha, rho, mu all inherited from _BaseProblem.
 
     # ------------------------------------------------------------------
-    # Active-set loop (shrinking: remove assets with negative weights)
+    # Outer loop: primal elimination + dual feasibility check
     # ------------------------------------------------------------------
+    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):
+        """Run the primal-dual active-set loop enforcing ``w >= 0``.
 
-    def _constraint_active_set(self, solve_fn):
-        """Shrinking active-set: remove assets with negative weights.
-
-        ``solve_fn(asset_active)`` receives a boolean mask of shape ``(n,)``
-        and returns ``(w_a, step_iters)`` where ``w_a`` is the weight vector
-        for active assets only (shape ``(sum(asset_active),)``).
+        Calls ``solve_fn(active_mask)`` repeatedly.  The *primal step* drops assets
+        with negative weights; the *dual step* re-adds any excluded asset whose KKT
+        gradient condition is violated.  Terminates when both conditions hold
+        simultaneously, which together with stationarity is sufficient for global
+        optimality.
         """
         n = self.n
         asset_active = np.ones(n, dtype=bool)
         total_iters = 0
 
-        while True:
+        ridge = self._ridge()
+        oma = 1.0 - self.alpha
+
+        prev_active = None
+
+        for _ in range(max_iter):
+            if prev_active is not None and np.array_equal(prev_active, asset_active):
+                break  # pragma: no cover - structurally unreachable safety guard
+            prev_active = asset_active.copy()
+
+            # === Solve ===
             w_a, step_iters = solve_fn(asset_active)
             total_iters += step_iters
-            if np.all(w_a >= -1e-10):
-                break
-            idx = np.where(asset_active)[0]
-            asset_active[idx[w_a < 0]] = False
 
-        w = np.zeros(n)
-        w[asset_active] = w_a
+            # === PRIMAL STEP ===
+            neg = w_a < -tol
+            if np.any(neg):
+                idx = np.where(asset_active)[0]
+
+                strong = w_a < -10 * tol
+
+                if np.any(strong):
+                    asset_active[idx[strong]] = False
+                else:
+                    j = idx[np.argmin(w_a)]
+                    asset_active[j] = False
+
+                continue  # CRITICAL
+
+            # === Assemble full vector ===
+            w = np.zeros(n)
+            w[asset_active] = w_a
+
+            # === Gradient ===
+            grad = 2.0 * (oma * (self.X.T @ (self.X @ w)) + ridge * w)
+
+            if self.rho != 0.0 and self.mu is not None:
+                grad = grad - self.rho * self.mu
+
+            # === Lambda ===
+            g_a = grad[asset_active]
+            lambda_ = np.median(g_a) if g_a.size > 5 else g_a.mean()
+
+            # === Dual ===
+            nu = grad - lambda_
+
+            excluded = ~asset_active
+            if not excluded.any():
+                break
+
+            nu_ex = nu[excluded]
+            idx_ex = np.where(excluded)[0]
+
+            j = idx_ex[np.argmin(nu_ex)]
+            violate = nu[j]
+
+            # === DUAL STEP ===
+            if violate >= -tol:
+                break
+
+            asset_active[j] = True
+
         return w, total_iters
 
     # ------------------------------------------------------------------
@@ -75,127 +130,132 @@ class _MinVarProblem(_BaseProblem):
     # ------------------------------------------------------------------
 
     def _kkt_step(self, active):
-        """Solve the reduced KKT system directly; return ``(w_a, 1)``."""
-        K, rhs = self._kkt_reduced(active)  # noqa: N806
-        n_a = int(active.sum())
-        return np.linalg.solve(K, rhs)[:n_a], 1
+        """Solve the reduced SPD system directly; return ``(w_a, 1)``.
 
-    def _minres_step(self, active):
-        """Solve the reduced KKT system via MINRES; return ``(w_a, iters)``."""
-        kkt, rhs = self._kkt_operator_reduced(active)
+        Stationarity gives ``2*Sigma_a*w_a = lambda*1 + rho*mu_a``.  A single
+        solve with two RHS columns yields ``v1 = Sigma_a^{-1} 1`` and
+        ``v2 = Sigma_a^{-1} mu_a``; the budget constraint then pins ``lambda``
+        analytically as ``lambda = 2*(1 - rho/2 * sum(v2)) / sum(v1)``.
+        """
+        x_a = self.X[:, active]
         n_a = int(active.sum())
-        iters = [0]
-        sol, _ = minres(kkt, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
-        return sol[:n_a], iters[0]
+        sigma = (1.0 - self.alpha) * (x_a.T @ x_a) + self._ridge() * np.eye(n_a)
 
-    def _cg_step(self, active):
-        """Solve via CG in the null space of the budget constraint; return ``(w_a, iters)``."""
-        op, rhs, w0, reconstruct = self._null_space_operator_reduced(active)
-        if op is None:
-            return w0, 0
-        iters = [0]
-        sol, _ = cg(op, rhs, callback=lambda _x: iters.__setitem__(0, iters[0] + 1))
-        return reconstruct(sol), iters[0]
+        if self.rho == 0.0 or self.mu is None:
+            v = np.linalg.solve(sigma, np.ones(n_a))
+            return v / v.sum(), 1
+
+        v1, v2 = np.linalg.solve(sigma, np.column_stack([np.ones(n_a), self.mu[active]])).T
+        half_rho = 0.5 * self.rho
+        half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
+        return half_lambda * v1 + half_rho * v2, 1
 
     def _cvxpy_constraints(self, w, cp):
         """Return budget-equality and long-only inequality constraints for CVXPY."""
         return [cp.sum(w) == 1, w >= 0]
 
-    # ------------------------------------------------------------------
-    # Operator builders for the active-asset subproblem
-    # ------------------------------------------------------------------
+    def _cg_step(self, active):
+        """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
 
-    def _kkt_reduced(self, asset_active: np.ndarray):
-        """Build the ``(n_a+1)x(n_a+1)`` explicit KKT matrix for active assets."""
-        x_a = self.X[:, asset_active]
-        n_a = int(asset_active.sum())
-        ridge = self._ridge()
-        oma = 1.0 - self.alpha
-
-        K = np.zeros((n_a + 1, n_a + 1))  # noqa: N806
-        K[:n_a, :n_a] = 2.0 * (oma * (x_a.T @ x_a) + ridge * np.eye(n_a))
-        K[:n_a, n_a] = 1.0
-        K[n_a, :n_a] = 1.0
-
-        rhs = np.zeros(n_a + 1)
-        if self.rho != 0.0 and self.mu is not None:
-            rhs[:n_a] = self.rho * self.mu[asset_active]
-        rhs[n_a] = 1.0
-
-        return K, rhs
-
-    def _kkt_operator_reduced(self, asset_active: np.ndarray):
-        """Matrix-free ``(n_a+1)x(n_a+1)`` KKT operator for active assets."""
-        x_a = self.X[:, asset_active]
-        n_a = int(asset_active.sum())
-        ridge = self._ridge()
-        oma = 1.0 - self.alpha
-
-        def _matvec(x, ra=x_a, na=n_a, oma_=oma, rid=ridge):
-            """Apply the KKT saddle-point matrix to vector ``x``."""
-            out = np.empty(na + 1)
-            out[:na] = 2.0 * (oma_ * (ra.T @ (ra @ x[:na])) + rid * x[:na]) + x[na]
-            out[na] = x[:na].sum()
-            return out
-
-        rhs = np.zeros(n_a + 1)
-        if self.rho != 0.0 and self.mu is not None:
-            rhs[:n_a] = self.rho * self.mu[asset_active]
-        rhs[n_a] = 1.0
-
-        return LinearOperator(shape=(n_a + 1, n_a + 1), matvec=_matvec), rhs  # type: ignore[call-arg]
-
-    def _null_space_operator_reduced(self, asset_active: np.ndarray):
-        """CG null-space operator for active assets (budget constraint only).
-
-        Uses a single Householder reflector (WY with m_ext=1) that maps
-        ``ones(n_a)`` to ``sqrt(n_a)*e_1``.  For m_ext=1 the reflector is
-        symmetric, so apply-Q = apply-Q^T.
-
-        Returns ``(op, rhs, w0, reconstruct)`` or ``(None, None, w0, None)``
-        when the system is fully determined (``n_a <= 1``).
+        Builds a ``LinearOperator`` for ``v -> (1-alpha)*X_a'*(X_a*v) + gamma*v``
+        and runs conjugate gradients without ever forming ``Sigma_a`` explicitly.
         """
-        x_a = self.X[:, asset_active]
-        n_a = int(asset_active.sum())
-        ridge = self._ridge()
+        x_a = self.X[:, active]
+        n_a = int(active.sum())
+        gamma = self._ridge()
         oma = 1.0 - self.alpha
 
-        if n_a <= 1:
-            return None, None, np.ones(n_a) / max(n_a, 1), None
+        def matvec(v):
+            """Apply Sigma_LW matrix-free: v -> (1-alpha)*X_a'*(X_a*v) + gamma*v."""
+            return oma * (x_a.T @ (x_a @ v)) + gamma * v
 
-        aa = np.ones((n_a, 1))
-        (qr_packed, tau), r_upper = _scipy_qr(aa, mode="raw")
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
 
-        Y = np.tril(qr_packed[:, :1], k=-1) + np.eye(n_a, 1)  # n_a x 1  # noqa: N806
-        t_scalar = -tau[0]
-        y_h = Y.ravel()
+        iters = [0]
 
-        def _apply_h(v):
-            """Apply the single Householder reflector H = I + t * y * y^T."""
-            return v + t_scalar * (y_h @ v) * y_h
+        def _count(_):
+            """Increment CG iteration counter for the first solve."""
+            iters[0] += 1
 
-        z = np.zeros(n_a)
-        z[0] = np.linalg.solve(r_upper[:1, :1].T, np.ones(1))[0]
-        w0 = _apply_h(z)
+        if self.rho == 0.0 or self.mu is None:
+            v, _ = cg(op, np.ones(n_a), callback=_count)
 
-        g0 = oma * (x_a.T @ (x_a @ w0)) + ridge * w0
+            return v / v.sum(), iters[0]
+
+        iters2 = [0]
+
+        def _count2(_):
+            """Increment CG iteration counter for the second solve."""
+            iters2[0] += 1
+
+        v1, _ = cg(op, np.ones(n_a), callback=_count)
+        v2, _ = cg(op, self.mu[active], callback=_count2)
+        half_rho = 0.5 * self.rho
+        half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
+        return half_lambda * v1 + half_rho * v2, iters[0] + iters2[0]
+
+    def solve_clarabel(self, *, project: bool = True):
+        """Solve via Clarabel interior-point solver (direct API, no CVXPY overhead).
+
+        Assembles ``P = 2·Σ_LW`` as a sparse CSC matrix and calls Clarabel
+        directly, bypassing CVXPY's problem-construction overhead.  Return
+        ``(w, iters)`` where ``iters`` is the number of interior-point iterations.
+        """
+        try:
+            import clarabel
+            from scipy import sparse
+        except ImportError as exc:
+            msg = "clarabel and scipy are required for solve_clarabel"
+            raise ImportError(msg) from exc
+
+        n = self.n
+        oma = 1.0 - self.alpha
+        gamma = self._ridge()
+
+        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
+        p_csc = sparse.csc_matrix(p_dense)
+
+        q = np.zeros(n)
         if self.rho != 0.0 and self.mu is not None:
-            g0 = g0 - (self.rho / 2.0) * self.mu[asset_active]
+            q = -self.rho * self.mu
 
-        rhs_ns = -_apply_h(g0)[1:]
+        a_mat = sparse.vstack(
+            [sparse.csc_matrix(np.ones((1, n))), -sparse.eye(n, format="csc")],
+            format="csc",
+        )
+        b_vec = np.concatenate([[1.0], np.zeros(n)])
+        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
 
-        def _matvec(v, xa=x_a, oma_=oma, rid=ridge):
-            """Apply the reduced null-space operator to vector ``v``."""
-            z_ = np.zeros(n_a)
-            z_[1:] = v
-            w = _apply_h(z_)
-            return _apply_h(oma_ * (xa.T @ (xa @ w)) + rid * w)[1:]
+        settings = clarabel.DefaultSettings()  # type: ignore[attr-defined]
+        settings.verbose = False
+        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # type: ignore[attr-defined]
 
-        def _reconstruct(v):
-            """Reconstruct full active-asset weights from null-space coordinate ``v``."""
-            z_ = np.zeros(n_a)
-            z_[1:] = v
-            return w0 + _apply_h(z_)
+        w = np.array(sol.x)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, sol.iterations
 
-        op = LinearOperator(shape=(n_a - 1, n_a - 1), matvec=_matvec)  # type: ignore[call-arg]
-        return op, rhs_ns, w0, _reconstruct
+    def _nnls_solve(self):
+        """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
+
+        Builds ``A = [sqrt(1-alpha)*X ; sqrt(gamma)*I ; M*ones^T]`` and
+        solves ``min ||Aw||² s.t. w >= 0``.  The budget row with weight
+        ``M = ||X||_F * T`` enforces ``ones^T w ≈ 1``; exact normalisation
+        is applied by the ``project`` step in ``solve_nnls``.
+        Return tilt (``rho != 0``) is not supported.
+        """
+        t = self.X.shape[0]
+        oma = 1.0 - self.alpha
+        gamma = self._ridge()
+        m = float(np.linalg.norm(self.X, "fro")) * t
+
+        rows = [np.sqrt(oma) * self.X]
+        tgt = [np.zeros(t)]
+        if gamma > 0.0:
+            rows.append(np.sqrt(gamma) * np.eye(self.n))
+            tgt.append(np.zeros(self.n))
+        rows.append(m * np.ones((1, self.n)))
+        tgt.append(np.array([m]))
+
+        w, _ = nnls(np.vstack(rows), np.concatenate(tgt))
+        return w, 1

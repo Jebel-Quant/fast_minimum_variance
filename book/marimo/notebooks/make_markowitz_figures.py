@@ -82,14 +82,7 @@ def _():
     configs = [
         ("cvxpy", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_cvxpy(project=False)),
         ("kkt", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_kkt(project=False)),
-        ("minres", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_minres(project=False)),
         ("cg", lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench).solve_cg(project=False)),
-        (
-            "minres_lw",
-            lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, alpha=alpha_bench).solve_minres(
-                project=False
-            ),
-        ),
         (
             "cg_lw",
             lambda: Problem(X_bench, C=C_bench, d=d_bench, rho=0.5, mu=mu_bench, alpha=alpha_bench).solve_cg(
@@ -101,9 +94,7 @@ def _():
     display = {
         "cvxpy": "cvxpy (Clarabel)",
         "kkt": "KKT direct",
-        "minres": "MINRES",
         "cg": "CG (constr.-elim.)",
-        "minres_lw": "MINRES + LW",
         "cg_lw": "CG + LW",
     }
 
@@ -111,6 +102,7 @@ def _():
     print(f"{'method':<30} {'time_s':>10} {'iters':>8}")
     print("-" * 52)
     for key, fn in configs:
+        print(f"Running {display[key]}...")
         (w, iters), t = run_timed(fn)
         bench_results[key] = {"time_s": t, "iters": iters, "w": w}
         iters_str = str(iters) if iters is not None else "--"
@@ -118,22 +110,22 @@ def _():
 
     ref = bench_results["cvxpy"]["time_s"]
     print()
-    for key in ("kkt", "minres", "cg", "minres_lw", "cg_lw"):
+    for key in ("kkt", "cg", "cg_lw"):
         spd = ref / bench_results[key]["time_s"]
         print(f"  {display[key]}: {spd:.1f}x speedup vs cvxpy")
 
     # ── Section 2: Runtime vs N (constrained Markowitz) ──────────────────────────
 
     ns = [50, 100, 200, 300, 500, 750, 1000]
-    times_markowitz = {k: [] for k in ("kkt", "minres_lw", "cg_lw")}
+    times_markowitz = {k: [] for k in ("kkt", "cg_lw")}
     rng2 = np.random.default_rng(1)
 
     print()
     print("=" * 70)
     print("Runtime vs N  (5 sector caps, rho=0.5, LW shrinkage, T=2N)")
     print("=" * 70)
-    print(f"{'N':>6}  {'kkt':>10}  {'minres_lw':>12}  {'cg_lw':>10}")
-    print("-" * 46)
+    print(f"{'N':>6}  {'kkt':>10}  {'cg_lw':>10}")
+    print("-" * 32)
 
     for n in ns:
         T = 2 * n
@@ -144,20 +136,14 @@ def _():
         _, t_kkt = run_timed(
             lambda x=X, cc=C, dd=d, mm=mu: Problem(x, C=cc, d=dd, rho=0.5, mu=mm).solve_kkt(project=False)
         )
-        _, t_mr = run_timed(
-            lambda x=X, cc=C, dd=d, mm=mu, av=alpha: Problem(x, C=cc, d=dd, rho=0.5, mu=mm, alpha=av).solve_minres(
-                project=False
-            )
-        )
         _, t_cg = run_timed(
             lambda x=X, cc=C, dd=d, mm=mu, av=alpha: Problem(x, C=cc, d=dd, rho=0.5, mu=mm, alpha=av).solve_cg(
                 project=False
             )
         )
         times_markowitz["kkt"].append(t_kkt)
-        times_markowitz["minres_lw"].append(t_mr)
         times_markowitz["cg_lw"].append(t_cg)
-        print(f"{n:>6}  {t_kkt:>10.4f}  {t_mr:>12.4f}  {t_cg:>10.4f}")
+        print(f"{n:>6}  {t_kkt:>10.4f}  {t_cg:>10.4f}")
 
     # ── Section 3: Efficient frontier timing ─────────────────────────────────────
 
@@ -177,10 +163,6 @@ def _():
         """Compute efficient frontier weights for all rho values using KKT direct."""
         return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef).solve_kkt(project=True) for r in rhos]
 
-    def frontier_minres():
-        """Compute efficient frontier weights for all rho values using MINRES + LW."""
-        return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_minres(project=True) for r in rhos]
-
     def frontier_cg():
         """Compute efficient frontier weights for all rho values using CG + LW."""
         return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_cg(project=True) for r in rhos]
@@ -194,7 +176,6 @@ def _():
         return [Problem(X_ef, C=C_ef, d=d_ef, rho=r, mu=mu_ef, alpha=alpha_ef).solve_cvxpy(project=True) for r in rhos]
 
     _, t_ef_kkt = run_timed(frontier_kkt)
-    _, t_ef_minres = run_timed(frontier_minres)
     _, t_ef_cg = run_timed(frontier_cg)
     _, t_ef_cvxpy = run_timed(frontier_cvxpy)
     _, t_ef_cvxpy_lw = run_timed(frontier_cvxpy_lw)
@@ -202,14 +183,12 @@ def _():
     print(f"  cvxpy (no LW)  : {t_ef_cvxpy:.3f} s  ({t_ef_cvxpy / len(rhos) * 1000:.1f} ms/point)")
     print(f"  cvxpy + LW     : {t_ef_cvxpy_lw:.3f} s  ({t_ef_cvxpy_lw / len(rhos) * 1000:.1f} ms/point)")
     print(f"  kkt            : {t_ef_kkt:.3f} s  ({t_ef_kkt / len(rhos) * 1000:.1f} ms/point)")
-    print(f"  minres + LW    : {t_ef_minres:.3f} s  ({t_ef_minres / len(rhos) * 1000:.1f} ms/point)")
     print(f"  cg + LW        : {t_ef_cg:.3f} s  ({t_ef_cg / len(rhos) * 1000:.1f} ms/point)")
     print()
     print("  --- Algorithmic speedup (same problem, no LW) ---")
-    print(f"  MINRES (no LW) vs cvxpy (no LW): {t_ef_cvxpy / t_ef_kkt:.1f}x (KKT direct)")
+    print(f"  KKT direct vs cvxpy (no LW): {t_ef_cvxpy / t_ef_kkt:.1f}x")
     print()
     print("  --- Regularised speedup (both with LW, same problem) ---")
-    print(f"  MINRES+LW vs cvxpy+LW : {t_ef_cvxpy_lw / t_ef_minres:.1f}x")
     print(f"  CG+LW vs cvxpy+LW     : {t_ef_cvxpy_lw / t_ef_cg:.1f}x")
     print()
     print(f"  Note: applying LW to cvxpy changes its runtime by {abs(t_ef_cvxpy_lw / t_ef_cvxpy - 1) * 100:.1f}%")
@@ -218,9 +197,9 @@ def _():
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.5, 2.8))
 
-    colors = {"kkt": "#1f77b4", "minres_lw": "#d62728", "cg_lw": "#2ca02c"}
-    labels_plot = {"kkt": "KKT direct", "minres_lw": "MINRES + LW", "cg_lw": "CG + LW"}
-    for key in ("kkt", "minres_lw", "cg_lw"):
+    colors = {"kkt": "#1f77b4", "cg_lw": "#2ca02c"}
+    labels_plot = {"kkt": "KKT direct", "cg_lw": "CG + LW"}
+    for key in ("kkt", "cg_lw"):
         ax1.plot(ns, times_markowitz[key], marker="o", markersize=3, label=labels_plot[key], color=colors[key])
     ax1.set_xscale("log")
     ax1.set_yscale("log")
@@ -253,6 +232,7 @@ def _():
     fig.savefig(folder / "markowitz_scaling.png", bbox_inches="tight", dpi=150)
     print()
     print("Saved graphs/markowitz_scaling.pdf and graphs/markowitz_scaling.png")
+    return
 
 
 if __name__ == "__main__":
