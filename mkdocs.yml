@@ -15,6 +15,10 @@ nav:
   - API Reference: api.md
   - Notebooks:
     - Minimum Variance: notebooks/minvar.html
+    - Fetch S&P 500: notebooks/fetch_sp500.html
+    - Markowitz Figures: notebooks/make_markowitz_figures.html
+    - Minimum Variance Figures: notebooks/make_minvar_figures.html
+    - S&P 500 Benchmark: notebooks/run_sp500.html
   - Reports:
     - Test Report: reports/html-report/report.html
     - Coverage Report: reports/html-coverage/index.html
