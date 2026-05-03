@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 convex = [
     "cvxpy>=1.0",
+    "clarabel>=0.11.0"
 ]
 
 [dependency-groups]
@@ -42,3 +43,4 @@ marimo = "marimo"
 cvxpy = "cvxpy"
 pandas = "pandas"
 pyarrow = "pyarrow"
+clarabel = "clarabel"

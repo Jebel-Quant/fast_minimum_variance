@@ -169,7 +169,7 @@ class _MinVarProblem(_BaseProblem):
             """Apply Sigma_LW matrix-free: v -> (1-alpha)*X_a'*(X_a*v) + gamma*v."""
             return oma * (x_a.T @ (x_a @ v)) + gamma * v
 
-        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
 
         iters = [0]
 
@@ -224,11 +224,11 @@ class _MinVarProblem(_BaseProblem):
             format="csc",
         )
         b_vec = np.concatenate([[1.0], np.zeros(n)])
-        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]
+        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
 
-        settings = clarabel.DefaultSettings()
+        settings = clarabel.DefaultSettings()  # type: ignore[attr-defined]
         settings.verbose = False
-        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()
+        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # type: ignore[attr-defined]
 
         w = np.array(sol.x)
         if project:
