@@ -100,12 +100,3 @@ def test_dual_readd():
 
     assert call_no[0] == 3
     np.testing.assert_allclose(w, [1 / 3, 1 / 3, 1 / 3], atol=1e-10)
-
-
-if __name__ == "__main__":
-    # run with pytest -s test_small.py
-    test_covariance()
-    test_two_outer_iterations()
-    test_dual_variable_at_optimum()
-    test_known_optimum()
-    test_dual_readd()
