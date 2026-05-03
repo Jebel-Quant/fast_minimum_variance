@@ -136,7 +136,7 @@ The same solver handles a range of portfolio construction problems by choosing $
 
 ```python
 # Mean-variance
-mu = np.array([...])  # expected returns, shape (N,)
+mu = np.random.default_rng(0).standard_normal(N)  # expected returns, shape (N,)
 w, _ = Problem(X, rho=1.0, mu=mu).solve_cg()
 
 # Minimum tracking error to benchmark b
