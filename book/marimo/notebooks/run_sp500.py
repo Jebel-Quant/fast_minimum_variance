@@ -7,7 +7,6 @@
 #     "numpy",
 #     "pyarrow",
 #     "marimo",
-#     "clarabel",
 #     "fast-minimum-variance[convex]",
 # ]
 # [tool.uv.sources]
