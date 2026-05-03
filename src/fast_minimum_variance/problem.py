@@ -81,7 +81,7 @@ class _Problem(_BaseProblem):
     # Active-set loop (growing: add violated inequality constraints)
     # ------------------------------------------------------------------
 
-    def _constraint_active_set(self, solve_fn):
+    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):
         """Run the active-set loop, promoting violated inequalities to equalities."""
         assert self.C is not None  # noqa: S101
         assert self.d is not None  # noqa: S101
