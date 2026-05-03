@@ -594,3 +594,83 @@ class TestSolveCvxpy:
         d = np.array([-1.0, -1.0])
         with pytest.raises(RuntimeError, match="CVXPY solver failed"):
             Problem(X, C=C, d=d).solve_cvxpy()
+
+
+# ---------------------------------------------------------------------------
+# TestSolveCg
+# ---------------------------------------------------------------------------
+
+
+class TestSolveCg:
+    """Tests for Problem.solve_cg (MINRES on the indefinite KKT system)."""
+
+    def test_shape(self, problem):
+        """Output weight vector has shape (N,)."""
+        w, _ = problem.solve_cg()
+        assert w.shape == (problem.n,)
+
+    def test_weights_sum_to_one(self, problem):
+        """Weights sum to 1."""
+        w, _ = problem.solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-4
+
+    def test_weights_non_negative(self, problem):
+        """All weights are non-negative."""
+        w, _ = problem.solve_cg()
+        assert np.all(w >= -1e-4)
+
+    def test_close_to_kkt(self, problem_small):
+        """CG solution is close to the exact KKT solution."""
+        w_kkt, _ = problem_small.solve_kkt()
+        w_cg, _ = problem_small.solve_cg()
+        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# TestSolveNnls
+# ---------------------------------------------------------------------------
+
+
+class TestSolveNnls:
+    """Tests for Problem.solve_nnls (NNLS with augmented return matrix)."""
+
+    def test_shape(self, problem):
+        """Output weight vector has shape (N,)."""
+        w, _ = problem.solve_nnls()
+        assert w.shape == (problem.n,)
+
+    def test_weights_sum_to_one(self, problem):
+        """Weights sum to 1."""
+        w, _ = problem.solve_nnls()
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_weights_non_negative(self, problem):
+        """All weights are non-negative."""
+        w, _ = problem.solve_nnls()
+        assert np.all(w >= 0)
+
+    def test_iters_always_one(self, problem):
+        """NNLS is a single solve; iter count is always 1."""
+        _, iters = problem.solve_nnls()
+        assert iters == 1
+
+    def test_close_to_kkt(self, problem_small):
+        """NNLS solution is close to the exact KKT solution."""
+        w_kkt, _ = problem_small.solve_kkt()
+        w_nnls, _ = problem_small.solve_nnls()
+        np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
+
+    def test_project_false_returns_raw(self, problem_small):
+        """project=False returns unnormalized weights (sum may differ from 1)."""
+        w_raw, _ = problem_small.solve_nnls(project=False)
+        w_proj, _ = problem_small.solve_nnls(project=True)
+        assert np.all(w_raw >= 0)
+        np.testing.assert_allclose(w_proj, w_raw / w_raw.sum(), atol=1e-10)
+
+    def test_with_shrinkage(self, X):  # noqa: N803
+        """Shrinkage (alpha > 0) exercises the ridge augmentation rows."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w_nnls, _ = Problem(X, alpha=alpha).solve_nnls()
+        w_kkt, _ = Problem(X, alpha=alpha).solve_kkt()
+        np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
