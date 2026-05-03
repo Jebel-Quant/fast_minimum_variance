@@ -28,6 +28,12 @@ class _Stub(_BaseProblem):
     def _kkt_step(self, mask):
         return np.array([0.5, -0.1, 0.6]), 1
 
+    def _cg_step(self, mask):
+        return np.array([0.5, -0.1, 0.6]), 5
+
+    def _nnls_solve(self):
+        return np.array([0.5, -0.1, 0.6]), 1
+
     def _cvxpy_constraints(self, w, cp):
         return [cp.sum(w) == 1, w >= 0]
 
@@ -139,6 +145,16 @@ class TestTemplateDelegation:
     def test_solve_kkt_uses_kkt_step(self):
         """solve_kkt delegates to _kkt_step (iters==1)."""
         _, iters = _Stub(_X3).solve_kkt()
+        assert iters == 1
+
+    def test_solve_cg_uses_cg_step(self):
+        """solve_cg delegates to _cg_step (iters==5)."""
+        _, iters = _Stub(_X3).solve_cg()
+        assert iters == 5
+
+    def test_solve_nnls_uses_nnls_solve(self):
+        """solve_nnls calls _nnls_solve directly (iters==1)."""
+        _, iters = _Stub(_X3).solve_nnls()
         assert iters == 1
 
 

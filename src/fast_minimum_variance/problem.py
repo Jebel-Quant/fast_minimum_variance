@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.sparse.linalg import LinearOperator
+from scipy.optimize import nnls
+from scipy.sparse.linalg import LinearOperator, minres
 
 from ._base import _BaseProblem
 
@@ -41,6 +42,17 @@ class _Problem(_BaseProblem):
         w, iters = Problem(X, A=A, b=b).solve_cg()
         w, iters = Problem(X, A=A, b=b).solve_cvxpy()   # requires [convex] extra
     """
+
+    def _cg_step(self, active):
+        """Solve the KKT saddle-point system via MINRES; return ``(w, iters)``."""
+        op, rhs = self._kkt_operator(active=active)
+        iters = [0]
+
+        def _count(_):
+            iters[0] += 1
+
+        x, _ = minres(op, rhs, callback=_count)
+        return x[: self.n], iters[0]
 
     A: np.ndarray | None = None
     b: np.ndarray | None = None
@@ -161,3 +173,29 @@ class _Problem(_BaseProblem):
         rhs[na:] = np.concatenate([self.b, self.d[active]])
 
         return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg]
+
+    def _nnls_solve(self):
+        """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
+
+        Augments ``X`` with rows for the LW ridge term and all equality
+        constraints (scaled by ``M = ||X||_F * T``); non-negativity is
+        handled natively by Lawson-Hanson.  Inequality constraints beyond
+        ``w >= 0`` are not enforced; use ``solve_kkt`` for general ``C``.
+        """
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        t = self.X.shape[0]
+        oma = 1.0 - self.alpha
+        gamma = self._ridge()
+        m = float(np.linalg.norm(self.X, "fro")) * t
+
+        rows = [np.sqrt(oma) * self.X]
+        tgt = [np.zeros(t)]
+        if gamma > 0.0:
+            rows.append(np.sqrt(gamma) * np.eye(self.n))
+            tgt.append(np.zeros(self.n))
+        rows.append(m * self.A.T)
+        tgt.append(m * self.b)
+
+        w, _ = nnls(np.vstack(rows), np.concatenate(tgt))
+        return w, 1
