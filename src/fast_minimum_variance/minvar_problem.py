@@ -234,6 +234,51 @@ class _MinVarProblem(_BaseProblem):
             w = self._clip_and_renormalize(w)
         return w, sol.iterations
 
+    def solve_osqp(self, *, project: bool = True):
+        """Solve via OSQP (operator-splitting QP solver, direct API, no CVXPY overhead).
+
+        Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and calls
+        OSQP directly.  Return ``(w, iters)`` where ``iters`` is the number of
+        ADMM iterations.
+
+        Requires the ``convex`` extra::
+
+            pip install fast-minimum-variance[convex]
+        """
+        try:
+            import osqp
+            from scipy import sparse
+        except ImportError as exc:
+            msg = "osqp and scipy are required for solve_osqp"
+            raise ImportError(msg) from exc
+
+        n = self.n
+        oma = 1.0 - self.alpha
+        gamma = self._ridge()
+
+        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
+        p_upper = sparse.triu(p_dense, format="csc")
+
+        q = np.zeros(n)
+        if self.rho != 0.0 and self.mu is not None:
+            q = -self.rho * self.mu
+
+        a_mat = sparse.vstack(
+            [sparse.csc_matrix(np.ones((1, n))), sparse.eye(n, format="csc")],
+            format="csc",
+        )
+        l_vec = np.concatenate([[1.0], np.zeros(n)])
+        u_vec = np.concatenate([[1.0], np.full(n, np.inf)])
+
+        prob = osqp.OSQP()
+        prob.setup(p_upper, q, a_mat, l_vec, u_vec, verbose=False)
+        res = prob.solve()
+
+        w = np.array(res.x)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, res.info.iter
+
     def _nnls_solve(self):
         """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
 

@@ -429,6 +429,7 @@ dependencies = [
 convex = [
     { name = "clarabel" },
     { name = "cvxpy" },
+    { name = "osqp" },
 ]
 
 [package.dev-dependencies]
@@ -446,6 +447,7 @@ requires-dist = [
     { name = "clarabel", marker = "extra == 'convex'", specifier = ">=0.11.0" },
     { name = "cvxpy", marker = "extra == 'convex'", specifier = ">=1.0" },
     { name = "numpy", specifier = ">=2.0.0" },
+    { name = "osqp", marker = "extra == 'convex'", specifier = ">=1.1.1" },
     { name = "scipy", specifier = ">=1.0" },
 ]
 provides-extras = ["convex"]
