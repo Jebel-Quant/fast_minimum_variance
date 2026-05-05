@@ -179,7 +179,6 @@ class _MinVarProblem(_BaseProblem):
 
         if self.rho == 0.0 or self.mu is None:
             v, _ = cg(op, np.ones(n_a), callback=_count)
-
             return v / v.sum(), iters[0]
 
         iters2 = [0]
