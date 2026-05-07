@@ -20,41 +20,20 @@ __generated_with = "0.23.3"
 app = marimo.App()
 
 with app.setup:
-    import time
     from pathlib import Path
 
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
+    from _common import run_timed, set_notebook_plot_style
 
     from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
 
 @app.cell
 def _():
-    mpl.rcParams.update(
-        {
-            "font.family": "serif",
-            "font.size": 9,
-            "axes.labelsize": 9,
-            "axes.titlesize": 9,
-            "legend.fontsize": 8,
-            "xtick.labelsize": 8,
-            "ytick.labelsize": 8,
-            "figure.dpi": 150,
-        }
-    )
-
-    def run_timed(fn, repeats=3):
-        """Return (result, best_time) over repeats calls to fn."""
-        best = float("inf")
-        result = None
-        for _ in range(repeats):
-            t0 = time.perf_counter()
-            result = fn()
-            best = min(best, time.perf_counter() - t0)
-        return result, best
+    set_notebook_plot_style(mpl)
 
     def print_table(label, results, ref_key="cvxpy"):
         """Print a formatted benchmark table with speedup relative to ref_key."""
