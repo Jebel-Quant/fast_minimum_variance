@@ -2,6 +2,7 @@
 
 import time
 from collections.abc import Callable
+from typing import Any
 
 
 def set_notebook_plot_style(mpl) -> None:
@@ -20,7 +21,7 @@ def set_notebook_plot_style(mpl) -> None:
     )
 
 
-def run_timed(fn: Callable, repeats: int = 3):
+def run_timed(fn: Callable[[], Any], repeats: int = 3) -> tuple[Any, float]:
     """Return ``(result, best_wall_time)`` over repeated calls."""
     best = float("inf")
     result = None
