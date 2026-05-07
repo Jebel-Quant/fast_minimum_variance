@@ -37,6 +37,12 @@ class _Stub(_BaseProblem):
     def _cvxpy_constraints(self, w, cp):
         return [cp.sum(w) == 1, w >= 0]
 
+    def _clarabel_constraints(self):
+        return None, None, []
+
+    def _osqp_constraints(self):
+        return None, None, None
+
 
 _X3 = np.eye(3)  # minimal 3x3 return matrix for most tests
 
