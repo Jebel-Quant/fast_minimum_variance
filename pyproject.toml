@@ -11,13 +11,17 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.0.0",
     "scipy>=1.0",
+    "cvxpy>=1.0",
+    "clarabel>=0.11.0",
+    "osqp>=1.1.1",
 ]
 
-[project.optional-dependencies]
-convex = [
-    "cvxpy>=1.0",
-    "clarabel>=0.11.0"
-]
+#[project.optional-dependencies]
+#convex = [
+#    "cvxpy>=1.0",
+#    "clarabel>=0.11.0",
+#    "osqp>=1.1.1",
+#]
 
 [dependency-groups]
 dev = [
@@ -44,3 +48,4 @@ cvxpy = "cvxpy"
 pandas = "pandas"
 pyarrow = "pyarrow"
 clarabel = "clarabel"
+osqp = "osqp"

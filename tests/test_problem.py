@@ -572,21 +572,6 @@ class TestSolveCvxpy:
         w, _ = Problem(X, alpha=0.1).solve_cvxpy()
         assert abs(w.sum() - 1.0) < 1e-6
 
-    def test_import_error_without_cvxpy(self, monkeypatch):
-        """solve_cvxpy raises ImportError when cvxpy is unavailable."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "cvxpy":
-                raise ImportError("no cvxpy")  # noqa: TRY003
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", mock_import)
-        with pytest.raises(ImportError, match="cvxpy is required"):
-            Problem(np.eye(3)).solve_cvxpy()
-
     def test_runtime_error_on_infeasible(self):
         """solve_cvxpy raises RuntimeError when the problem is infeasible."""
         X = np.eye(2)  # noqa: N806
@@ -674,3 +659,119 @@ class TestSolveNnls:
         w_nnls, _ = Problem(X, alpha=alpha).solve_nnls()
         w_kkt, _ = Problem(X, alpha=alpha).solve_kkt()
         np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# TestSolveClarabel
+# ---------------------------------------------------------------------------
+
+
+class TestSolveClarabel:
+    """Tests for Problem.solve_clarabel (direct Clarabel API)."""
+
+    def test_shape(self, problem):
+        """Output weight vector has shape (N,)."""
+        w, _ = problem.solve_clarabel()
+        assert w.shape == (problem.n,)
+
+    def test_weights_sum_to_one(self, problem):
+        """Weights sum to 1."""
+        w, _ = problem.solve_clarabel()
+        assert abs(w.sum() - 1.0) < 1e-5
+
+    def test_weights_non_negative(self, problem):
+        """All weights are non-negative."""
+        w, _ = problem.solve_clarabel()
+        assert np.all(w >= -1e-6)
+
+    def test_close_to_kkt(self, problem_small):
+        """Clarabel solution agrees with KKT to solver tolerance."""
+        w_clar, _ = problem_small.solve_clarabel()
+        w_kkt, _ = problem_small.solve_kkt()
+        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
+
+    def test_with_shrinkage(self, X_small):  # noqa: N803
+        """Shrinkage branch (alpha > 0) agrees with KKT."""
+        T, N = X_small.shape  # noqa: N806
+        p = Problem(X_small, alpha=N / (N + T))
+        w_clar, _ = p.solve_clarabel()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
+
+    def test_return_tilt_branch(self, X_small):  # noqa: N803
+        """Return-tilt (rho != 0) sets q = -rho*mu."""
+        _T, N = X_small.shape  # noqa: N806
+        mu = np.random.default_rng(7).standard_normal(N)
+        p = Problem(X_small, rho=0.5, mu=mu)
+        w_clar, _ = p.solve_clarabel()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
+
+    def test_project_false(self, problem):
+        """project=False returns raw Clarabel solution without clipping."""
+        w, iters = problem.solve_clarabel(project=False)
+        assert w.shape == (problem.n,)
+        assert iters >= 1
+
+    def test_iters_positive(self, problem):
+        """Clarabel always takes at least one interior-point iteration."""
+        _, iters = problem.solve_clarabel()
+        assert iters > 0
+
+
+# ---------------------------------------------------------------------------
+# TestSolveOsqp
+# ---------------------------------------------------------------------------
+
+
+class TestSolveOsqp:
+    """Tests for Problem.solve_osqp (direct OSQP API)."""
+
+    def test_shape(self, problem):
+        """Output weight vector has shape (N,)."""
+        w, _ = problem.solve_osqp()
+        assert w.shape == (problem.n,)
+
+    def test_weights_sum_to_one(self, problem):
+        """Weights sum to 1."""
+        w, _ = problem.solve_osqp()
+        assert abs(w.sum() - 1.0) < 1e-5
+
+    def test_weights_non_negative(self, problem):
+        """All weights are non-negative."""
+        w, _ = problem.solve_osqp()
+        assert np.all(w >= -1e-6)
+
+    def test_close_to_kkt(self, problem_small):
+        """OSQP solution agrees with KKT to solver tolerance."""
+        w_osqp, _ = problem_small.solve_osqp()
+        w_kkt, _ = problem_small.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
+    def test_with_shrinkage(self, X_small):  # noqa: N803
+        """Shrinkage branch (alpha > 0) agrees with KKT."""
+        T, N = X_small.shape  # noqa: N806
+        p = Problem(X_small, alpha=N / (N + T))
+        w_osqp, _ = p.solve_osqp()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
+    def test_return_tilt_branch(self, X_small):  # noqa: N803
+        """Return-tilt (rho != 0) sets q = -rho*mu."""
+        _T, N = X_small.shape  # noqa: N806
+        mu = np.random.default_rng(7).standard_normal(N)
+        p = Problem(X_small, rho=0.5, mu=mu)
+        w_osqp, _ = p.solve_osqp()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
+    def test_project_false(self, problem):
+        """project=False returns raw OSQP solution without clipping."""
+        w, iters = problem.solve_osqp(project=False)
+        assert w.shape == (problem.n,)
+        assert iters >= 1
+
+    def test_iters_positive(self, problem):
+        """OSQP always takes at least one ADMM iteration."""
+        _, iters = problem.solve_osqp()
+        assert iters > 0

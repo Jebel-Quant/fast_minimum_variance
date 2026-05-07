@@ -295,11 +295,209 @@ class TestSolveClarabel:
         assert w.shape == (mvp.n,)
         assert iters >= 1
 
-    def test_import_error_without_clarabel(self, mvp, monkeypatch):
-        """solve_clarabel raises ImportError when clarabel is absent."""
-        monkeypatch.setitem(__import__("sys").modules, "clarabel", None)
-        with pytest.raises(ImportError, match="clarabel"):
-            mvp.solve_clarabel()
+
+class TestSolveCg:
+    """Tests for MinVarProblem.solve_cg (matrix-free CG on reduced SPD system)."""
+
+    def test_shape(self, mvp):
+        """Output weight vector has shape (N,)."""
+        w, _ = mvp.solve_cg()
+        assert w.shape == (mvp.n,)
+
+    def test_weights_sum_to_one(self, mvp):
+        """Weights sum to 1."""
+        w, _ = mvp.solve_cg()
+        assert w.sum() == pytest.approx(1.0, abs=1e-4)
+
+    def test_weights_non_negative(self, mvp):
+        """All weights are non-negative."""
+        w, _ = mvp.solve_cg()
+        assert np.all(w >= -1e-4)
+
+    def test_close_to_kkt(self, mvp_small):
+        """CG solution is close to the exact KKT solution."""
+        w_kkt, _ = mvp_small.solve_kkt()
+        w_cg, _ = mvp_small.solve_cg()
+        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+
+    def test_with_shrinkage(self, X_small):  # noqa: N803
+        """Shrinkage branch (alpha > 0) agrees with KKT."""
+        T, N = X_small.shape  # noqa: N806
+        p = MinVarProblem(X_small, alpha=N / (N + T))
+        w_cg, _ = p.solve_cg()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+
+    def test_return_tilt_branch(self, X_small):  # noqa: N803
+        """Return-tilt (rho != 0) runs two CG solves."""
+        _T, N = X_small.shape  # noqa: N806
+        mu = np.random.default_rng(7).standard_normal(N)
+        p = MinVarProblem(X_small, rho=0.5, mu=mu)
+        w_cg, _ = p.solve_cg()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+
+    def test_project_false(self, mvp):
+        """project=False returns raw CG solution without clipping."""
+        w, _ = mvp.solve_cg(project=False)
+        assert w.shape == (mvp.n,)
+
+
+class TestSolveCvxpy:
+    """Tests for MinVarProblem.solve_cvxpy (CVXPY / Clarabel reference solver)."""
+
+    def test_shape(self, mvp):
+        """Output weight vector has shape (N,)."""
+        w, _ = mvp.solve_cvxpy()
+        assert w.shape == (mvp.n,)
+
+    def test_weights_sum_to_one(self, mvp):
+        """Weights sum to 1."""
+        w, _ = mvp.solve_cvxpy()
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_weights_non_negative(self, mvp):
+        """All weights are non-negative."""
+        w, _ = mvp.solve_cvxpy()
+        assert np.all(w >= -1e-6)
+
+    def test_close_to_kkt(self, mvp_small):
+        """CVXPY solution is close to the exact KKT solution."""
+        w_kkt, _ = mvp_small.solve_kkt()
+        w_cvxpy, _ = mvp_small.solve_cvxpy()
+        np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
+
+    def test_objective_no_worse_than_equal_weight(self, X, mvp):  # noqa: N803
+        """Optimal portfolio has variance <= equal-weight portfolio."""
+        w_opt, _ = mvp.solve_cvxpy()
+        w_eq = np.ones(mvp.n) / mvp.n
+        assert np.linalg.norm(X @ w_opt) <= np.linalg.norm(X @ w_eq) + 1e-6
+
+    def test_return_tilt_branch(self, X_small):  # noqa: N803
+        """Return-tilt (rho != 0) tilts weights toward high-return assets."""
+        _T, N = X_small.shape  # noqa: N806
+        mu = np.random.default_rng(7).standard_normal(N)
+        p = MinVarProblem(X_small, rho=0.5, mu=mu)
+        w_cvxpy, _ = p.solve_cvxpy()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
+
+    def test_with_shrinkage(self, X_small):  # noqa: N803
+        """Alpha != 0 enters the Ledoit-Wolf ridge branch."""
+        T, N = X_small.shape  # noqa: N806
+        p = MinVarProblem(X_small, alpha=N / (N + T))
+        w_cvxpy, _ = p.solve_cvxpy()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
+
+    def test_project_false(self, mvp):
+        """project=False returns raw CVXPY solution without clipping."""
+        w, iters = mvp.solve_cvxpy(project=False)
+        assert w.shape == (mvp.n,)
+        assert iters > 0
+
+
+class TestSolveNnls:
+    """Tests for MinVarProblem.solve_nnls (NNLS on augmented return matrix)."""
+
+    def test_shape(self, mvp):
+        """Output weight vector has shape (N,)."""
+        w, _ = mvp.solve_nnls()
+        assert w.shape == (mvp.n,)
+
+    def test_weights_sum_to_one(self, mvp):
+        """Weights sum to 1."""
+        w, _ = mvp.solve_nnls()
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_weights_non_negative(self, mvp):
+        """All weights are non-negative."""
+        w, _ = mvp.solve_nnls()
+        assert np.all(w >= 0)
+
+    def test_iters_always_one(self, mvp):
+        """NNLS is a single solve; iter count is always 1."""
+        _, iters = mvp.solve_nnls()
+        assert iters == 1
+
+    def test_close_to_kkt(self, mvp_small):
+        """NNLS solution is close to the exact KKT solution."""
+        w_kkt, _ = mvp_small.solve_kkt()
+        w_nnls, _ = mvp_small.solve_nnls()
+        np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
+
+    def test_project_false_returns_raw(self, mvp_small):
+        """project=False returns unnormalized weights that are still non-negative."""
+        w_raw, _ = mvp_small.solve_nnls(project=False)
+        w_proj, _ = mvp_small.solve_nnls(project=True)
+        assert np.all(w_raw >= 0)
+        np.testing.assert_allclose(w_proj, w_raw / w_raw.sum(), atol=1e-10)
+
+    def test_with_shrinkage(self, X):  # noqa: N803
+        """Shrinkage (alpha > 0) exercises the ridge augmentation rows."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w_nnls, _ = MinVarProblem(X, alpha=alpha).solve_nnls()
+        w_kkt, _ = MinVarProblem(X, alpha=alpha).solve_kkt()
+        np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
+
+
+class TestSolveOsqp:
+    """Tests for MinVarProblem.solve_osqp (direct OSQP API)."""
+
+    def test_shape(self, mvp):
+        """Output weight vector has shape (N,)."""
+        w, _ = mvp.solve_osqp()
+        assert w.shape == (mvp.n,)
+
+    def test_weights_sum_to_one(self, mvp):
+        """Weights sum to 1."""
+        w, _ = mvp.solve_osqp()
+        assert w.sum() == pytest.approx(1.0, abs=1e-5)
+
+    def test_weights_non_negative(self, mvp):
+        """All weights are non-negative."""
+        w, _ = mvp.solve_osqp()
+        assert np.all(w >= -1e-6)
+
+    def test_close_to_kkt(self, mvp):
+        """OSQP solution agrees with KKT direct to solver tolerance."""
+        w_osqp, _ = mvp.solve_osqp()
+        w_kkt, _ = mvp.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
+    def test_with_shrinkage(self, X_small):  # noqa: N803
+        """Shrinkage branch (alpha > 0) agrees with KKT."""
+        T, N = X_small.shape  # noqa: N806
+        p = MinVarProblem(X_small, alpha=N / (N + T))
+        w_osqp, _ = p.solve_osqp()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
+    def test_return_tilt_branch(self, X_small):  # noqa: N803
+        """Return-tilt (rho != 0) sets q = -rho*mu."""
+        _T, N = X_small.shape  # noqa: N806
+        mu = np.random.default_rng(7).standard_normal(N)
+        p = MinVarProblem(X_small, rho=0.5, mu=mu)
+        w_osqp, _ = p.solve_osqp()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
+    def test_project_false(self, mvp):
+        """project=False returns raw OSQP solution without clipping."""
+        w, iters = mvp.solve_osqp(project=False)
+        assert w.shape == (mvp.n,)
+        assert iters >= 1
+
+    def test_iters_positive(self, mvp):
+        """OSQP always takes at least one ADMM iteration."""
+        _, iters = mvp.solve_osqp()
+        assert iters > 0
+
+
+# ---------------------------------------------------------------------------
+# Cross-validation: MinVarProblem agrees with Problem
+# ---------------------------------------------------------------------------
 
 
 class TestCrossValidation:

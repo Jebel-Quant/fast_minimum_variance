@@ -7,7 +7,7 @@
 #     "numpy",
 #     "pyarrow",
 #     "marimo",
-#     "fast-minimum-variance[convex]",
+#     "fast-minimum-variance",
 # ]
 # [tool.uv.sources]
 # fast-minimum-variance = { path = "../../..", editable = true }
