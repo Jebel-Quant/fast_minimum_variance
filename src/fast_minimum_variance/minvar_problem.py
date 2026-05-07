@@ -4,9 +4,8 @@ from dataclasses import dataclass
 
 import clarabel
 import numpy as np
-import osqp
 from scipy.optimize import nnls
-from scipy.sparse import csc_matrix, eye, triu, vstack
+from scipy.sparse import csc_matrix, eye, vstack
 from scipy.sparse.linalg import LinearOperator, cg
 
 from ._base import _BaseProblem
@@ -196,91 +195,27 @@ class _MinVarProblem(_BaseProblem):
         half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
         return half_lambda * v1 + half_rho * v2, iters[0] + iters2[0]
 
-    def solve_clarabel(self, *, project: bool = True):
-        """Solve via Clarabel interior-point solver (direct API, no CVXPY overhead).
-
-        Assembles ``P = 2·Σ_LW`` as a sparse CSC matrix and calls Clarabel
-        directly, bypassing CVXPY's problem-construction overhead.  Return
-        ``(w, iters)`` where ``iters`` is the number of interior-point iterations.
-        """
-        # try:
-        #    import clarabel
-        #    #from scipy import sparse
-        # except ImportError as exc:
-        #    msg = "clarabel and scipy are required for solve_clarabel"
-        #    raise ImportError(msg) from exc
-
+    def _clarabel_constraints(self):
+        """Return budget-equality and long-only inequality constraints for Clarabel."""
         n = self.n
-        oma = 1.0 - self.alpha
-        gamma = self._ridge()
-
-        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
-        p_csc = csc_matrix(p_dense)
-
-        q = np.zeros(n)
-        if self.rho != 0.0 and self.mu is not None:
-            q = -self.rho * self.mu
-
         a_mat = vstack(
             [csc_matrix(np.ones((1, n))), -eye(n, format="csc")],
             format="csc",
         )
         b_vec = np.concatenate([[1.0], np.zeros(n)])
         cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
+        return a_mat, b_vec, cones
 
-        settings = clarabel.DefaultSettings()  # type: ignore[attr-defined]
-        settings.verbose = False
-        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # type: ignore[attr-defined]
-
-        w = np.array(sol.x)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, sol.iterations
-
-    def solve_osqp(self, *, project: bool = True):
-        """Solve via OSQP (operator-splitting QP solver, direct API, no CVXPY overhead).
-
-        Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and calls
-        OSQP directly.  Return ``(w, iters)`` where ``iters`` is the number of
-        ADMM iterations.
-
-        Requires the ``convex`` extra::
-
-            pip install fast-minimum-variance[convex]
-        """
-        # try:
-        #    import osqp
-        #    #from scipy import sparse
-        # except ImportError as exc:
-        #    msg = "osqp and scipy are required for solve_osqp"
-        #    raise ImportError(msg) from exc
-
+    def _osqp_constraints(self):
+        """Return budget-equality and long-only inequality constraints for OSQP."""
         n = self.n
-        oma = 1.0 - self.alpha
-        gamma = self._ridge()
-
-        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
-        p_upper = triu(p_dense, format="csc")
-
-        q = np.zeros(n)
-        if self.rho != 0.0 and self.mu is not None:
-            q = -self.rho * self.mu
-
         a_mat = vstack(
             [csc_matrix(np.ones((1, n))), eye(n, format="csc")],
             format="csc",
         )
         l_vec = np.concatenate([[1.0], np.zeros(n)])
         u_vec = np.concatenate([[1.0], np.full(n, np.inf)])
-
-        prob = osqp.OSQP()
-        prob.setup(p_upper, q, a_mat, l_vec, u_vec, verbose=False)
-        res = prob.solve()
-
-        w = np.array(res.x)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, res.info.iter
+        return a_mat, l_vec, u_vec
 
     def _nnls_solve(self):
         """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.

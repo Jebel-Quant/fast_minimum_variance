@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 
+import clarabel
 import numpy as np
 from scipy.optimize import nnls
+from scipy.sparse import csc_matrix, vstack
 from scipy.sparse.linalg import LinearOperator, minres
 
 from ._base import _BaseProblem
@@ -173,6 +175,28 @@ class _Problem(_BaseProblem):
         rhs[na:] = np.concatenate([self.b, self.d[active]])
 
         return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg]
+
+    def _clarabel_constraints(self):
+        """Return equality and inequality constraints for Clarabel."""
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
+        a_mat = vstack([csc_matrix(self.A.T), csc_matrix(self.C.T)], format="csc")
+        b_vec = np.concatenate([self.b, self.d])
+        cones = [clarabel.ZeroConeT(self._m), clarabel.NonnegativeConeT(len(self.d))]  # type: ignore[attr-defined]
+        return a_mat, b_vec, cones
+
+    def _osqp_constraints(self):
+        """Return equality and inequality constraints for OSQP."""
+        assert self.A is not None  # noqa: S101
+        assert self.b is not None  # noqa: S101
+        assert self.C is not None  # noqa: S101
+        assert self.d is not None  # noqa: S101
+        a_mat = vstack([csc_matrix(self.A.T), csc_matrix(self.C.T)], format="csc")
+        l_vec = np.concatenate([self.b, np.full(len(self.d), -np.inf)])
+        u_vec = np.concatenate([self.b, self.d])
+        return a_mat, l_vec, u_vec
 
     def _nnls_solve(self):
         """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
