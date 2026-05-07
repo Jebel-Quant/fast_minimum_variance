@@ -202,6 +202,7 @@ class _MinVarProblem(_BaseProblem):
             [csc_matrix(np.ones((1, n))), -eye(n, format="csc")],
             format="csc",
         )
+
         b_vec = np.concatenate([[1.0], np.zeros(n)])
         cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
         return a_mat, b_vec, cones
