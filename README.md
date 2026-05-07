@@ -65,7 +65,8 @@ $w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
 | `solve_kkt()` | Direct dense factorisation via `numpy.linalg.solve` | Small problems or when an exact solve is needed |
 | `solve_nnls()` | Non-negative least squares via Lawson-Hanson | Single-shot; useful when no outer loop is desired |
 | `solve_clarabel()` | Clarabel interior-point solver (direct API) | Comparison baseline without CVXPY overhead |
-| `solve_cvxpy()` | CVXPY + Clarabel | Ground-truth reference; requires `[convex]` extra |
+| `solve_osqp()` | OSQP operator-splitting QP solver (direct API) | Alternative QP baseline; faster than Clarabel on medium problems |
+| `solve_cvxpy()` | CVXPY + Clarabel | Ground-truth reference |
 
 ### `solve_cg` — matrix-free conjugate gradients
 
@@ -107,6 +108,16 @@ overhead. Assembles $P = 2\Sigma_{\text{LW}}$ as a sparse CSC matrix and solves 
 standard QP. Useful for benchmarking: on a 1000-asset synthetic problem, Clarabel direct
 takes 0.28 s while the CVXPY wrapper takes 8.2 s — over 97% of `solve_cvxpy`'s time is
 Python interface overhead, not solving. CG is still 15× faster than Clarabel direct.
+
+### `solve_osqp` — OSQP operator-splitting solver
+
+Calls the OSQP operator-splitting QP solver directly, bypassing CVXPY overhead. Assembles
+$P = 2\Sigma_{\text{LW}}$ as a sparse upper-triangular CSC matrix and applies ADMM
+iterations on the primal-dual update. Consistently about 2× faster than Clarabel direct:
+on S&P 500 data OSQP takes 0.036 s versus Clarabel's 0.067 s; on a 1000-asset synthetic
+problem, 0.12 s versus 0.28 s. The `iters` return value is the ADMM iteration count.
+CG is still 4–6× faster than OSQP for large $N$, but OSQP is the fastest drop-in QP
+solver for problems where the matrix-free structure cannot be exploited.
 
 ## The Primal-Dual Active-Set Loop
 
@@ -179,6 +190,7 @@ All timings on Apple M4 Pro, Python 3.12, NumPy 2.4, SciPy 1.17.
 |---|---|---|
 | `solve_cvxpy` | 8.16 | 1× |
 | `solve_clarabel` | 0.28 | 29× |
+| `solve_osqp` | 0.12 | 68× |
 | `solve_kkt` | 0.063 | 129× |
 | **`solve_cg`** | **0.019** | **430×** |
 | `solve_nnls` | 1.69 | 5× |
@@ -191,6 +203,7 @@ All timings on Apple M4 Pro, Python 3.12, NumPy 2.4, SciPy 1.17.
 |---|---|---|
 | `solve_cvxpy` | 1.48 | 1× |
 | `solve_clarabel` | 0.067 | 22× |
+| `solve_osqp` | 0.036 | 41× |
 | `solve_kkt` | 0.018 | 84× |
 | **`solve_cg`** | **0.0091** | **162×** |
 | `solve_nnls` | 0.088 | 17× |
@@ -201,12 +214,6 @@ All timings on Apple M4 Pro, Python 3.12, NumPy 2.4, SciPy 1.17.
 
 ```bash
 pip install fast-minimum-variance
-```
-
-To use the CVXPY and Clarabel reference solvers:
-
-```bash
-pip install fast-minimum-variance[convex]
 ```
 
 For development:
@@ -222,7 +229,9 @@ make install
 - Python 3.11+
 - numpy
 - scipy
-- cvxpy *(optional, only required for `solve_cvxpy` and `solve_clarabel`)*
+- cvxpy
+- clarabel
+- osqp
 
 ## Citing
 
