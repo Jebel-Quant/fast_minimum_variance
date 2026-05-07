@@ -1,7 +1,9 @@
 # [fast-minimum-variance](https://jebel-quant.github.io/fast_minimum_variance): Solving Minimum Variance Portfolios Fast
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/fast-minimum-variance/)
+[![Downloads](https://static.pepy.tech/personalized-badge/fast-minimum-variance?period=month&units=international_system&left_color=black&right_color=orange&left_text=PyPI%20downloads%20per%20month)](https://pepy.tech/project/fast-minimum-variance)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/Jebel-Quant/fast_minimum_variance/blob/main/LICENSE)
+[![Coverage](https://jebel-quant.github.io/fast_minimum_variance/coverage-badge.svg)](https://jebel-quant.github.io/fast_minimum_variance/reports/html-coverage/)
 [![Rhiza](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2FJebel-Quant%2Ffast_minimum_variance%2Fmain%2F.rhiza%2Ftemplate.yml&query=%24.ref&label=rhiza)](https://github.com/jebel-quant/rhiza)
 
 ## Overview
