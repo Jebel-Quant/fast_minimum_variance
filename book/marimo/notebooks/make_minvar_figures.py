@@ -7,7 +7,7 @@
 #     "numpy",
 #     "pandas",
 #     "pyarrow",
-#     "fast-minimum-variance[convex]",
+#     "fast-minimum-variance",
 #     "marimo"
 # ]
 # [tool.uv.sources]
@@ -89,6 +89,7 @@ def _():
     configs_no_lw = [
         ("cvxpy", lambda: MinVarProblem(R_syn).solve_cvxpy()),
         ("clarabel", lambda: MinVarProblem(R_syn).solve_clarabel()),
+        ("osqp", lambda: MinVarProblem(R_syn).solve_osqp()),
         ("kkt", lambda: MinVarProblem(R_syn).solve_kkt()),
         ("cg", lambda: MinVarProblem(R_syn).solve_cg()),
         ("nnls", lambda: MinVarProblem(R_syn).solve_nnls()),
@@ -96,6 +97,7 @@ def _():
     configs_lw = [
         ("cvxpy", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_cvxpy()),
         ("clarabel", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_clarabel()),
+        ("osqp", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_osqp()),
         ("kkt", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_kkt()),
         ("cg", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_cg()),
         ("nnls", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_nnls()),
@@ -135,6 +137,7 @@ def _():
     configs_sp_no_lw = [
         ("cvxpy", lambda: MinVarProblem(R_sp).solve_cvxpy()),
         ("clarabel", lambda: MinVarProblem(R_sp).solve_clarabel()),
+        ("osqp", lambda: MinVarProblem(R_sp).solve_osqp()),
         ("kkt", lambda: MinVarProblem(R_sp).solve_kkt()),
         ("cg", lambda: MinVarProblem(R_sp).solve_cg()),
         ("nnls", lambda: MinVarProblem(R_sp).solve_nnls()),
@@ -142,6 +145,7 @@ def _():
     configs_sp_lw = [
         ("cvxpy", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_cvxpy()),
         ("clarabel", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_clarabel()),
+        ("osqp", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_osqp()),
         ("kkt", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_kkt()),
         ("cg", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_cg()),
         ("nnls", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_nnls()),
