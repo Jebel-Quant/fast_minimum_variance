@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 
-def set_notebook_plot_style(mpl) -> None:
+def set_notebook_plot_style(mpl: Any) -> None:
     """Apply the shared plotting style used by marimo benchmark notebooks."""
     mpl.rcParams.update(
         {
