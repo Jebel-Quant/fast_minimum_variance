@@ -5,7 +5,7 @@
 # dependencies = [
 #     "matplotlib",
 #     "numpy",
-#     "fast-minimum-variance[convex]",
+#     "fast-minimum-variance",
 #     "marimo"
 # ]
 # [tool.uv.sources]

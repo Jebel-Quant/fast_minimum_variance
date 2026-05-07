@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+import cvxpy as cp
 import numpy as np
 
 
@@ -130,12 +131,12 @@ class _BaseProblem(ABC):
             >>> bool((w >= -1e-6).all())
             True
         """
-        try:
-            import cvxpy as cp
-        except ImportError as e:
-            raise ImportError(  # noqa: TRY003
-                "cvxpy is required; install with: pip install fast-minimum-variance[convex]"
-            ) from e
+        # try:
+        #     import cvxpy as cp
+        # except ImportError as e:
+        #     raise ImportError(
+        #         "cvxpy is required; install with: pip install fast-minimum-variance[convex]"
+        #     ) from e
 
         w = cp.Variable(self.n)
         ridge = self._ridge()

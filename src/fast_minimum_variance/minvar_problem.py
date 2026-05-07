@@ -2,8 +2,11 @@
 
 from dataclasses import dataclass
 
+import clarabel
 import numpy as np
+import osqp
 from scipy.optimize import nnls
+from scipy.sparse import csc_matrix, eye, triu, vstack
 from scipy.sparse.linalg import LinearOperator, cg
 
 from ._base import _BaseProblem
@@ -200,26 +203,26 @@ class _MinVarProblem(_BaseProblem):
         directly, bypassing CVXPY's problem-construction overhead.  Return
         ``(w, iters)`` where ``iters`` is the number of interior-point iterations.
         """
-        try:
-            import clarabel
-            from scipy import sparse
-        except ImportError as exc:
-            msg = "clarabel and scipy are required for solve_clarabel"
-            raise ImportError(msg) from exc
+        # try:
+        #    import clarabel
+        #    #from scipy import sparse
+        # except ImportError as exc:
+        #    msg = "clarabel and scipy are required for solve_clarabel"
+        #    raise ImportError(msg) from exc
 
         n = self.n
         oma = 1.0 - self.alpha
         gamma = self._ridge()
 
         p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
-        p_csc = sparse.csc_matrix(p_dense)
+        p_csc = csc_matrix(p_dense)
 
         q = np.zeros(n)
         if self.rho != 0.0 and self.mu is not None:
             q = -self.rho * self.mu
 
-        a_mat = sparse.vstack(
-            [sparse.csc_matrix(np.ones((1, n))), -sparse.eye(n, format="csc")],
+        a_mat = vstack(
+            [csc_matrix(np.ones((1, n))), -eye(n, format="csc")],
             format="csc",
         )
         b_vec = np.concatenate([[1.0], np.zeros(n)])
@@ -245,26 +248,26 @@ class _MinVarProblem(_BaseProblem):
 
             pip install fast-minimum-variance[convex]
         """
-        try:
-            import osqp
-            from scipy import sparse
-        except ImportError as exc:
-            msg = "osqp and scipy are required for solve_osqp"
-            raise ImportError(msg) from exc
+        # try:
+        #    import osqp
+        #    #from scipy import sparse
+        # except ImportError as exc:
+        #    msg = "osqp and scipy are required for solve_osqp"
+        #    raise ImportError(msg) from exc
 
         n = self.n
         oma = 1.0 - self.alpha
         gamma = self._ridge()
 
         p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
-        p_upper = sparse.triu(p_dense, format="csc")
+        p_upper = triu(p_dense, format="csc")
 
         q = np.zeros(n)
         if self.rho != 0.0 and self.mu is not None:
             q = -self.rho * self.mu
 
-        a_mat = sparse.vstack(
-            [sparse.csc_matrix(np.ones((1, n))), sparse.eye(n, format="csc")],
+        a_mat = vstack(
+            [csc_matrix(np.ones((1, n))), eye(n, format="csc")],
             format="csc",
         )
         l_vec = np.concatenate([[1.0], np.zeros(n)])
