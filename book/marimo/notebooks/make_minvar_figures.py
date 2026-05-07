@@ -26,8 +26,8 @@ with app.setup:
     import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
-
     from _common import run_timed, set_notebook_plot_style
+
     from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
 

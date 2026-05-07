@@ -23,8 +23,8 @@ with app.setup:
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import numpy as np
-
     from _common import run_timed, set_notebook_plot_style
+
     from fast_minimum_variance.problem import _Problem as Problem
 
 
