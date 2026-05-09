@@ -221,10 +221,11 @@ class _Problem(_BaseProblem):
         m = float(np.linalg.norm(self.X, "fro")) * t
 
         if self.target is not None:
+            chol = np.linalg.cholesky(self.target)
             rows = [np.sqrt((1 - self.alpha) / self.t) * self.X]
             tgt = [np.zeros(t)]
             if self.alpha > 0.0:
-                rows.append(np.sqrt(self.alpha) * self.target)
+                rows.append(np.sqrt(self.alpha) * chol.T)
                 tgt.append(np.zeros(self.n))
         else:
             rows = [np.sqrt(1.0 / self.t) * self.X]
