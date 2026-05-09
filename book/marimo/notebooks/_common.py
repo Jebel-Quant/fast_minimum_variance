@@ -30,3 +30,15 @@ def run_timed(fn: Callable[[], Any], repeats: int = 3) -> tuple[Any, float]:
         result = fn()
         best = min(best, time.perf_counter() - t0)
     return result, best
+
+
+def print_table(label, results, ref_key="cvxpy"):
+    """Print a formatted benchmark table with speedup relative to ref_key."""
+    ref = results[ref_key]["time_s"]
+    print(f"\n{label}")
+    print(f"{'Method':<30} {'Time (s)':>10} {'Iters':>8} {'Speedup':>10}")
+    print("-" * 62)
+    print(results)
+    for key, v in results.items():
+        iters_str = str(v["iters"]) if v["iters"] is not None else "--"
+        print(f"{key:<30} {v['time_s']:>10.4f} {iters_str:>8} {ref / v['time_s']:>9.1f}x")

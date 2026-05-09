@@ -26,7 +26,7 @@ def X_small():  # noqa: N802
 @pytest.fixture(scope="module")
 def mvp(X):  # noqa: N803
     """MinVarProblem wrapping the session-scoped (200, 10) return matrix."""
-    return MinVarProblem(X)
+    return MinVarProblem(X, target=np.eye(X.shape[1]))
 
 
 @pytest.fixture(scope="module")

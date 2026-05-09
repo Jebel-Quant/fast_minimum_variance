@@ -63,9 +63,6 @@ class _MinVarProblem(_BaseProblem):
         asset_active = np.ones(n, dtype=bool)
         total_iters = 0
 
-        ridge = self._ridge()
-        oma = 1.0 - self.alpha
-
         prev_active = None
 
         for _ in range(max_iter):
@@ -97,7 +94,10 @@ class _MinVarProblem(_BaseProblem):
             w[asset_active] = w_a
 
             # === Gradient ===
-            grad = 2.0 * (oma * (self.X.T @ (self.X @ w)) + ridge * w)
+            if self.target is None:
+                grad = 2.0 * (self.X.T @ (self.X @ w)) / self.t
+            else:
+                grad = 2.0 * ((1 - self.alpha) * (self.X.T @ (self.X @ w)) / self.t + self.alpha * self.target @ w)
 
             if self.rho != 0.0 and self.mu is not None:
                 grad = grad - self.rho * self.mu
@@ -141,7 +141,10 @@ class _MinVarProblem(_BaseProblem):
         """
         x_a = self.X[:, active]
         n_a = int(active.sum())
-        sigma = (1.0 - self.alpha) * (x_a.T @ x_a) + self._ridge() * np.eye(n_a)
+        if self.target is None:
+            sigma = (x_a.T @ x_a) / self.t
+        else:
+            sigma = (1.0 - self.alpha) * (x_a.T @ x_a) / self.t + self.alpha * self.target[np.ix_(active, active)]
 
         if self.rho == 0.0 or self.mu is None:
             v = np.linalg.solve(sigma, np.ones(n_a))
@@ -164,12 +167,13 @@ class _MinVarProblem(_BaseProblem):
         """
         x_a = self.X[:, active]
         n_a = int(active.sum())
-        gamma = self._ridge()
-        oma = 1.0 - self.alpha
+        target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
 
         def matvec(v):
-            """Apply Sigma_LW matrix-free: v -> (1-alpha)*X_a'*(X_a*v) + gamma*v."""
-            return oma * (x_a.T @ (x_a @ v)) + gamma * v
+            """Apply Sigma_LW matrix-free: v -> (1-alpha)/T * X_a'*(X_a*v) + alpha*target_a*v."""
+            if target_sub is None:
+                return (x_a.T @ (x_a @ v)) / self.t
+            return (1.0 - self.alpha) * (x_a.T @ (x_a @ v)) / self.t + self.alpha * (target_sub @ v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
 
@@ -228,15 +232,20 @@ class _MinVarProblem(_BaseProblem):
         Return tilt (``rho != 0``) is not supported.
         """
         t = self.X.shape[0]
-        oma = 1.0 - self.alpha
-        gamma = self._ridge()
         m = float(np.linalg.norm(self.X, "fro")) * t
 
-        rows = [np.sqrt(oma) * self.X]
-        tgt = [np.zeros(t)]
-        if gamma > 0.0:
-            rows.append(np.sqrt(gamma) * np.eye(self.n))
-            tgt.append(np.zeros(self.n))
+        if self.target is not None:
+            # target is the penalty matrix M; Cholesky gives chol s.t. chol @ chol.T = M,
+            # so sqrt(alpha)*chol.T rows enforce alpha * w^T M w in the LS objective.
+            chol = np.linalg.cholesky(self.target)
+            rows = [np.sqrt((1 - self.alpha) / self.t) * self.X]
+            tgt = [np.zeros(t)]
+            if self.alpha > 0.0:
+                rows.append(np.sqrt(self.alpha) * chol.T)
+                tgt.append(np.zeros(self.n))
+        else:
+            rows = [np.sqrt(1.0 / self.t) * self.X]
+            tgt = [np.zeros(t)]
         rows.append(m * np.ones((1, self.n)))
         tgt.append(np.array([m]))
 

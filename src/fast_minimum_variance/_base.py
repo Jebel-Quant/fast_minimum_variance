@@ -30,13 +30,25 @@ class _BaseProblem(ABC):
     """
 
     X: np.ndarray
+    target: np.ndarray | None = None
     alpha: float = 0.0
     rho: float = 0.0
     mu: np.ndarray | None = None
 
+    def __post_init__(self):
+        """Validate target shape when supplied; shrinkage is only active when target is not None."""
+        n = self.n
+        if self.target is not None and self.target.shape != (n, n):
+            raise ValueError(f"target must be a square {n} x {n} matrix, got {self.target.shape}")  # noqa: TRY003
+
     # ------------------------------------------------------------------
     # Shared utilities
     # ------------------------------------------------------------------
+
+    @property
+    def t(self) -> int:
+        """Return the number of rows in X."""
+        return self.X.shape[0]
 
     @property
     def n(self) -> int:
@@ -49,10 +61,6 @@ class _BaseProblem(ABC):
         w = np.maximum(w, 0)
         w /= w.sum()
         return w
-
-    def _ridge(self) -> float:
-        """Ridge coefficient: ``alpha * ||X||_F^2 / N``."""
-        return self.alpha * np.einsum("ti,ti->", self.X, self.X) / self.n
 
     # ------------------------------------------------------------------
     # Abstract hooks (raise NotImplementedError — subclasses must override)
@@ -146,18 +154,15 @@ class _BaseProblem(ABC):
             >>> bool((w >= -1e-6).all())
             True
         """
-        # try:
-        #     import cvxpy as cp
-        # except ImportError as e:
-        #     raise ImportError(
-        #         "cvxpy is required; install with: pip install fast-minimum-variance[convex]"
-        #     ) from e
-
         w = cp.Variable(self.n)
-        ridge = self._ridge()
-        objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w)
-        if self.alpha != 0.0:
-            objective = objective + ridge * cp.sum_squares(w)
+        if self.target is not None:
+            # target is the penalty matrix M; decompose as M = chol chol^T so ||chol^T w||^2 = w^T M w
+            chol = np.linalg.cholesky(self.target)
+            objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w) / self.t + self.alpha * cp.sum_squares(
+                chol.T @ w
+            )
+        else:
+            objective = cp.sum_squares(self.X @ w) / self.t
         if self.rho != 0.0 and self.mu is not None:
             objective = objective - self.rho * (self.mu @ w)
 
@@ -255,10 +260,12 @@ class _BaseProblem(ABC):
             True
         """
         n = self.n
-        oma = 1.0 - self.alpha
-        gamma = self._ridge()
 
-        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
+        if self.target is None:
+            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
+        else:
+            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
+
         p_csc = csc_matrix(p_dense)
 
         q = np.zeros(n)
@@ -302,10 +309,13 @@ class _BaseProblem(ABC):
             True
         """
         n = self.n
-        oma = 1.0 - self.alpha
-        gamma = self._ridge()
 
-        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
+        if self.target is None:
+            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
+        else:
+            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
+
+        # p_dense = 2.0 * ((1-self.alpha) * (self.X.T @ self.X)/self.t + self.alpha * self.target)
         p_upper = triu(p_dense, format="csc")
 
         q = np.zeros(n)

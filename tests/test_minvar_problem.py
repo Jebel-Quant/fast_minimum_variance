@@ -12,8 +12,8 @@ from fast_minimum_variance.problem import _Problem as Problem
 def _sigma(p, active):
     """Compute the n_a × n_a SPD covariance matrix for the active assets."""
     x_a = p.X[:, active]
-    n_a = int(active.sum())
-    return (1.0 - p.alpha) * (x_a.T @ x_a) + p._ridge() * np.eye(n_a)
+    int(active.sum())
+    return (1.0 - p.alpha) * (x_a.T @ x_a) + p.alpha * p.target[np.ix_(active, active)]
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ class TestConstraintActiveSet:
     def test_weak_negative_single_drop(self):
         """A weakly negative weight (between -tol and -10*tol) uses the single-drop path."""
         X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
-        p = MinVarProblem(X)
+        p = MinVarProblem(X, target=np.eye(3))
         call_count = [0]
 
         def solve_fn(mask):
