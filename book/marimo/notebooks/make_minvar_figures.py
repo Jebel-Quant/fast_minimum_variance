@@ -42,62 +42,9 @@ def _():
         print(f"{'Method':<30} {'Time (s)':>10} {'Iters':>8} {'Speedup':>10}")
         print("-" * 62)
         print(results)
-        # display = {
-        #    "cvxpy": "cvxpy (Clarabel)",
-        #    "kkt": "KKT direct",
-        #    "minres": "MINRES",
-        #    "cg": "CG (constraint-eliminated)",
-        #    "minres_lw": "MINRES + LW",
-        #    "cg_lw": "CG + LW",
-        # }
         for key, v in results.items():
             iters_str = str(v["iters"]) if v["iters"] is not None else "--"
             print(f"{key:<30} {v['time_s']:>10.4f} {iters_str:>8} {ref / v['time_s']:>9.1f}x")
-
-    # ── Table 1: Synthetic benchmark  n=1000, T=2000 ─────────────────────────────
-
-    print("=" * 70)
-    print("Synthetic benchmark  n=1000, T=2000  (long-only minimum variance)")
-    print("=" * 70)
-
-    rng = np.random.default_rng(0)
-    N_syn, T_syn = 1000, 2000
-    R_syn = rng.standard_normal((T_syn, N_syn))
-    alpha_syn = N_syn / (N_syn + T_syn)
-
-    configs_no_lw = [
-        ("cvxpy", lambda: MinVarProblem(R_syn).solve_cvxpy()),
-        ("clarabel", lambda: MinVarProblem(R_syn).solve_clarabel()),
-        ("osqp", lambda: MinVarProblem(R_syn).solve_osqp()),
-        ("kkt", lambda: MinVarProblem(R_syn).solve_kkt()),
-        ("cg", lambda: MinVarProblem(R_syn).solve_cg()),
-        ("nnls", lambda: MinVarProblem(R_syn).solve_nnls()),
-    ]
-    configs_lw = [
-        ("cvxpy", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_cvxpy()),
-        ("clarabel", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_clarabel()),
-        ("osqp", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_osqp()),
-        ("kkt", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_kkt()),
-        ("cg", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_cg()),
-        ("nnls", lambda: MinVarProblem(R_syn, alpha=alpha_syn).solve_nnls()),
-    ]
-
-    syn_no_lw, syn_lw = {}, {}
-    for key, fn in configs_no_lw:
-        print(f"Running {key}...")
-        (w, iters), t = run_timed(fn)
-        syn_no_lw[key] = {"time_s": t, "iters": iters}
-
-    for key, fn in configs_lw:
-        print(f"Running {key}...")
-        (w, iters), t = run_timed(fn)
-        syn_lw[key] = {"time_s": t, "iters": iters}
-
-    print(syn_no_lw)
-    print(syn_lw)
-
-    print_table("Without LW shrinkage (alpha=0)", syn_no_lw)
-    print_table(f"With LW shrinkage (alpha={alpha_syn:.3f})", syn_lw)
 
     # ── Table 2: S&P 500 ──────────────────────────────────────────────────────────
 
@@ -105,13 +52,24 @@ def _():
     print("=" * 70)
     print("S&P 500  n=495, T=1192  (long-only minimum variance)")
     print("=" * 70)
-    file = Path(__file__).parent / "data" / "sp500_returns.parquet"
+    file = Path(__file__).parent / "data" / "sp500_pct_returns.parquet"
     df = pd.read_parquet(file)
     R_sp = df.to_numpy()
     T_sp, N_sp = R_sp.shape
-    alpha_sp = N_sp / (N_sp + T_sp)
+    # alpha_sp = N_sp / (N_sp + T_sp)
+    alpha_sp = 0.5
+    # mean_eig = np.mean(np.linalg.eigvals(R_sp))
+    _Xt_X = np.matmul(R_sp.T, R_sp) / T_sp
+    mean_eig = np.mean(np.linalg.eigvals(_Xt_X))
+    print(f"Mean eigenvalue: {mean_eig:.4f}")
+
+    bar_lambda_sp = float(np.linalg.norm(R_sp, "fro") ** 2) / (N_sp * T_sp)
+    print((R_sp**2).mean())
+
+    target_sp = bar_lambda_sp * np.eye(N_sp)
     print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}")
     print(f"alpha = {N_sp}/{N_sp}+{T_sp} = {alpha_sp:.4f}")
+    print(f"bar_lambda = {bar_lambda_sp:.6f}")
 
     configs_sp_no_lw = [
         ("cvxpy", lambda: MinVarProblem(R_sp).solve_cvxpy()),
@@ -122,12 +80,12 @@ def _():
         ("nnls", lambda: MinVarProblem(R_sp).solve_nnls()),
     ]
     configs_sp_lw = [
-        ("cvxpy", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_cvxpy()),
-        ("clarabel", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_clarabel()),
-        ("osqp", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_osqp()),
-        ("kkt", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_kkt()),
-        ("cg", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_cg()),
-        ("nnls", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_nnls()),
+        ("cvxpy", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_cvxpy()),
+        ("clarabel", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_clarabel()),
+        ("osqp", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_osqp()),
+        ("kkt", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_kkt()),
+        ("cg", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_cg()),
+        ("nnls", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_nnls()),
     ]
 
     sp_no_lw, sp_lw = {}, {}
@@ -157,9 +115,11 @@ def _():
         T = 2 * n
         R = rng2.standard_normal((T, n))
         alpha = n / (n + T)
-        _, t_kkt = run_timed(lambda r=R, a=alpha: MinVarProblem(r, alpha=a).solve_kkt())
-        _, t_cg = run_timed(lambda r=R, a=alpha: MinVarProblem(r, alpha=a).solve_cg())
-        _, t_nnls = run_timed(lambda r=R, a=alpha: MinVarProblem(r, alpha=a).solve_nnls())
+        bar_lam = float(np.linalg.norm(R, "fro") ** 2) / (n * T)
+        tgt = bar_lam * np.eye(n)
+        _, t_kkt = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_kkt())
+        _, t_cg = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_cg())
+        _, t_nnls = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_nnls())
         times["kkt"].append(t_kkt)
         times["cg"].append(t_cg)
         times["nnls"].append(t_nnls)
@@ -169,6 +129,7 @@ def _():
 
     n_iter, T_iter = 500, 250
     R_iter = np.random.default_rng(1).standard_normal((T_iter, n_iter))
+    bar_lambda_iter = float(np.linalg.norm(R_iter, "fro") ** 2) / (n_iter * T_iter)
     alphas = np.linspace(0.01, 0.99, 40)
     cg_iters_by_alpha = []
     print()
@@ -176,7 +137,8 @@ def _():
     print(f"Iterations vs alpha  (n={n_iter}, T={T_iter}, rank-deficient)")
     print("=" * 70)
     for a in alphas:
-        _, iters = MinVarProblem(R_iter, alpha=a).solve_cg()
+        tgt_iter = bar_lambda_iter * np.eye(n_iter)
+        _, iters = MinVarProblem(R_iter, alpha=a, target=tgt_iter).solve_cg()
         cg_iters_by_alpha.append(iters)
         print(f"  alpha={a:.3f}  iters={iters}")
 
