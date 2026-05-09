@@ -30,9 +30,16 @@ class _BaseProblem(ABC):
     """
 
     X: np.ndarray
+    target: np.ndarray | None = None
     alpha: float = 0.0
     rho: float = 0.0
     mu: np.ndarray | None = None
+
+    def __post_init__(self):
+        """Fill in default constraint matrices when not supplied."""
+        n = self.n
+        if self.target is None:
+            object.__setattr__(self, "target", np.eye(n))
 
     # ------------------------------------------------------------------
     # Shared utilities
@@ -157,7 +164,7 @@ class _BaseProblem(ABC):
         ridge = self._ridge()
         objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w)
         if self.alpha != 0.0:
-            objective = objective + ridge * cp.sum_squares(w)
+            objective = objective + ridge * cp.sum_squares(self.target @ w)
         if self.rho != 0.0 and self.mu is not None:
             objective = objective - self.rho * (self.mu @ w)
 
@@ -258,7 +265,7 @@ class _BaseProblem(ABC):
         oma = 1.0 - self.alpha
         gamma = self._ridge()
 
-        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
+        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * self.target)
         p_csc = csc_matrix(p_dense)
 
         q = np.zeros(n)
@@ -305,7 +312,7 @@ class _BaseProblem(ABC):
         oma = 1.0 - self.alpha
         gamma = self._ridge()
 
-        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * np.eye(n))
+        p_dense = 2.0 * (oma * (self.X.T @ self.X) + gamma * self.target)
         p_upper = triu(p_dense, format="csc")
 
         q = np.zeros(n)

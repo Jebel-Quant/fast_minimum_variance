@@ -141,7 +141,7 @@ class _MinVarProblem(_BaseProblem):
         """
         x_a = self.X[:, active]
         n_a = int(active.sum())
-        sigma = (1.0 - self.alpha) * (x_a.T @ x_a) + self._ridge() * np.eye(n_a)
+        sigma = (1.0 - self.alpha) * (x_a.T @ x_a) + self._ridge() * self.target[np.ix_(active, active)]
 
         if self.rho == 0.0 or self.mu is None:
             v = np.linalg.solve(sigma, np.ones(n_a))
@@ -235,7 +235,7 @@ class _MinVarProblem(_BaseProblem):
         rows = [np.sqrt(oma) * self.X]
         tgt = [np.zeros(t)]
         if gamma > 0.0:
-            rows.append(np.sqrt(gamma) * np.eye(self.n))
+            rows.append(np.sqrt(gamma) * self.target)
             tgt.append(np.zeros(self.n))
         rows.append(m * np.ones((1, self.n)))
         tgt.append(np.array([m]))
