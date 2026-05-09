@@ -46,8 +46,8 @@ class TestNnlsVsCvxpy:
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
-        w_nnls, _ = Problem(X, alpha=alpha).solve_nnls()
-        w_cvx, _ = Problem(X, alpha=alpha).solve_cvxpy()
+        w_nnls, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_nnls()
+        w_cvx, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_cvxpy()
         np.testing.assert_allclose(w_nnls, w_cvx, atol=1e-3)
 
     def test_small_problem(self, X_small):  # noqa: N803

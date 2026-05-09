@@ -81,6 +81,11 @@ class TestAbstractInterface:
         stub = _Stub(_X3)
         assert stub is not None
 
+    def test_wrong_target_shape_raises(self):
+        """A target with the wrong shape raises ValueError."""
+        with pytest.raises(ValueError, match="target must be"):
+            _Stub(_X3, target=np.eye(4))
+
 
 # ---------------------------------------------------------------------------
 # Shared utilities
@@ -121,23 +126,6 @@ class TestClipAndRenormalize:
         """A valid weight vector is returned unchanged."""
         w_in = np.array([0.2, 0.3, 0.5])
         np.testing.assert_allclose(_BaseProblem._clip_and_renormalize(w_in.copy()), w_in)
-
-
-class TestRidge:
-    """Tests for _BaseProblem._ridge."""
-
-    def test_zero_alpha_gives_zero_ridge(self):
-        """Ridge is 0 when alpha=0."""
-        assert _Stub(_X3, alpha=0.0)._ridge() == 0.0
-
-    def test_nonzero_alpha(self):
-        """Ridge equals alpha * ||X||_F^2 / n."""
-        X = np.array([[1.0, 0.0], [0.0, 2.0], [0.0, 0.0]])  # noqa: N806
-        assert _Stub(X, alpha=0.4)._ridge() == pytest.approx(0.4 * 5 / 2)
-
-    def test_identity_matrix(self):
-        """For identity X, ridge equals alpha."""
-        assert _Stub(np.eye(5), alpha=0.3)._ridge() == pytest.approx(0.3)
 
 
 # ---------------------------------------------------------------------------
