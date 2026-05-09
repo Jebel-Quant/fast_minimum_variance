@@ -156,8 +156,10 @@ class _BaseProblem(ABC):
         """
         w = cp.Variable(self.n)
         if self.target is not None:
+            # target is the penalty matrix M; decompose as M = chol chol^T so ||chol^T w||^2 = w^T M w
+            chol = np.linalg.cholesky(self.target)
             objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w) / self.t + self.alpha * cp.sum_squares(
-                self.target @ w
+                chol.T @ w
             )
         else:
             objective = cp.sum_squares(self.X @ w) / self.t
