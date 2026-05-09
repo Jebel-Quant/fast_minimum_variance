@@ -63,6 +63,7 @@ class _Problem(_BaseProblem):
 
     def __post_init__(self):
         """Fill in default constraint matrices when not supplied."""
+        super().__post_init__()
         n = self.n
         if self.A is None:
             object.__setattr__(self, "A", np.ones((n, 1)))
