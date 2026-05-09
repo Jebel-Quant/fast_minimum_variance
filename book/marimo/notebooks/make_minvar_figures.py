@@ -26,7 +26,7 @@ with app.setup:
     import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
-    from _common import run_timed, set_notebook_plot_style
+    from _common import print_table, run_timed, set_notebook_plot_style
 
     from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
@@ -34,17 +34,6 @@ with app.setup:
 @app.cell
 def _():
     set_notebook_plot_style(mpl)
-
-    def print_table(label, results, ref_key="cvxpy"):
-        """Print a formatted benchmark table with speedup relative to ref_key."""
-        ref = results[ref_key]["time_s"]
-        print(f"\n{label}")
-        print(f"{'Method':<30} {'Time (s)':>10} {'Iters':>8} {'Speedup':>10}")
-        print("-" * 62)
-        print(results)
-        for key, v in results.items():
-            iters_str = str(v["iters"]) if v["iters"] is not None else "--"
-            print(f"{key:<30} {v['time_s']:>10.4f} {iters_str:>8} {ref / v['time_s']:>9.1f}x")
 
     # ── Table 2: S&P 500 ──────────────────────────────────────────────────────────
 
@@ -56,20 +45,10 @@ def _():
     df = pd.read_parquet(file)
     R_sp = df.to_numpy()
     T_sp, N_sp = R_sp.shape
-    # alpha_sp = N_sp / (N_sp + T_sp)
     alpha_sp = 0.5
-    # mean_eig = np.mean(np.linalg.eigvals(R_sp))
-    _Xt_X = np.matmul(R_sp.T, R_sp) / T_sp
-    mean_eig = np.mean(np.linalg.eigvals(_Xt_X))
-    print(f"Mean eigenvalue: {mean_eig:.4f}")
-
-    bar_lambda_sp = float(np.linalg.norm(R_sp, "fro") ** 2) / (N_sp * T_sp)
-    print((R_sp**2).mean())
-
-    target_sp = bar_lambda_sp * np.eye(N_sp)
+    target_sp = np.var(R_sp) * np.eye(N_sp)  # mean squared entry = bar_lambda
     print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}")
-    print(f"alpha = {N_sp}/{N_sp}+{T_sp} = {alpha_sp:.4f}")
-    print(f"bar_lambda = {bar_lambda_sp:.6f}")
+    print(f"alpha = {alpha_sp:.4f}")
 
     configs_sp_no_lw = [
         ("cvxpy", lambda: MinVarProblem(R_sp).solve_cvxpy()),
