@@ -135,10 +135,13 @@ class _Problem(_BaseProblem):
         b = np.concatenate([self.b, self.d[active]])
         m = A.shape[1]
 
-        ridge = self._ridge()
-        oma = 1.0 - self.alpha
+        # ridge = self._ridge()
+        # oma = 1.0 - self.alpha
         K = np.zeros((self.n + m, self.n + m))  # noqa: N806
-        K[: self.n, : self.n] = 2 * (oma * (self.X.T @ self.X) + ridge * np.eye(self.n))
+        if self.target is None:
+            K[: self.n, : self.n] = 2 * (self.X.T @ self.X) / self.t
+        else:
+            K[: self.n, : self.n] = 2 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
         K[: self.n, self.n :] = A
         K[self.n :, : self.n] = A.T
 
@@ -160,13 +163,16 @@ class _Problem(_BaseProblem):
         aa = np.hstack([self.A, self.C[:, active]])
         na, ma = self.n, aa.shape[1]
 
-        ridge = self._ridge()
-        oma = 1.0 - self.alpha
-
-        def _matvec(x, xx=self.X, a=aa, n_=na, m_=ma, oma_=oma, rid=ridge):
+        def _matvec(x, xx=self.X, a=aa, n_=na, m_=ma):
             """Apply the KKT saddle-point matrix to vector ``x``."""
             out = np.empty(n_ + m_)
-            out[:n_] = 2.0 * (oma_ * (xx.T @ (xx @ x[:n_])) + rid * x[:n_]) + a @ x[n_:]
+            if self.target is None:
+                out[:n_] = 2.0 * (xx.T @ (xx @ x[:n_])) / self.t + a @ x[n_:]
+            else:
+                out[:n_] = (
+                    2.0 * ((1.0 - self.alpha) * (xx.T @ (xx @ x[:n_])) / self.t + self.alpha * (self.target @ x[:n_]))
+                    + a @ x[n_:]
+                )
             out[n_:] = a.T @ x[:n_]
             return out
 
@@ -210,15 +216,19 @@ class _Problem(_BaseProblem):
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
         t = self.X.shape[0]
-        oma = 1.0 - self.alpha
-        gamma = self._ridge()
+        # oma = 1.0 - self.alpha
+        # gamma = self._ridge()
         m = float(np.linalg.norm(self.X, "fro")) * t
 
-        rows = [np.sqrt(oma) * self.X]
-        tgt = [np.zeros(t)]
-        if gamma > 0.0:
-            rows.append(np.sqrt(gamma) * np.eye(self.n))
-            tgt.append(np.zeros(self.n))
+        if self.target is not None:
+            rows = [np.sqrt((1 - self.alpha) / self.t) * self.X]
+            tgt = [np.zeros(t)]
+            if self.alpha > 0.0:
+                rows.append(np.sqrt(self.alpha) * self.target)
+                tgt.append(np.zeros(self.n))
+        else:
+            rows = [np.sqrt(1.0 / self.t) * self.X]
+            tgt = [np.zeros(t)]
         rows.append(m * self.A.T)
         tgt.append(m * self.b)
 

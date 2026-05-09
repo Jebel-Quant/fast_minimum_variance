@@ -167,13 +167,15 @@ class TestProblemKkt:
         np.testing.assert_allclose(rhs[:3], 0.5 * mu)
 
     def test_alpha_shifts_hessian(self):
-        """Alpha adds a ridge term to the Hessian block."""
+        """Alpha blends X'X/T toward the identity: H = 2*((1-a)*X'X/T + a*I)."""
         X2 = np.array([[1.0, 0.0], [0.0, 2.0], [0.0, 0.0]])  # noqa: N806
+        target = np.eye(2)
+        alpha = 0.5
         K_base, _ = Problem(X2)._kkt()  # noqa: N806
-        K_reg, _ = Problem(X2, alpha=0.5)._kkt()  # noqa: N806
-        ridge = 0.5 * np.einsum("ti,ti->", X2, X2) / X2.shape[1]
-        expected_diff = 2 * (0.5 * (X2.T @ X2) - X2.T @ X2) + 2 * ridge * np.eye(X2.shape[1])
-        diff = K_reg[:2, :2] - K_base[:2, :2]
+        K_reg, _ = Problem(X2, alpha=alpha, target=target)._kkt()  # noqa: N806
+        n, t = X2.shape[1], X2.shape[0]
+        expected_diff = 2 * alpha * (np.eye(n) - X2.T @ X2 / t)
+        diff = K_reg[:n, :n] - K_base[:n, :n]
         np.testing.assert_allclose(diff, expected_diff, atol=1e-12)
 
     def test_active_inequality_extends_system(self):
@@ -610,6 +612,14 @@ class TestSolveCg:
         w_cg, _ = problem_small.solve_cg()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
+    def test_with_explicit_target(self, X):  # noqa: N803
+        """CG with explicit target exercises the target-aware _kkt_operator branch."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w_cg, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_cg()
+        w_kkt, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_kkt()
+        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+
 
 # ---------------------------------------------------------------------------
 # TestSolveNnls
@@ -658,6 +668,14 @@ class TestSolveNnls:
         alpha = N / (N + T)
         w_nnls, _ = Problem(X, alpha=alpha).solve_nnls()
         w_kkt, _ = Problem(X, alpha=alpha).solve_kkt()
+        np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
+
+    def test_with_explicit_target(self, X):  # noqa: N803
+        """NNLS with explicit target exercises the target-aware augmentation branch."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w_nnls, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_nnls()
+        w_kkt, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_kkt()
         np.testing.assert_allclose(w_nnls, w_kkt, atol=1e-3)
 
 

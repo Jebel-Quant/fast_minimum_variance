@@ -80,3 +80,12 @@ class TestCgVsCvxpy:
         w_cg, _ = Problem(X).solve_cg()
         w_cvx, _ = Problem(X).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+
+    def test_with_explicit_target(self, X):  # noqa: N803
+        """CG with an explicit target matrix agrees with CVXPY (exercises target matvec branch)."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target = np.eye(N)
+        w_cg, _ = Problem(X, alpha=alpha, target=target).solve_cg()
+        w_cvx, _ = Problem(X, alpha=alpha, target=target).solve_cvxpy()
+        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)

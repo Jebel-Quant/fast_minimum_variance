@@ -8,6 +8,7 @@ from .problem import _Problem
 
 def Problem(  # noqa: N802
     X: np.ndarray,  # noqa: N803
+    target: np.ndarray | None = None,
     A: np.ndarray | None = None,  # noqa: N803
     b: np.ndarray | None = None,
     C: np.ndarray | None = None,  # noqa: N803
@@ -23,14 +24,17 @@ def Problem(  # noqa: N802
     any of ``A``, ``b``, ``C``, ``d`` are provided.
 
     Args:
-        X:     Returns matrix of shape ``(T, N)``.
-        A:     Equality constraint matrix ``(N, m)``: ``A^T w = b``.
-        b:     Equality RHS ``(m,)``.
-        C:     Inequality constraint matrix ``(N, p)``: ``C^T w <= d``.
-        d:     Inequality RHS ``(p,)``.
-        alpha: Ledoit-Wolf shrinkage intensity; ridge = ``alpha * ||X||_F^2 / N``.
-        rho:   Return tilt strength (Markowitz mean-variance).
-        mu:    Expected returns vector ``(N,)``; required when ``rho != 0``.
+        X:      Returns matrix of shape ``(T, N)``.
+        target: Optional ``(N, N)`` regularisation matrix; when supplied the
+                shrinkage term ``alpha * ||target @ w||^2`` is added to the
+                objective.  ``None`` disables shrinkage entirely.
+        A:      Equality constraint matrix ``(N, m)``: ``A^T w = b``.
+        b:      Equality RHS ``(m,)``.
+        C:      Inequality constraint matrix ``(N, p)``: ``C^T w <= d``.
+        d:      Inequality RHS ``(p,)``.
+        alpha:  Shrinkage intensity; only active when ``target`` is provided.
+        rho:    Return tilt strength (Markowitz mean-variance).
+        mu:     Expected returns vector ``(N,)``; required when ``rho != 0``.
 
     Returns:
         A solver instance with ``solve_kkt()``, ``solve_minres()``,
@@ -47,7 +51,7 @@ def Problem(  # noqa: N802
         True
     """
     if A is None and b is None and C is None and d is None:
-        return _MinVarProblem(X, alpha=alpha, rho=rho, mu=mu)
+        return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu)
 
     # number of assets
     n = X.shape[1]
@@ -57,7 +61,7 @@ def Problem(  # noqa: N802
     C = C if C is not None else -np.eye(n)  # noqa: N806
     d = d if d is not None else np.zeros(n)
 
-    return _Problem(X, A=A, b=b, C=C, d=d, alpha=alpha, rho=rho, mu=mu)
+    return _Problem(X, target=target, A=A, b=b, C=C, d=d, alpha=alpha, rho=rho, mu=mu)
 
 
 __all__ = ["Problem"]
