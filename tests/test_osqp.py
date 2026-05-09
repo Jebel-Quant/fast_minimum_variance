@@ -72,6 +72,15 @@ class TestMinVarSolveOsqp:
         w_kkt, _ = p.solve_kkt()
         np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
 
+    def test_with_explicit_target(self, X_small):  # noqa: N803
+        """Explicit target exercises the target-aware P-matrix branch in solve_osqp."""
+        T, N = X_small.shape  # noqa: N806
+        alpha = N / (N + T)
+        p = MinVarProblem(X_small, alpha=alpha, target=np.eye(N))
+        w_osqp, _ = p.solve_osqp()
+        w_kkt, _ = p.solve_kkt()
+        np.testing.assert_allclose(w_osqp, w_kkt, atol=1e-4)
+
     def test_return_tilt_branch(self, X_small):  # noqa: N803
         """Return-tilt (rho != 0) sets q = -rho*mu."""
         _T, N = X_small.shape  # noqa: N806
