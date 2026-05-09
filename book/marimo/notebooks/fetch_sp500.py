@@ -63,16 +63,22 @@ def _():
 
     print(f"After cleaning: {raw.shape[0]} days x {raw.shape[1]} assets")
 
-    # ── 4. Log returns ─────────────────────────────────────────────────────────────
+    # ── 4. Returns ────────────────────────────────────────────────────────────────
 
     log_returns = np.log(raw / raw.shift(1)).dropna()
+    pct_returns = raw.pct_change().dropna()
     print(f"Return matrix shape: {log_returns.shape}  (T={log_returns.shape[0]}, N={log_returns.shape[1]})")
 
     # ── 5. Save ───────────────────────────────────────────────────────────────────
-    file = Path(__file__).parent / "data" / "sp500_returns.parquet"
 
-    log_returns.to_parquet(file)
-    print("\nSaved data/sp500_returns.parquet")
+    out_dir = Path(__file__).parent / "data"
+
+    log_returns.to_parquet(out_dir / "sp500_log_returns.parquet")
+    print("\nSaved data/sp500_log_returns.parquet")
+
+    pct_returns.to_parquet(out_dir / "sp500_pct_returns.parquet")
+    print("Saved data/sp500_pct_returns.parquet")
+
     print(f"Date range: {log_returns.index[0].date()} → {log_returns.index[-1].date()}")
     print(f"Assets: {log_returns.shape[1]}")
     print(f"Trading days: {log_returns.shape[0]}")

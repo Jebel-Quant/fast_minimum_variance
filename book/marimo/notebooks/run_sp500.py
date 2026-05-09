@@ -32,7 +32,7 @@ with app.setup:
 @app.cell
 def _():
     # ── Load data ──────────────────────────────────────────────────────────────────
-    file = Path(__file__).parent / "data" / "sp500_returns.parquet"
+    file = Path(__file__).parent / "data" / "sp500_log_returns.parquet"
     df = pd.read_parquet(file)
     R = df.to_numpy()
     T, N = R.shape
@@ -41,7 +41,9 @@ def _():
 
     # ── Ledoit-Wolf parameters ─────────────────────────────────────────────────────
 
-    alpha_lw = N / (N + T)  # Ledoit-Wolf shrinkage intensity; ridge = alpha * ||R||_F^2/N
+    alpha_lw = N / (N + T)  # Ledoit-Wolf shrinkage intensity
+    bar_lambda = float(np.linalg.norm(R, "fro") ** 2) / (N * T)  #
+    target_lw = bar_lambda * np.eye(N)  # classical LW target: bar_lambda * I
 
     # ── Benchmark ──────────────────────────────────────────────────────────────────
 
@@ -65,11 +67,11 @@ def _():
     ]
 
     configs_lw = [
-        ("cvxpy", lambda: Problem(R, alpha=alpha_lw).solve_cvxpy()),
-        ("clarabel", lambda: MinVarProblem(R, alpha=alpha_lw).solve_clarabel()),
-        ("kkt", lambda: MinVarProblem(R, alpha=alpha_lw).solve_kkt()),
-        ("cg", lambda: MinVarProblem(R, alpha=alpha_lw).solve_cg()),
-        ("nnls", lambda: MinVarProblem(R, alpha=alpha_lw).solve_nnls()),
+        ("cvxpy", lambda: Problem(R, alpha=alpha_lw, target=target_lw).solve_cvxpy()),
+        ("clarabel", lambda: MinVarProblem(R, alpha=alpha_lw, target=target_lw).solve_clarabel()),
+        ("kkt", lambda: MinVarProblem(R, alpha=alpha_lw, target=target_lw).solve_kkt()),
+        ("cg", lambda: MinVarProblem(R, alpha=alpha_lw, target=target_lw).solve_cg()),
+        ("nnls", lambda: MinVarProblem(R, alpha=alpha_lw, target=target_lw).solve_nnls()),
     ]
 
     display = {
