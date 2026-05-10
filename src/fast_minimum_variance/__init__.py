@@ -57,7 +57,7 @@ def Problem(  # noqa: N802
     n = X.shape[1]
 
     A = A if A is not None else np.ones((n, 0))  # noqa: N806
-    b = b if b is not None else np.ones(1)
+    b = b if b is not None else (np.ones(A.shape[1]) if A.shape[1] else np.zeros(0))
     C = C if C is not None else -np.eye(n)  # noqa: N806
     d = d if d is not None else np.zeros(n)
 

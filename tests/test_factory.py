@@ -87,6 +87,29 @@ class TestParameterForwarding:
 
 
 # ---------------------------------------------------------------------------
+# Regression: inequality-only Clarabel setup (Boyd experiment style)
+# ---------------------------------------------------------------------------
+
+
+class TestInequalityOnlyClarabel:
+    """Inequality-only problems use an empty equality block consistently."""
+
+    def test_boyd_experiment_orthogonal_factors(self):
+        """For orthonormal X, Clarabel solves min x^T(X^T X)x with x >= 0 at x = 0."""
+        rng = np.random.default_rng(0)
+        x_mat, _ = np.linalg.qr(rng.standard_normal((5000, 50)))
+        gram = x_mat.T @ x_mat
+
+        p = Problem(x_mat, C=-np.eye(50), d=np.zeros(50))
+        np.testing.assert_array_equal(p.b, np.zeros(0))
+
+        x, _ = p.solve_clarabel(project=False)
+        assert x.shape == (50,)
+        assert np.all(x >= -1e-8)
+        assert x @ gram @ x <= 1e-4
+
+
+# ---------------------------------------------------------------------------
 # Public API surface
 # ---------------------------------------------------------------------------
 
