@@ -87,6 +87,24 @@ class TestMinVarSolveClarabel:
         assert w.shape == (mvp.n,)
         assert iters >= 1
 
+    def test_boyd_experiment_orthogonal_factors(self):
+        """Orthogonal-factor MinVarProblem matches the simplex-constrained optimum."""
+        rng = np.random.default_rng(0)
+        x_mat, _ = np.linalg.qr(rng.standard_normal((5000, 50)))
+        gram = x_mat.T @ x_mat
+        np.testing.assert_allclose(gram, np.eye(50), atol=1e-10)
+
+        p = MinVarProblem(x_mat)
+        w, iters = p.solve_clarabel(project=False)
+
+        expected = np.full(50, 1.0 / 50.0)
+        assert w.shape == (50,)
+        assert iters >= 1
+        assert np.all(w >= -1e-8)
+        assert w.sum() == pytest.approx(1.0, abs=1e-6)
+        np.testing.assert_allclose(w, expected, atol=1e-5)
+        assert w @ gram @ w == pytest.approx(1.0 / 50.0, abs=1e-5)
+
 
 # ---------------------------------------------------------------------------
 # Problem

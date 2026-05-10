@@ -7,9 +7,6 @@ from fast_minimum_variance import Problem
 from fast_minimum_variance.minvar_problem import _MinVarProblem
 from fast_minimum_variance.problem import _Problem
 
-NONNEGATIVITY_TOLERANCE = 1e-8
-BOYD_OBJECTIVE_TOLERANCE = 1e-4
-
 
 @pytest.fixture(scope="module")
 def X():  # noqa: N802
@@ -87,33 +84,6 @@ class TestParameterForwarding:
         np.testing.assert_array_equal(p.b, np.ones(1))
         np.testing.assert_array_equal(p.C, -np.eye(5))
         np.testing.assert_array_equal(p.d, np.zeros(5))
-
-
-# ---------------------------------------------------------------------------
-# Regression: inequality-only Clarabel setup (Boyd experiment style)
-# ---------------------------------------------------------------------------
-
-
-class TestInequalityOnlyClarabel:
-    """Inequality-only problems use an empty equality block consistently."""
-
-    def test_boyd_experiment_orthogonal_factors(self):
-        """For orthonormal X, Clarabel solves min_x x^T (X^T X) x subject to x >= 0."""
-        rng = np.random.default_rng(0)
-        x_mat, r_mat = np.linalg.qr(rng.standard_normal((5000, 50)))
-        assert r_mat.shape == (50, 50)
-        gram = x_mat.T @ x_mat
-        np.testing.assert_allclose(gram, np.eye(50), atol=1e-10)
-
-        p = Problem(x_mat, C=-np.eye(50), d=np.zeros(50))
-        assert p.A.shape == (50, 0)
-        np.testing.assert_array_equal(p.b, np.zeros(0))
-
-        x, iters = p.solve_clarabel(project=False)
-        assert x.shape == (50,)
-        assert iters >= 1
-        assert np.all(x >= -NONNEGATIVITY_TOLERANCE)
-        assert x @ gram @ x <= BOYD_OBJECTIVE_TOLERANCE
 
 
 # ---------------------------------------------------------------------------
