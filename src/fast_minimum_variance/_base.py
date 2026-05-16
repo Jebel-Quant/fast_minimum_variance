@@ -86,6 +86,11 @@ class _BaseProblem(ABC):
         raise NotImplementedError  # pragma: no cover
 
     @abstractmethod
+    def _precon_cg_step(self, active):
+        """Solve one inner CG step; return ``(w, iters)``."""
+        raise NotImplementedError  # pragma: no cover
+
+    @abstractmethod
     def _nnls_solve(self):  # pragma: no cover
         """Solve via NNLS directly (no outer loop); return ``(w, 1)``."""
         raise NotImplementedError
@@ -198,6 +203,32 @@ class _BaseProblem(ABC):
             True
         """
         w, iters = self._constraint_active_set(self._cg_step)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, iters
+
+    def solve_precon_cg(self, *, project: bool = True):
+        """Solve via matrix-free conjugate gradients.
+
+        Args:
+            project: Clip weights to ``[0, ∞)`` and renormalize to sum to 1
+                     after solving.  Set to ``False`` for custom constraints.
+
+        Returns:
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total CG
+            iteration count across all outer active-set steps.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_precon_cg()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        w, iters = self._constraint_active_set(self._precon_cg_step)
         if project:
             w = self._clip_and_renormalize(w)
         return w, iters

@@ -16,7 +16,7 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.5"
 app = marimo.App()
 
 with app.setup:
@@ -186,6 +186,16 @@ def _():
     fig2.savefig(folder / "minvar_loglog.pdf", bbox_inches="tight")
     fig2.savefig(folder / "minvar_loglog.png", bbox_inches="tight", dpi=150)
     print("Saved graphs/minvar_loglog.pdf and graphs/minvar_loglog.png")
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 

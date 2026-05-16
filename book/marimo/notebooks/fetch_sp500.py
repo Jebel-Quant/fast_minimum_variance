@@ -15,7 +15,7 @@
 
 import marimo
 
-__generated_with = "0.23.3"
+__generated_with = "0.23.5"
 app = marimo.App()
 
 with app.setup:
@@ -77,6 +77,7 @@ def _():
     print(f"Date range: {pct_returns.index[0].date()} → {pct_returns.index[-1].date()}")
     print(f"Assets: {pct_returns.shape[1]}")
     print(f"Trading days: {pct_returns.shape[0]}")
+    return
 
 
 if __name__ == "__main__":

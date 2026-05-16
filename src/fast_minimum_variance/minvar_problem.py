@@ -185,6 +185,7 @@ class _MinVarProblem(_BaseProblem):
 
         if self.rho == 0.0 or self.mu is None:
             v, _ = cg(op, np.ones(n_a), callback=_count)
+            print("Iterations per step CG without preconditioning", iters)
             return v / v.sum(), iters[0]
 
         iters2 = [0]
@@ -210,6 +211,98 @@ class _MinVarProblem(_BaseProblem):
         b_vec = np.concatenate([[1.0], np.zeros(n)])
         cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
         return a_mat, b_vec, cones
+
+    def _precon_cg_step(self, active, k=50):
+        """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
+
+        Builds a ``LinearOperator`` for ``v -> (1-alpha)*X_a'*(X_a*v) + alpha*target_sub*v``
+        and runs conjugate gradients with an embedded rank-k deterministic SMW preconditioner.
+        """
+        import numpy as np
+        from scipy.sparse.linalg import LinearOperator, cg
+
+        x_a = self.X[:, active]
+        n_a = int(active.sum())
+        target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
+
+        # --- 1. Define Matrix-Free Forward System ---
+        def matvec(v):
+            """Apply Sigma_LW matrix-free: v -> (1-alpha)/T * X_a'*(X_a*v) + alpha*target_a*v."""
+            if target_sub is None:
+                return (x_a.T @ (x_a @ v)) / self.t
+            return (1.0 - self.alpha) * (x_a.T @ (x_a @ v)) / self.t + self.alpha * (target_sub @ v)
+
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
+
+        # --- 2. Construct SMW Preconditioner exploiting Rank-k SVD Orthogonality ---
+        if target_sub is None:
+            # Fallback for unregularized system to prevent singularity
+            alpha_scalar = 1e-6
+            c_scalar = 1.0 / self.t
+        else:
+            c_scalar = (1.0 - self.alpha) / self.t
+            # Extract scalar shrinkage parameter from target_sub
+            if isinstance(target_sub, np.ndarray) and target_sub.ndim == 2:
+                alpha_scalar = self.alpha * target_sub[0, 0]
+            else:
+                alpha_scalar = self.alpha * float(target_sub)
+
+        # Compute exact economy SVD
+        _u, s, vt = np.linalg.svd(x_a, full_matrices=False)
+
+        # Truncate to your desired rank-k subspace
+        # (Safeguard in case k is larger than the actual dimensions of x_a)
+        rank_k = min(k, len(s))
+        s_k = s[:rank_k]
+        vt_k = vt[:rank_k, :]  # Shape: (rank_k, n_a)
+
+        # Due to Vt_k @ Vt_k.T = I, the Woodbury inner matrix simplifies to a diagonal.
+        # Avoid division-by-zero for tiny singular values by clipping at 1e-12
+        s_sq = np.maximum(s_k, 1e-12) ** 2
+        diag_inner_inv = 1.0 / ((1.0 / c_scalar) * (1.0 / s_sq) + (1.0 / alpha_scalar))
+
+        def precond_matvec(v):
+            """Applies the O(k) diagonal Woodbury inverse solver using rank-k SVD factors."""
+            # 1. Base inverse: (1 / alpha) * v
+            inv_b_v = v / alpha_scalar
+
+            # 2. Project onto rank-k orthogonal subspace: V_k @ v
+            low_dim_v = vt_k @ inv_b_v
+
+            # 3. O(k) Element-wise diagonal scaling
+            scaled_low_dim = diag_inner_inv * low_dim_v
+
+            # 4. Project back out: V_k.T @ scaled_low_dim
+            correction = (vt_k.T @ scaled_low_dim) / alpha_scalar
+
+            return inv_b_v - correction
+
+        m_op = LinearOperator((n_a, n_a), matvec=precond_matvec, dtype=np.float64)
+
+        # --- 3. Execute Preconditioned CG Solves ---
+        iters = [0]
+
+        def _count(_):
+            iters[0] += 1
+
+        if self.rho == 0.0 or self.mu is None:
+            v, _ = cg(op, np.ones(n_a), M=m_op, callback=_count)
+            print(f"Iterations per step CG with Rank-{rank_k} SMW:", iters)
+            return v / v.sum(), iters[0]
+
+        iters2 = [0]
+
+        def _count2(_):
+            iters2[0] += 1
+
+        v1, _ = cg(op, np.ones(n_a), M=m_op, callback=_count)
+        v2, _ = cg(op, self.mu[active], M=m_op, callback=_count2)
+
+        print(f"Iterations per step CG (Solve 1 & 2) with Rank-{rank_k} SMW:", iters, iters2)
+
+        half_rho = 0.5 * self.rho
+        half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
+        return half_lambda * v1 + half_rho * v2, iters[0] + iters2[0]
 
     def _osqp_constraints(self):
         """Return budget-equality and long-only inequality constraints for OSQP."""
