@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import clarabel
 import numpy as np
+from cvx.linalg import cholesky
 from scipy.optimize import nnls
 from scipy.sparse import csc_matrix, eye, vstack
 from scipy.sparse.linalg import LinearOperator, cg
@@ -237,7 +238,7 @@ class _MinVarProblem(_BaseProblem):
         if self.target is not None:
             # target is the penalty matrix M; Cholesky gives chol s.t. chol @ chol.T = M,
             # so sqrt(alpha)*chol.T rows enforce alpha * w^T M w in the LS objective.
-            chol = np.linalg.cholesky(self.target)
+            chol = cholesky(self.target)
             rows = [np.sqrt((1 - self.alpha) / self.t) * self.X]
             tgt = [np.zeros(t)]
             if self.alpha > 0.0:
