@@ -7,6 +7,7 @@ import clarabel
 import cvxpy as cp
 import numpy as np
 import osqp
+from cvx.linalg import cholesky
 from scipy.sparse import csc_matrix, triu
 
 
@@ -157,7 +158,7 @@ class _BaseProblem(ABC):
         w = cp.Variable(self.n)
         if self.target is not None:
             # target is the penalty matrix M; decompose as M = chol chol^T so ||chol^T w||^2 = w^T M w
-            chol = np.linalg.cholesky(self.target)
+            chol = cholesky(self.target)
             objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w) / self.t + self.alpha * cp.sum_squares(
                 chol.T @ w
             )
