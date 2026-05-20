@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import clarabel
 import numpy as np
+from cvx.linalg import cholesky
 from scipy.optimize import nnls
 from scipy.sparse import csc_matrix, vstack
 from scipy.sparse.linalg import LinearOperator, minres
@@ -221,7 +222,7 @@ class _Problem(_BaseProblem):
         m = float(np.linalg.norm(self.X, "fro")) * t
 
         if self.target is not None:
-            chol = np.linalg.cholesky(self.target)
+            chol = cholesky(self.target)
             rows = [np.sqrt((1 - self.alpha) / self.t) * self.X]
             tgt = [np.zeros(t)]
             if self.alpha > 0.0:
