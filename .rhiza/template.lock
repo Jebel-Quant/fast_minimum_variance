@@ -8,7 +8,6 @@ templates:
 - github
 - legal
 - marimo
-- tests
 files:
 - .bandit
 - .editorconfig
@@ -92,5 +91,7 @@ files:
 - docs/mkdocs-base.yml
 - pytest.ini
 - ruff.toml
-synced_at: '2026-05-22T08:37:25Z'
+profiles:
+- github-project
+synced_at: '2026-05-24T08:10:57Z'
 strategy: merge
