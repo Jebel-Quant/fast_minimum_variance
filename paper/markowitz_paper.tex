@@ -1,0 +1,901 @@
+\documentclass{siam/siamart}
+
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{algpseudocode}
+
+\newsiamremark{remark}{Remark}
+\crefname{remark}{Remark}{Remarks}
+% Fix siamart.cls's refstepcounter override: it strips \@currentcounter,
+% which TeX Live 2026's kernel and cleveref's First Aid patch both require.
+\makeatletter
+\def\cref@old@refstepcounter#1{%
+  \stepcounter{#1}%
+  \edef\reserved@a{#1}%
+  \ifx\reserved@a\ltx@star@counter\else
+    \let\@currentcounter\reserved@a
+  \fi
+  \protected@edef\@currentlabel{%
+    \csname p@#1\expandafter\endcsname\csname the#1\endcsname}%
+}%
+\makeatother
+
+% \lstdefinestyle{python}{
+%   language=Python,
+%   basicstyle=\ttfamily\small,
+%   keywordstyle=\color{blue!70!black}\bfseries,
+%   commentstyle=\color{gray},
+%   stringstyle=\color{orange!80!black},
+%   showstringspaces=false,
+%   frame=single,
+%   framesep=4pt,
+%   xleftmargin=8pt,
+%   xrightmargin=8pt,
+%   belowskip=6pt,
+%   aboveskip=6pt,
+% }
+
+\title{Krylov Methods for the Markowitz Portfolio}
+
+\author{Thomas Schmelzer%
+  \thanks{Jebel Quant Research (\email{thomas@jqr.ae}).}
+  \and
+  Raphael Hauser%
+  \thanks{Mathematical Institute, University of Oxford.}
+  \and
+  Stephen Boyd%
+  \thanks{Department of Electrical Engineering, Stanford University.}
+}
+
+\headers{Krylov Methods for the Markowitz Portfolio}{T.~Schmelzer, R.~Hauser, and S.~Boyd}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+The Markowitz mean-variance portfolio problem, subject to general linear equality and
+inequality constraints, admits a symmetric indefinite KKT saddle-point formulation that
+MINRES \cite{paige1975} and a constraint-eliminated variant of CG \cite{hestenes1952}
+approximate efficiently---without ever forming the sample covariance matrix.
+Extending the minimum-variance Krylov framework of \cite{minvar_paper}, the
+present paper identifies four generalisations required for the full Markowitz setting:
+general linear equality constraints encoded in a matrix $A$ (factor-exposure targets,
+sector-weight targets); general linear inequality constraints $C^\top w \leq d$ (e.g.\ sector caps)
+handled by an active-set loop; a return tilt $\rho\,\mu^\top w$; and a Ledoit-Wolf
+ridge $\alpha(\|X\|_F^2/n)\|w\|^2$.  In each case the KKT saddle-point structure is preserved and
+both solvers apply without modification.  The saddle-point operator is implemented
+matrix-free as a \texttt{LinearOperator}, avoiding the $O(Tn^2)$ formation cost and
+$O(n^2)$ storage of $X^\top X$; the active-set loop is decoupled from the inner solver
+via a function-pointer interface, so the same loop drives the direct KKT, MINRES, and
+conjugate gradient \cite{hestenes1952} solvers uniformly.
+
+Numerical experiments on synthetic data and on a real S\&P~500 universe demonstrate
+order-of-magnitude speedups over open-source interior-point solvers for single-point
+and efficient-frontier solves, with and without Ledoit-Wolf shrinkage.
+\end{abstract}
+
+\section{Introduction}
+
+Mean-variance portfolio optimisation, introduced by Markowitz \cite{markowitz1952}, remains the
+dominant framework for quantitative asset allocation.  In practice, portfolios are subject to a
+range of linear constraints beyond the basic budget requirement: sector caps, factor-exposure
+limits, individual position bounds, and long-only restrictions are routinely imposed.  Solving the resulting
+constrained quadratic programme efficiently is therefore of direct practical importance, especially
+as the number of assets $n$ and the frequency of re-optimisation grow.
+
+The companion paper \cite{minvar_paper} showed that the long-only \emph{minimum variance}
+portfolio reduces to a symmetric indefinite KKT saddle-point system, and that MINRES
+\cite{paige1975} and a constraint-eliminated variant of CG \cite{hestenes1952} approximate
+its solution efficiently, yielding large speedups over CVXPY \cite{diamond2016}
+on standard benchmarks.
+The present paper extends this framework to the full \emph{Markowitz mean-variance} problem.
+Four generalisations are required: (i) the single budget constraint is replaced by a general
+equality constraint matrix $A$; (ii) general linear inequalities $C^\top w \leq d$ are
+handled by an active-set loop that promotes binding constraints to equalities; (iii) a linear
+return tilt $\rho\,\mu^\top w$ is added to the objective; and (iv) a Ledoit-Wolf \cite{ledoit2004} ridge
+$\alpha(\|X\|_F^2/n)\|w\|^2$, with $\alpha\in[0,1]$.  In each case the KKT
+saddle-point structure is preserved and MINRES applies without modification.
+
+Krylov subspace methods for portfolio optimisation have previously been proposed by
+\cite{bajeux2012}, who project the sample covariance matrix onto a Krylov subspace and
+solve the resulting low-dimensional problem, requiring $X^\top X$ to be formed explicitly;
+the present approach instead exploits the KKT saddle-point structure of the first-order
+optimality conditions, applying MINRES to the indefinite system without ever forming
+$X^\top X$.
+
+A central contribution of the paper is a modular software architecture that separates concerns
+cleanly.  The full problem specification---returns matrix, constraints, shrinkage parameters, and
+return-tilt weight---is encapsulated in a single frozen \texttt{Problem} dataclass (\S\ref{sec:problem}).
+The saddle-point operator is implemented matrix-free as a
+\texttt{scipy.sparse.linalg.LinearOperator} (\S\ref{sec:solvers}), avoiding the $O(Tn^2)$
+formation cost and $O(n^2)$ storage of $X^\top X$.  The active-set loop is decoupled from the
+inner linear solver via a function-pointer interface (\S\ref{sec:activeset}), so the same loop
+drives the direct KKT solve, MINRES, and conjugate gradient \cite{hestenes1952} solvers
+without code duplication.
+
+The remainder of the paper is organised as follows.  Section~\ref{sec:problem} states the
+problem and introduces the \texttt{Problem} dataclass.  Section~\ref{sec:kkt} derives the KKT
+saddle-point system, establishes nonsingularity and optimality, and analyses MINRES convergence
+via the spectral structure of the saddle-point matrix.  Section~\ref{sec:activeset} describes
+the active-set method.  Section~\ref{sec:solvers} presents the four solvers and their
+implementation, including a discussion of the fundamental differences from CVXPY and clarabel.
+Section~\ref{sec:results} reports numerical experiments.
+
+\section{Problem Formulation}\label{sec:problem}
+
+Let $X \in \mathbb{R}^{T \times n}$ be the demeaned (column-wise) daily return matrix for
+$n$ assets over $T$ trading days, $\mu \in \mathbb{R}^n$ a vector of expected returns,
+$\rho \geq 0$ a return-tilt weight, and $\alpha \in [0,1]$ a Ledoit-Wolf shrinkage intensity.  The general mean-variance
+problem is
+\begin{equation}\label{eq:primal}
+\min_{w} \; (1-\alpha)\|Xw\|^2 + \frac{\alpha\|X\|_F^2}{n}\|w\|^2 - \rho\,\mu^\top w
+\quad \text{subject to} \quad
+A^\top w = b, \quad C^\top w \leq d
+\end{equation}
+where $A \in \mathbb{R}^{n \times m}$, $b \in \mathbb{R}^m$ encode $m$ linear equality constraints
+(at minimum the budget constraint, and optionally factor-exposure targets, sector-weight mandates, etc.),
+and $C \in \mathbb{R}^{n \times p}$, $d \in \mathbb{R}^p$ encode $p$ linear inequality constraints
+(sector caps and long-only being the typical cases; the long-only requirement $w \geq 0$ is the special case $C = -I$, $d = \mathbf{0}$).
+The parameter $\alpha \in [0,1]$ in~\eqref{eq:primal} is user-supplied: $\alpha=0$
+recovers the unregularised sample covariance while $\alpha=1$ replaces it with an
+isotropic target.  Following Ledoit and Wolf~\cite{ledoit2004}, a natural estimator
+shrinks the sample covariance $X^\top X / T$ toward a scaled identity,
+\[
+  (1-\alpha)\,\frac{X^\top X}{T} + \alpha\,\frac{\|X\|_F^2}{Tn}\,I.
+\]
+The Ledoit-Wolf (2004) oracle minimises the expected Frobenius-norm loss to the
+true covariance and gives a data-adaptive $\alpha$~\cite{ledoit2004}; it does
+\emph{not} in general equal a fixed ratio.  However, for the specific case where
+the true covariance is proportional to the identity (i.i.d.\ Gaussian data, as in
+the Marchenko--Pastur benchmark of \S\ref{sec:results}), the oracle shrinkage
+intensity converges to $\alpha^* = n/(n+T)$ as $n, T \to \infty$ at fixed ratio
+$n/T$.  We therefore adopt $\alpha = n/(n+T)$ as a recommended default that is
+exact for the synthetic benchmark and serves as a computationally simple
+approximation for general data; other choices are valid and the data-adaptive
+formula of~\cite{ledoit2004} should be used when the covariance structure is
+unknown.  Multiplying by $T$, the portfolio variance term becomes
+$(1-\alpha)\|Xw\|^2 + (\alpha\|X\|_F^2/n)\|w\|^2$ as in~\eqref{eq:primal}; the
+solver computes the ridge coefficient $\alpha\|X\|_F^2/n$ from $X$ and $\alpha$
+internally, at $O(Tn)$ cost via $\|X\|_F^2 = \sum_{t,i}X_{ti}^2$.
+Setting $\rho = 0$, $\alpha = 0$, $A = \mathbf{1}$, $b = 1$, $C = -I$, $d = \mathbf{0}$
+recovers the minimum variance problem of \cite{minvar_paper}.
+
+\begin{remark}
+The parameter $\rho$ is the risk-aversion coefficient: larger $\rho$ tilts
+the portfolio toward higher expected return at the cost of higher variance.  In
+practice $\rho$ is either set by the investor's risk preference or swept over a range
+$[0, \rho_{\max}]$ to trace the efficient frontier, as in \S\ref{sec:results}.
+\end{remark}
+
+\begin{remark}
+When $T < n$ and $\alpha = 0$ the matrix $X^\top X$ is rank-deficient, the objective
+is not strictly convex, and the KKT system is singular; all solvers fail.  Setting
+$\alpha > 0$ via Ledoit-Wolf shrinkage is therefore essential in the undersampled
+regime $T < n$, and recommended in general.
+\end{remark}
+
+The companion package \cite{fast_minimum_variance} encapsulates the full
+problem specification in a single immutable object; Table~\ref{tab:params}
+lists its parameters.  Omitting a constraint matrix activates the long-only
+minimum-variance defaults.  Each solver returns $(w, k)$ where $k$ is the
+cumulative inner iteration count.  The Lagrange multipliers $\lambda$ (dual
+variables, encoding the shadow price of each equality constraint) are available
+from the KKT solution vector but are not surfaced in the current API; they
+carry direct economic meaning as the marginal cost of tightening a constraint.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & Type & Description \\
+\midrule
+$X$       & $\mathbb{R}^{T \times n}$ & Demeaned return matrix \\
+$\rho$    & $\mathbb{R}_{\geq 0}$     & Return-tilt weight (default $0$) \\
+$\alpha$  & $[0,1]$                   & Ledoit-Wolf shrinkage intensity (default $0$) \\
+$\mu$     & $\mathbb{R}^n$            & Expected returns (default $\mathbf{0}$) \\
+$A$       & $\mathbb{R}^{n \times m}$ & Equality LHS (default $\mathbf{1}$) \\
+$b$       & $\mathbb{R}^m$            & Equality RHS (default $1$) \\
+$C$       & $\mathbb{R}^{n \times p}$ & Inequality LHS (default $-I$) \\
+$d$       & $\mathbb{R}^p$            & Inequality RHS (default $\mathbf{0}$) \\
+\bottomrule
+\end{tabular}
+\caption{Parameters of the \texttt{Problem} specification.  Defaults reproduce
+the long-only minimum-variance problem of \cite{minvar_paper}.}
+\label{tab:params}
+\end{table}
+
+\section{The KKT System}\label{sec:kkt}
+
+\subsection{Equality-constrained subproblem}
+
+
+Ignoring the inequality constraints, the Lagrangian is
+\[
+\mathcal{L}(w, \lambda) = (1-\alpha)\|Xw\|^2 + \tfrac{\alpha\|X\|_F^2}{n}\|w\|^2 - \rho\,\mu^\top w - \lambda^\top(A^\top w - b).
+\]
+The stationarity condition $\nabla_w \mathcal{L} = 0$ gives
+$2\bigl((1-\alpha)X^\top X + \tfrac{\alpha\|X\|_F^2}{n}I\bigr)w - A\lambda = \rho\mu$.
+Combined with $A^\top w = b$, this yields the $(n+m)\times(n+m)$ saddle-point system
+\begin{equation}\label{eq:kkt}
+\begin{pmatrix} 2\bigl((1-\alpha)X^\top X + \tfrac{\alpha\|X\|_F^2}{n}I\bigr) & A \\ A^\top & 0 \end{pmatrix}
+\begin{pmatrix} w \\ \lambda \end{pmatrix}
+=
+\begin{pmatrix} \rho\mu \\ b \end{pmatrix}.
+\end{equation}
+The matrix is \textbf{symmetric but indefinite}; MINRES \cite{paige1975} handles this directly.
+Setting $\rho = 0$, $\alpha = 0$ recovers the minimum variance KKT system of \cite{minvar_paper} with the
+right-hand side $(\mathbf{0},\, b)$. The constraint-eliminated CG formulation generalises analogously.
+
+\subsection{Nonsingularity and optimality}
+
+\begin{proposition}\label{prop:nonsingular}
+Suppose $A$ has full column rank and $(1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I \succ 0$.  Then the
+saddle-point matrix in~\eqref{eq:kkt} is nonsingular, and any solution
+$(w^*, \lambda^*)$ of system~\eqref{eq:kkt} satisfies the first-order KKT
+optimality conditions for problem~\eqref{eq:primal}; these conditions are
+sufficient for global optimality.  The same holds for each active-set
+subproblem with $A$ replaced by $A_{\mathcal{A}}$ and $b$ by $b_{\mathcal{A}}$,
+provided $A_{\mathcal{A}}$ has full column rank.
+\end{proposition}
+
+\begin{proof}
+The objective $(1-\alpha)\|Xw\|^2 + (\alpha\|X\|_F^2/n)\|w\|^2 - \rho\,\mu^\top w$ is strictly
+convex whenever $(1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I \succ 0$, which holds for all $\alpha > 0$
+and, when $\alpha = 0$, whenever $X$ has full column rank.  The equality constraints
+are affine and $A$ has full column rank by assumption; since the gradients of the
+active equality constraints are precisely the columns of $A$, full column rank of $A$
+is equivalent to LICQ.  Combined with strict convexity, the KKT conditions are both
+necessary and sufficient for global optimality \cite[Ch.~5]{boyd2004}.  The same
+argument applies to each active-set subproblem: full column rank of $A_{\mathcal{A}}$
+is equivalent to LICQ for the augmented equality-constrained subproblem, ensuring
+necessity and sufficiency of the KKT conditions there as well.
+
+Nonsingularity of the saddle-point matrix follows from the standard theory of
+symmetric saddle-point systems \cite{benzi2005}: the $(1,1)$ block
+$Q = 2((1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I)$ is positive definite and $A$ has full column rank, so
+the matrix is nonsingular with $n$ positive and $m$ negative eigenvalues.
+\end{proof}
+
+\begin{remark}
+In practice $\alpha > 0$ is always recommended: Ledoit-Wolf shrinkage
+simultaneously ensures $(1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I \succ 0$
+and compresses the spectrum, reducing the MINRES iteration count substantially.
+\end{remark}
+
+\subsection{Spectral analysis and MINRES convergence}\label{sec:spectrum}
+
+The convergence of MINRES on system~\eqref{eq:kkt} is governed by the eigenvalue
+distribution of $K$.  Since $Q = 2((1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I) \succ 0$ and $A$ has full column
+rank $m$, the matrix $K$ has exactly $n$ positive and $m$ negative eigenvalues
+\cite{benzi2005}.  Specifically, the positive eigenvalues lie in
+\[
+  \bigl[\,\lambda_{\min}(Q),\;\;
+         \lambda_{\max}(Q) + \sigma_{\max}^2(A)\,/\,\lambda_{\min}(Q)\,\bigr]
+\]
+and the negative eigenvalues in $[-\sigma_{\max}^2(A)/\lambda_{\min}(Q),\;
+-\sigma_{\min}^2(A)/\lambda_{\max}(Q)]$ \cite{benzi2005}.  When
+$\sigma_{\max}^2(A) \ll \lambda_{\min}(Q)\,\lambda_{\max}(Q)$---satisfied for the
+budget constraint $A = \mathbf{1}$ whenever $\alpha > 0$---the effective spectral
+condition number is
+\begin{equation}\label{eq:kappa}
+  \kappa_{\mathrm{eff}} \;\approx\;
+  \frac{(1-\alpha)\sigma_1^2(X) + \alpha\|X\|_F^2/n}{(1-\alpha)\sigma_n^2(X) + \alpha\|X\|_F^2/n}
+  \;=\; \frac{\lambda_{\max}(Q)}{\lambda_{\min}(Q)},
+\end{equation}
+where $\sigma_1(X) \geq \cdots \geq \sigma_n(X)$ are the singular values of $X$.
+Note that $\kappa_{\mathrm{eff}}$ is the condition number of the positive-definite
+$(1,1)$ block $Q = 2((1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I)$, not of the full indefinite matrix $K$.
+From the polynomial perspective of \cite{fischer1996}, Krylov methods approximate
+the action of a matrix inverse by a low-degree polynomial evaluated at the matrix;
+for an SPD system convergence is governed by how well $1/x$ can be approximated on
+the spectrum, and the Chebyshev bound \cite{golub2013,fischer1996}
+\begin{equation}\label{eq:minres_conv}
+\frac{\|r_k\|}{\|r_0\|} \;\lesssim\; 2\!\left(\frac{\sqrt{\kappa}-1}{\sqrt{\kappa}+1}\right)^{k}
+\end{equation}
+quantifies this in terms of the condition number $\kappa$.  Small eigenvalues make
+$1/x$ hard to approximate and slow convergence; the identity term $(\alpha\|X\|_F^2/n)I$
+lifts the spectrum away from zero, reduces $\kappa$, and thereby improves polynomial
+approximability.  In this sense Ledoit-Wolf shrinkage acts as a spectral
+preconditioner that directly accelerates CG and, by extension, MINRES.
+Applying this to the SPD $(1,1)$ block $Q$ with $\kappa = \kappa_{\mathrm{eff}}$
+from~\eqref{eq:kappa}, and noting that under the stated condition
+$\sigma_{\max}^2(A) \ll \lambda_{\min}(Q)\lambda_{\max}(Q)$ the indefinite $K$ is
+spectrally dominated by $Q$, gives the practical proxy
+\begin{equation}\label{eq:minres_conv_proxy}
+\frac{\|r_k\|}{\|r_0\|} \;\lesssim\; 2\!\left(\frac{\sqrt{\kappa_{\mathrm{eff}}}-1}{\sqrt{\kappa_{\mathrm{eff}}}+1}\right)^{\!\lfloor k/2\rfloor},
+\end{equation}
+where the factor $\lfloor k/2 \rfloor$ (versus $k$ for CG on an SPD system) reflects
+the two-sided spectrum of $K$; see \cite{greenbaum1997,choi2006} for convergence
+analysis of MINRES on symmetric indefinite systems.
+As active sector-cap columns enter $A_{\mathcal{A}}$ during the active-set loop,
+$\sigma_{\max}(A_{\mathcal{A}})$ grows and this condition may weaken, making
+$\kappa_{\mathrm{eff}}$ a less accurate proxy for later active-set steps.
+
+\begin{remark}\label{rem:marchenko}
+Ledoit-Wolf shrinkage reduces $\kappa_{\mathrm{eff}}$ directly.  For $T = 2n$
+i.i.d.\ Gaussian data the Marchenko--Pastur spectral edges are
+$\lambda_\pm = T(1 \pm 1/\sqrt{2})^2$ (eigenvalues of $X^\top X$; the corresponding
+edges of $X^\top X/T$ are $(1 \pm 1/\sqrt{2})^2$), giving
+$\sigma_1^2(X) \approx 5.83n$, $\sigma_n^2(X) \approx 0.17n$, and
+$\mathbb{E}\|X\|_F^2/n = T = 2n$.
+With $\alpha = n/(n+T) = 1/3$ (and hence $1-\alpha = 2/3$),
+equation~\eqref{eq:kappa} gives
+\[
+  \kappa_{\mathrm{eff}} \approx
+  \frac{\tfrac{2}{3}(5.83n) + \tfrac{1}{3}(2n)}{\tfrac{2}{3}(0.17n) + \tfrac{1}{3}(2n)}
+  = \frac{3.89n + 0.67n}{0.113n + 0.67n} \approx 5.8.
+\]
+Since~\eqref{eq:minres_conv_proxy} is a Chebyshev
+proxy, exact iteration counts cannot be read off from $\kappa_{\mathrm{eff}}$ alone,
+but the predicted compression is qualitatively consistent with the halving of iterations
+(62 to 32) observed in Table~\ref{tab:synthetic}.  In practice, MINRES often converges
+faster than the linear rate predicted by~\eqref{eq:minres_conv_proxy}: as the iteration
+proceeds, eigenvalues are progressively absorbed into the polynomial, and the effective
+approximation problem shrinks, leading to superlinear convergence \cite{simoncini2013}.
+For real financial returns the sample covariance is far more ill-conditioned, explaining
+the much higher iteration counts on S\&P~500 data (Table~\ref{tab:sp500}).
+\end{remark}
+
+\subsection{Inequality constraints and the active set}
+
+Each active-set outer iteration replaces $(A, b)$ with the augmented pair
+$A_{\mathcal{A}} = [A,\, C_{:,\mathcal{A}}]$,
+$b_{\mathcal{A}} = (b^\top, d_{\mathcal{A}}^\top)^\top$ in system~\eqref{eq:kkt},
+where $\mathcal{A}$ indexes the currently binding inequality constraints.
+Section~\ref{sec:activeset} gives the full algorithm.
+
+\section{Active-Set Method}\label{sec:activeset}
+
+General linear inequalities $C^\top w \leq d$ are handled by an active-set
+loop that converts the inequality-constrained problem into a sequence of
+equality-constrained subproblems, each solvable by the KKT machinery of
+Section~\ref{sec:kkt}.
+
+\subsection{Algorithm}
+
+Let $\mathcal{A} \subseteq \{1,\ldots,p\}$ denote the current active set—the
+index set of inequalities treated as equalities.  At each iteration the
+augmented constraint matrix $A_{\mathcal{A}} = [A,\, C_{:,\mathcal{A}}]$ and
+right-hand side $b_{\mathcal{A}} = (b^\top, d_{\mathcal{A}}^\top)^\top$ replace
+$A$ and $b$ in the KKT system~\eqref{eq:kkt}, and the resulting
+equality-constrained subproblem is solved exactly.  The solution $w$ is then
+checked against all inactive constraints: any constraint $i \notin \mathcal{A}$
+with $C_{:,i}^\top w > d_i$ (up to tolerance $10^{-10}$) is promoted to
+$\mathcal{A}$.  The loop terminates when no violation is found.
+
+Promoting all violators simultaneously---rather than one at a time---reduces
+the number of outer iterations in practice; correctness is preserved because the KKT
+system is re-solved from scratch at each step with the full updated active set.
+
+\begin{remark}[Termination, complexity, and infeasibility]
+The active set $\mathcal{A}$ is monotonically non-decreasing: constraints are promoted
+but never demoted.  For a \emph{feasible} problem, since $|\mathcal{A}| \leq p$, the loop
+terminates in at most $p + 1$ outer iterations regardless of problem conditioning,
+provided the inner solver is exact.  If the constraint data $(A, b, C, d)$ defines an
+empty feasible set, the augmented KKT system becomes singular at some step; the direct
+solver raises a \texttt{LinAlgError} and the iterative solvers may not converge.
+Infeasibility is not detected explicitly: users are responsible for verifying that the
+supplied constraints are consistent before calling any solver.
+
+The worst-case total cost is $O\!\bigl(p\cdot(n+m+p)^3\bigr)$ for the direct KKT
+variant, since each of the at most $p+1$ outer steps solves a system of size at most
+$n + m + p$; for the long-only default $p = n$ with $m = 1$ this gives $O(n^4)$.  The
+MINRES variant costs $O(p\cdot k(Tn + mn))$ in the worst case.  In practice the active
+set stabilises after very few steps (e.g.\ $7$ outer iterations for $n = 495$ in
+Table~\ref{tab:sp500}), so observed cost is far below the worst case.
+\end{remark}
+
+\begin{remark}[Dual feasibility and global optimality]\label{rem:dualfeas}
+At termination $w$ is primal feasible.  For global optimality the KKT conditions
+also require dual feasibility: the multipliers $\nu_i \geq 0$ for all $i \in
+\mathcal{A}$ (note $\nu_i$ is distinct from the expected-return vector $\mu$
+of~\eqref{eq:primal}).  A standard active-set QP solver enforces this by removing
+constraints whose multipliers turn negative; the present loop omits that step.
+
+Dual feasibility is nonetheless guaranteed here because every constraint is promoted
+solely by violation.  To see this, fix any $i \in \mathcal{A}$ and consider the
+parametric optimal value
+\[
+  v(\delta) = \min\bigl\{f(w) : A^\top w = b,\;
+    C_{:,j}^\top w \leq d_j\;\forall j \in \mathcal{A},\;
+    C_{:,j}^\top w \leq d_j\;\forall j \notin \mathcal{A}\bigr\}
+\]
+with the single constraint $j = i$ replaced by $C_{:,i}^\top w \leq d_i + \delta$.
+Since the feasible set is non-decreasing in $\delta$, the strictly convex objective
+gives $v(\delta) \leq v(0)$ for $\delta > 0$.  By the envelope theorem,
+$v'(0) = -\nu_i \leq 0$, so $\nu_i \geq 0$.
+
+This holds for every $i \in \mathcal{A}$, including constraints promoted
+simultaneously: each was violated by the previous iterate, confirming the
+unconstrained optimum pressed against the bound from the infeasible side, which is
+precisely the condition that makes the envelope argument valid.  Combined with primal
+feasibility and stationarity (which hold by construction of the KKT solve), the full
+KKT conditions are satisfied at termination, confirming $w = w^*$.
+
+\emph{Scope and benchmark verification.}
+The argument requires the following condition: every constraint $i \in \mathcal{A}$
+at termination was violated by the iterate at which it was first added.  A
+sufficient condition is that the bound $d_i$ lies in the interior of the range of
+$C_{:,i}^\top w$ over the unconstrained-budget-constraint solution set; this is
+guaranteed whenever no inequality constraint is binding at the globally
+unconstrained minimum.
+
+All benchmarks in this paper satisfy this condition.  The synthetic and
+efficient-frontier experiments use long-only constraints ($w_i \geq 0 \Leftrightarrow
+-w_i \leq 0$) and sector caps ($\sum_{i \in S_k} w_i \leq 0.25$).  For i.i.d.\
+Gaussian data with $T = 2n$ returns, the unconstrained minimum-variance portfolio
+has many negative weights (by the sign symmetry of a standard Gaussian matrix),
+so the long-only constraints are violated before being activated.  The sector caps
+are also violated by the unconstrained portfolio with high probability.  The S\&P~500
+experiments impose only the budget equality constraint ($A^\top w = \mathbf{1}^\top w = 1$)
+and use no inequalities, so the active set remains empty and the dual-feasibility
+argument is vacuous.  The argument does \emph{not} extend to lower bounds
+$w_i \geq \ell_i > 0$ that may bind at the optimum without being violated during
+the loop; for such problems a standard multiplier check and constraint-removal step
+is needed.
+\end{remark}
+
+\begin{remark}[Constraint satisfaction with iterative solvers]
+When an iterative solver (MINRES, CG) is used with finite tolerance, the constraint
+violations used to extend $\mathcal{A}$ are computed from an approximate $w$; the
+correctness argument of Remark~\ref{rem:dualfeas} still applies, but the solution
+returned may not satisfy all constraints to full machine precision.  Tightening the
+solver tolerance (e.g.\ to $10^{-8}$) or switching to the direct KKT solver is
+recommended when exact constraint satisfaction is required.
+\end{remark}
+
+\begin{remark}
+Proposition~\ref{prop:nonsingular} requires $A_{\mathcal{A}}$ to have full column rank.
+This can fail if two promoted inequality columns are linearly dependent---for instance,
+if one sector constraint is a strict subset of another.  In practice this is avoided by
+checking that each newly promoted column is linearly independent of the current columns
+of $A_{\mathcal{A}}$ before adding it; a dependent column indicates a redundant
+constraint that can be dropped without altering the feasible set.
+\end{remark}
+
+\subsection{Implementation}
+
+The inner solver is injected as a subroutine $f(\mathcal{A}) \to (w, k)$
+that accepts the current active set and returns the primal solution together
+with an inner iteration count, separating the active-set loop from the choice
+of linear solver.  Section~\ref{sec:solvers} presents suitable implementations.
+
+\begin{remark}\label{rem:warmstart}
+Tracing the efficient frontier requires solving problem~\eqref{eq:primal} for a range
+of $\rho$ values.  Because the saddle-point matrix $2((1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I)$
+is independent of $\rho$, only the right-hand side changes between solves.  The
+function-pointer interface would make warm-starting natural---the active set from one
+$\rho$ could be used as the initial $\mathcal{A}$ for the next, potentially reducing
+outer iterations---though the current experiments solve each $\rho$ from scratch;
+see~\S\ref{sec:results}.
+\end{remark}
+
+\begin{algorithm}[ht]
+\caption{Active-set loop}\label{alg:activeset}
+\begin{algorithmic}[1]
+\Require Inner solver $f$;\; inequality data $C \in \mathbb{R}^{n \times p}$, $d \in \mathbb{R}^p$;\; tolerance $\varepsilon = 10^{-10}$
+\Ensure Weight vector $w$;\; total inner iteration count $k$
+\State $\mathcal{A} \leftarrow \emptyset$;\; $k \leftarrow 0$
+\Repeat
+  \State $(w,\, k_{\mathrm{step}}) \leftarrow f(\mathcal{A})$;\; $k \leftarrow k + k_{\mathrm{step}}$
+  \State $\mathcal{V} \leftarrow \{i \notin \mathcal{A} : C_{:,i}^\top w - d_i > \varepsilon\}$
+  \State $\mathcal{A} \leftarrow \mathcal{A} \cup \mathcal{V}$
+\Until{$\mathcal{V} = \emptyset$}
+\State \Return $w$, $k$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Computational Methods}\label{sec:solvers}
+
+\subsection{Direct KKT Solver}
+
+At each active-set step the saddle-point system~\eqref{eq:kkt} is assembled
+explicitly and solved by \texttt{scipy.linalg.solve} with
+\texttt{assume\_a=\textquotesingle{}sym\textquotesingle{}} (Bunch--Kaufman symmetric
+factorisation \cite{bunch1977}), at the cost of one dense $O\!\bigl((n+m_\mathcal{A})^3\bigr)$
+factorisation per outer iteration, where $m_\mathcal{A} = m + |\mathcal{A}|$ is the
+total number of active constraints.  The symmetric factorisation uses half the arithmetic of a general LU,
+though at the moderate problem sizes studied here the observed wall-clock runtimes
+are slower than \texttt{numpy.linalg.solve}, which dispatches to a general LU via
+a more direct LAPACK path.
+After convergence the weight vector is optionally clipped to $[0,\infty)$ and
+renormalised to sum to one; this projection is correct for the default long-only
+problem but should be disabled when custom constraint matrices are supplied.
+
+\begin{algorithm}[ht]
+\caption{Direct KKT solver}\label{alg:kkt}
+\begin{algorithmic}[1]
+\Require Problem data
+\Ensure Weight vector $w$;\; outer active-set step count $s$
+\Function{DirectSolve}{$\mathcal{A}$}
+  \State Set $A_{\mathcal{A}} \leftarrow [A,\, C_{:,\mathcal{A}}]$,\; $b_{\mathcal{A}} \leftarrow (b^\top, d_{\mathcal{A}}^\top)^\top$
+  \State Assemble $K_{\mathcal{A}}$ and $r_{\mathcal{A}}$ from~\eqref{eq:kkt}
+  \State Solve $K_{\mathcal{A}} z = r_{\mathcal{A}}$ by dense factorisation
+  \State \Return $z_{1:n}$,\; $1$  \hfill\textit{(per-step count; no inner iterations)}
+\EndFunction
+\State $(w,\, s) \leftarrow \textsc{ActiveSetLoop}(\textsc{DirectSolve})$
+  \hfill\textit{(Algorithm~\ref{alg:activeset})}
+\State \Return $w$, $s$
+\end{algorithmic}
+\end{algorithm}
+
+The inner function returns $1$ per call; $s$ therefore counts active-set outer steps,
+distinct from the cumulative Krylov iteration count $k$ reported by the iterative solvers.
+
+\subsection{CVXPY Reference Implementation}
+
+The general mean-variance problem maps directly onto a CVXPY \cite{diamond2016}
+model solved by Clarabel \cite{clarabel2024}: the objective $(1-\alpha)\|Xw\|^2 + (\alpha\|X\|_F^2/n)\|w\|^2 - \rho\,\mu^\top w$
+is expressed symbolically, the constraints $A^\top w = b$ and $C^\top w \leq d$
+are passed unchanged, and the solver returns the primal solution together with
+its interior-point iteration count.  This implementation serves as the
+correctness reference against which the Krylov solvers are validated.
+
+CVXPY \cite{diamond2016} with Clarabel \cite{clarabel2024} offers a remarkably
+expressive modelling API: the same
+few lines handle arbitrary convex objectives and constraint matrices without any
+solver-specific tuning.  The Krylov approach trades this generality for
+structure.  Four differences are worth noting.
+
+\textit{Covariance matrix.}  When the objective is expressed as $\|Xw\|^2$ and passed
+symbolically to CVXPY, CVXPY constructs the quadratic cost matrix $P = 2X^\top X$
+during problem canonicalisation before dispatching to Clarabel, incurring $O(Tn^2)$
+cost and $O(n^2)$ storage (Table~\ref{tab:synthetic} caption).  The Krylov solvers
+avoid this entirely by working with $X$ directly via the matrix-free operator of
+\S\ref{sec:matfree}.
+
+\textit{Inequality constraints.}  Clarabel enforces $C^\top w \leq d$ via a
+logarithmic barrier, keeping all iterates strictly interior to the feasible
+set.  The active-set method of Section~\ref{sec:activeset} instead promotes
+violated inequalities to equalities, solving a sequence of saddle-point systems
+of increasing size.  Neither approach dominates: the barrier is smooth and
+avoids combinatorial bookkeeping, while the active set exploits the Krylov
+structure at each step and terminates in few outer iterations for
+well-conditioned problems.
+
+\textit{Per-iteration cost.}  Each Clarabel interior-point step solves a
+dense $O(n^3)$ normal-equations system.  Each MINRES iteration costs $O(Tn + mn)$
+(two passes through $X$ plus constraint-matrix products; $O(mn) \ll O(Tn)$ for $m \ll T$).
+Each constraint-eliminated CG iteration costs $O(Tn + n^2)$ (two passes through $X$ plus the
+null-space projections $Pv$ and $P^\top(\cdot)$; see \S\ref{sec:cg}).  For $T = 2n$,
+MINRES and CG iterations have the same $O(n^2)$ cost, but MINRES operates on the
+full $(n+m)$-dimensional system while CG on the reduced $(n - m_\mathcal{A})$-dimensional
+one; the smaller system size does not imply faster convergence---the condition number
+of $P^\top((1-\alpha)X^\top X + (\alpha\|X\|_F^2/n)I)P$ is comparable to $\kappa_\mathrm{eff}$---and
+empirically MINRES requires fewer total iterations than CG (Table~\ref{tab:synthetic}).
+For $k$ Krylov iterations the MINRES total
+is $O(k(Tn + mn)) \ll O(n^3)$ when Ledoit-Wolf shrinkage keeps $k \ll n$; without
+shrinkage, ill-conditioned real data can force $k \gg n$ (see~\S\ref{sec:results}).
+
+\subsection{Matrix-Free KKT Operator}\label{sec:matfree}
+
+The direct solver assembles $K$ explicitly, which requires forming $X^\top X$
+at $O(Tn^2)$ cost and storing it at $O(n^2)$ memory.  Krylov methods only
+require matrix-vector products $Kv$, which can be computed without
+materialising $X^\top X$:
+\[
+  K \begin{pmatrix} v_w \\ v_\lambda \end{pmatrix}
+  =
+  \begin{pmatrix}
+    2\bigl((1-\alpha)X^\top(X v_w) + \tfrac{\alpha\|X\|_F^2}{n}\, v_w\bigr) + A\, v_\lambda \\
+    A^\top v_w
+  \end{pmatrix}.
+\]
+Each application makes two passes through $X$ at $O(Tn)$ plus $O(mn)$ for the
+constraint-matrix products, avoiding both the $O(Tn^2)$ formation cost and the
+$O(n^2)$ storage of $X^\top X$.  For $k$ Krylov iterations the total cost is
+$O(k(Tn + mn))$, compared with $O(Tn^2 + n^3)$ for the direct solve; with
+Ledoit-Wolf shrinkage, $k \ll n$ in practice and the iterative solvers are
+substantially faster for large $n$ (Table~\ref{tab:synthetic}); without shrinkage,
+real-data ill-conditioning can increase $k$ substantially (Table~\ref{tab:sp500}).
+
+The recurrence above is implemented as a matrix-free operator that MINRES and
+CG accept directly; no explicit matrix is ever formed or stored.
+
+\subsubsection{MINRES}\label{sec:minres}
+
+MINRES \cite{paige1975} solves symmetric indefinite systems $Kx = b$ via
+short recurrences, making it well-suited to the saddle-point
+structure~\eqref{eq:kkt}.  At each active-set step the matrix-free operator
+from \S\ref{sec:matfree} is passed directly to MINRES; the total iteration count accumulates
+across all steps.  Ledoit-Wolf shrinkage ($\alpha > 0$) compresses the spectrum of $X^\top X$ and substantially
+reduces the iteration count.  The current implementation uses no preconditioner;
+well-studied block-diagonal preconditioners for symmetric saddle-point systems
+\cite{benzi2005} could reduce iteration counts further, particularly for
+ill-conditioned real data, and are left for future work.
+
+\begin{algorithm}[ht]
+\caption{MINRES solver}\label{alg:minres}
+\begin{algorithmic}[1]
+\Require Problem data
+\Ensure Weight vector $w$;\; total MINRES iteration count $k$
+\Function{MinresSolve}{$\mathcal{A}$}
+  \State Build matrix-free operator $\mathcal{K}_{\mathcal{A}}$ and right-hand side $r_{\mathcal{A}}$
+  \State Solve $\mathcal{K}_{\mathcal{A}} z = r_{\mathcal{A}}$ via MINRES \cite{paige1975}
+  \State \Return $z_{1:n}$,\; iteration count
+\EndFunction
+\State $(w,\, k) \leftarrow \textsc{ActiveSetLoop}(\textsc{MinresSolve})$
+  \hfill\textit{(Algorithm~\ref{alg:activeset})}
+\State \Return $w$, $k$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Conjugate Gradient in the Null Space}\label{sec:cg}
+
+An alternative is to eliminate the equality constraints via QR factorisation of
+$A_{\mathcal{A}}$, project onto $\ker(A_{\mathcal{A}}^\top)$, and apply CG
+\cite{hestenes1952} to the resulting $(n - m_{\mathcal{A}})$-dimensional SPD system.
+The per-iteration cost is $O(Tn + n^2)$ versus $O(Tn + mn)$ for MINRES, and the
+one-time QR setup costs $O(n^2 m_{\mathcal{A}})$ per active-set step to form the
+full orthogonal factor---reaching $O(n^3)$ when $m_{\mathcal{A}} = O(n)$.  For
+general $A$ this QR cost dominates and makes the constraint-eliminated CG slower
+than MINRES; the benchmarks in \S\ref{sec:results} confirm this.
+
+\section{Numerical Results}\label{sec:results}
+
+All experiments were run on an Apple M4 Pro (14-core CPU, 48\,GB RAM) under
+Python~3.12, NumPy~2.4, SciPy~1.17, CVXPY~1.8.2, and Clarabel~0.11.1.
+Iterative solvers use SciPy's default relative residual tolerance of $10^{-5}$;
+reported times are the minimum of three repeated solves.  Speedup figures are
+hardware- and version-dependent; the dominant factor is the $O(Tn^2)$
+problem-canonicalisation cost incurred by CVXPY~1.8.2 when constructing the
+quadratic cost matrix $P = 2X^\top X$ before dispatching to Clarabel---future
+CVXPY releases may reduce this overhead.  All implementations are available in
+the companion package \cite{fast_minimum_variance}.
+
+\subsection{Synthetic benchmark}\label{sec:synth}
+
+Table~\ref{tab:synthetic} reports results for a problem with $n=1000$ assets,
+$T=2000$ i.i.d.\ Gaussian returns (generated with \texttt{numpy.random.default\_rng(0)}),
+five equal-sized sector caps at $25\%$, return-tilt weight $\rho=0.5$, and
+expected-return vector $\mu\sim\mathcal{N}(0,I)$.  Two panels show results without
+and with Ledoit-Wolf shrinkage; the LW panel uses $\alpha = n/(n+T) = 1/3$.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lccc}
+\toprule
+Method & Time (s) & Iterations & Speedup \\
+\midrule
+cvxpy (Clarabel)             & 10.77 & n/a &    1.0x \\
+KKT direct                   & 0.087 &  --$^*$ &  124.1x \\
+MINRES                        & 0.010 &  62 & 1046.6x \\
+CG (constr.-elim.)            & 0.104 & 105 &  103.7x \\
+\midrule
+MINRES + LW                   & 0.008 &  32 & 1325.8x \\
+CG + LW                       & 0.029 &  39 &  366.7x \\
+\bottomrule
+\end{tabular}
+\caption{Synthetic benchmark: $n=1000$ assets, $T=2000$ i.i.d.\ Gaussian returns,
+five sector caps at $25\%$, $\rho=0.5$, $\mu\sim\mathcal{N}(0,I)$.  Lower panel adds
+Ledoit-Wolf shrinkage ($\alpha=1/3$).  Speedup for the upper panel is relative to
+\texttt{cvxpy} ($10.77$~s); speedup for the lower panel is also relative to the same
+\texttt{cvxpy} baseline, as applying LW to \texttt{cvxpy} does not measurably change
+its runtime (the ridge coefficient $\alpha\|X\|_F^2/n$ is passed as a scalar to
+Clarabel and the interior-point complexity remains $O(n^3)$ per step).  The reported \texttt{cvxpy} times include the $O(Tn^2)$
+cost of forming $X^\top X$: the benchmark passes $X$ directly and CVXPY constructs
+the quadratic cost matrix $P = 2X^\top X$ during problem canonicalisation before
+dispatching to Clarabel.
+The Iterations column counts cumulative \emph{inner} Krylov iterations across all
+active-set steps for MINRES and CG; \texttt{cvxpy} interior-point iterations are not
+comparable (each costs $O(n^3)$ versus $O(Tn + mn)$ per Krylov step) and are therefore
+omitted.  $^*$KKT uses a direct factorisation at each active-set step and has no inner
+iterations; the $4$ \emph{outer} active-set steps taken are distinct from inner
+iterations and are not shown in this column.  The small number of outer steps
+reflects the batch-promotion strategy: all violated constraints (long-only and
+sector caps) are added to the active set simultaneously at each pass, so
+feasibility is typically achieved in fewer than five iterations.}
+\label{tab:synthetic}
+\end{table}
+
+Without shrinkage, MINRES is the fastest solver at $0.010$~s ($1047\times$ faster
+than CVXPY), outperforming KKT direct by ${\approx}9\times$.  The constraint-eliminated CG
+formulation, however, is \emph{slower} than the direct solve: $0.104$~s versus
+$0.087$~s.  This is a qualitative difference from the minimum variance setting of
+\cite{minvar_paper}, where CG was competitive with MINRES.  The cause is the $O(n^2 m_\mathcal{A})$ cost of forming the full orthogonal factor $Q$
+via QR factorisation of the active constraint matrix (see \S\ref{sec:cg}), which
+reaches $O(n^3)$ when $m_\mathcal{A} = O(n)$.  For the budget-only constraint
+$A = \mathbf{1}$ the companion paper avoids this by exploiting an implicit $O(n)$
+Householder reflector; for general $A$ no such shortcut is available and the QR
+dominates at large $n$.
+
+Ledoit-Wolf shrinkage compresses the spectrum and reduces MINRES from 62 to 32
+iterations, cutting runtime to $0.008$~s ($1326\times$ speedup).  CG also benefits
+from shrinkage (105 to 39 iterations), but the QR bottleneck limits the gain:
+CG+LW reaches $0.029$~s, still ${\approx}4\times$ slower than MINRES+LW.
+
+\subsection{Scaling with problem size}\label{sec:scaling}
+
+Figure~\ref{fig:scaling} shows wall-clock time as a function of $n$ for the
+constrained Markowitz problem (five sector caps, $\rho = 0.5$, LW shrinkage, $T=2n$).
+The KKT direct solve scales as $O(n^3)$, dominated by the dense $n \times n$ linear
+system.  MINRES+LW scales close to $O(n^2)$: each iteration costs $O(Tn) = O(n^2)$
+for $T = 2n$, and the Krylov iteration count $k$ is approximately constant in $n$ under LW
+shrinkage---since $\kappa_{\mathrm{eff}} \approx 5.8$ for $T = 2n$ Gaussian data regardless
+of $n$ (Remark~\ref{rem:marchenko}), the convergence bound~\eqref{eq:minres_conv_proxy} predicts a fixed
+iteration count---so the total cost $O(kTn)$ follows slope 2 in the log--log plot of
+Figure~\ref{fig:scaling}.
+MINRES+LW opens a visible gap above $n \approx 200$.  CG+LW is faster than KKT for small $n$ but its scaling is degraded by the
+$O(n^2 m_\mathcal{A})$ QR cost for general $A$.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\linewidth]{graphs/markowitz_scaling.pdf}
+\caption{Left: wall-clock time vs.\ $n$ (log--log, $T=2n$, five sector caps,
+$\rho=0.5$, LW shrinkage throughout).  Right: efficient frontier for $n=500$ assets
+with five sector caps, $\alpha=1/3$, tracing 51 risk--return points as $\rho$ varies
+from $0$ to $2$, computed with the KKT direct solver ($\alpha=1/3$) for illustration;
+MINRES+LW and CG+LW (same $\alpha$) produce the same curve to relative weight
+tolerance $10^{-4}$ over all 51 points (see \S\ref{sec:frontier}).}
+\label{fig:scaling}
+\end{figure}
+
+\subsection{Efficient frontier}\label{sec:frontier}
+
+Tracing the full efficient frontier requires solving the Markowitz problem for a
+range of $\rho$ values.  For $n=500$ assets, $T=1000$ returns ($T = 2n$, matching
+the scaling experiments), and five sector caps, we time 21 equally spaced points at
+$\rho \in [0, 2]$ under two scenarios: (i)~no shrinkage ($\alpha=0$, the same
+optimisation problem for every solver), and (ii)~Ledoit-Wolf shrinkage
+($\alpha = n/(n+T) = 1/3$, applied identically to every solver including CVXPY).
+
+\textit{Algorithmic comparison ($\alpha=0$, same problem).}
+KKT direct takes $0.393$~s ($18.7$~ms per point), a $91\times$ speedup over
+CVXPY at $36.0$~s ($1713$~ms); MINRES without shrinkage takes $0.153$~s
+($7.3$~ms, $235\times$).
+
+\textit{Regularised comparison ($\alpha=1/3$, same problem).}
+Applying LW shrinkage to CVXPY does not measurably change its runtime:
+$36.0$~s~$\to$~$36.1$~s (interior-point cost is dominated by factorisation, not
+problem structure).  MINRES+LW takes $0.043$~s ($2.0$~ms per point,
+${\approx}838\times$ speedup over CVXPY+LW), and CG+LW takes $0.155$~s
+($7.4$~ms, ${\approx}233\times$).  MINRES+LW is the fastest by
+${\approx}3.6\times$ over CG+LW.
+
+The Krylov iteration count per frontier point is approximately constant in $n$
+(Remark~\ref{rem:marchenko}), consistent with the single-$\rho$ figures of
+Table~\ref{tab:synthetic} at $n=1000$, confirming that repeated solves across
+the frontier do not inflate the Krylov work.  The right panel of
+Figure~\ref{fig:scaling} shows the risk--return curve computed by the KKT direct
+solver ($\alpha=0$) using 51 equally spaced $\rho$ values (denser than the
+21-point timing experiment, for a smoother illustration).  MINRES+LW and CG+LW ($\alpha=1/3$)
+produce the same 51-point frontier as KKT direct ($\alpha=1/3$), verified by
+comparing portfolio weights in the $\ell_\infty$ norm to relative tolerance $10^{-4}$
+at every frontier point.  The saddle-point matrix
+$2\bigl((1-\alpha)X^\top X + \tfrac{\alpha\|X\|_F^2}{n}I\bigr)$ is independent of
+$\rho$, so the active-set and Krylov work is amortised across frontier points
+(see Remark~\ref{rem:warmstart} for the warm-starting implication).
+
+\subsection{S\&P~500 real-data benchmark}
+
+Table~\ref{tab:sp500} reports results on $n=495$ S\&P~500 constituents over $T=1192$
+daily log-returns (July 2021--April 2026) sourced from Yahoo Finance via the
+\texttt{yfinance} Python package; the data construction script will be made available
+in the companion package \cite{fast_minimum_variance} upon publication.  The return matrix $X$ is formed by
+demeaning the log-returns column-wise (subtracting each asset's sample mean over the
+estimation window).  The LW panel uses $\alpha = n/(n+T) = 495/1687 \approx 0.293$.
+This setting is the base case of \cite{minvar_paper}
+and is chosen deliberately to isolate the effect of real equity cross-correlations and
+heavy tails on solver performance, independent of the sector-cap constraint structure
+tested in \S\ref{sec:synth}--\S\ref{sec:scaling}.  A natural extension---applying sector
+caps and a return tilt to real data---is left for future work.  The sample covariance is
+significantly more ill-conditioned than the Gaussian benchmark.  The column $\|Xw\|$
+in Table~\ref{tab:sp500} is the square root of the sample portfolio variance scaled by
+$T$: $\|Xw\|^2 = T\,\hat\sigma_p^2$ where $\hat\sigma_p^2 = w^\top\hat\Sigma w$ and
+$\hat\Sigma = X^\top X / T$ is the sample covariance.  Within each panel (fixed
+shrinkage setting) a smaller value indicates lower in-sample portfolio variance;
+the two panels optimise different objectives and their $\|Xw\|$ values are not
+directly comparable across panels.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Method & $\|Xw\|$ & Time (s) & Iterations & Speedup \\
+\midrule
+\multicolumn{5}{l}{\textit{Without Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)                    & 0.2241 & 1.614 &  n/a &  1.0x \\
+KKT direct                          & 0.2246 & 0.076 & --$^*$ & 21.2x \\
+MINRES                              & 0.2255 & 0.050 & 1065 & 32.3x \\
+CG (constr.-elim.)                  & 0.2246 & 0.081 &  385 & 19.9x \\
+\midrule
+\multicolumn{5}{l}{\textit{With Ledoit-Wolf shrinkage}} \\[2pt]
+cvxpy (Clarabel)                    & 0.2281 & 1.488 &  n/a &  1.0x \\
+KKT direct                          & 0.2280 & 0.080 & --$^*$ & 18.5x \\
+MINRES + LW                         & 0.2286 & 0.021 &  424 & 70.8x \\
+CG + LW (constr.-elim.)             & 0.2280 & 0.069 &  117 & 21.6x \\
+\bottomrule
+\end{tabular}
+\caption{S\&P~500 universe: $n=495$ assets, $T=1192$ trading days
+(July~2021--April~2026), long-only minimum-variance problem.
+Speedup relative to \texttt{cvxpy} within each panel.
+Iterations are cumulative Krylov iterations across all active-set steps;
+\texttt{cvxpy} interior-point iterations are not comparable to Krylov iterations
+(different cost per step) and are therefore omitted.
+$^*$KKT is a direct inner solve; the 7 active-set outer steps (each promoting a batch
+of assets whose unconstrained weight is negative to the long-only bound $w_i = 0$)
+are not shown.}
+\label{tab:sp500}
+\end{table}
+
+As a correctness check, the $\|Xw\|$ values in Table~\ref{tab:sp500} confirm
+that all four solvers agree on in-sample portfolio risk (measured in $\|Xw\|$,
+the square root of the sample portfolio variance scaled by $T$) to within
+$(0.2255 - 0.2241)/0.2241 \approx 0.6\%$ relative error in $\|Xw\|$, or
+equivalently $\approx 1.2\%$ in portfolio variance $\|Xw\|^2$, relative to
+the CVXPY reference.  The deviation is entirely attributable to MINRES: KKT
+direct and CG agree with CVXPY to within $0.2\%$ in $\|Xw\|$.  At the stated
+solver tolerance of $10^{-5}$ on the relative residual, a $0.6\%$ deviation in
+$\|Xw\|$ is expected for high-condition-number data: for practical minimum-variance
+applications the dominant source of out-of-sample error is estimation noise in $X$,
+which dwarfs the $0.6\%$ in-sample solver discrepancy; tightening to $10^{-7}$
+would reduce it to negligible levels at the cost of a few hundred additional
+iterations (see the convergence discussion below).
+
+Without shrinkage, MINRES requires 1065 iterations---$17\times$ more than on the
+Gaussian benchmark---reflecting the much higher condition number~\eqref{eq:kappa} of
+real return data; despite the large iteration count, MINRES is nonetheless faster than
+KKT direct in this regime ($32\times$ versus $21\times$ speedup), because the Bunch--Kaufman
+factorisation overhead of the direct solve is not amortised at this problem size.
+The MINRES portfolio risk ($\|Xw\| = 0.2255$) is slightly higher than for
+the other solvers ($0.2246$): iterative termination at a relative residual of $10^{-5}$
+leaves a small inexactness in the KKT conditions, so the returned weight vector is not
+the exact minimiser.  From the convergence bound~\eqref{eq:minres_conv_proxy}, each additional
+decade of accuracy requires $O\!\bigl(1/\log\tfrac{\sqrt{\kappa_{\mathrm{eff}}}+1}{\sqrt{\kappa_{\mathrm{eff}}}-1}\bigr)$
+further iterations; for the high-$\kappa$ S\&P~500 data this is several hundred additional
+steps per decade, making tight tolerances expensive without shrinkage.  Ledoit-Wolf shrinkage reduces the MINRES count to 424 and lifts
+its speedup to $71\times$, making it the fastest solver.  The slightly higher portfolio
+risk under LW ($\|Xw\| = 0.2280$--$0.2286$ versus $0.2241$--$0.2246$ without LW) is
+expected: LW adds a ridge term $\tfrac{\alpha\|X\|_F^2}{n}\|w\|^2$ to the objective that penalises
+extreme weights, so the resulting portfolio sacrifices a small amount of in-sample variance
+reduction in exchange for a more stable estimator.  Even after shrinkage, the
+iteration count is $13\times$ larger than on Gaussian data, confirming that the low
+iteration counts in \S\ref{sec:synth} reflect the near-identity covariance of
+i.i.d.\ Gaussian returns rather than a general property of the method.
+
+\section{Conclusion}
+
+The Markowitz mean-variance problem, formulated directly in terms of the returns
+matrix, inherits the KKT saddle-point structure identified in \cite{minvar_paper}
+and admits the same MINRES treatment without modification.  Four generalisations
+of the minimum-variance setting are required---general equality constraints,
+general linear inequalities via active-set, a return tilt, and Ledoit-Wolf
+shrinkage---and each preserves the symmetric indefinite structure that MINRES
+exploits.  No explicit covariance matrix is ever formed.
+
+The paper also describes a modular software architecture in which the
+active-set loop is decoupled from the inner linear solver via a function-pointer
+interface (\S\ref{sec:activeset}), and the KKT saddle-point operator is exposed as a
+\texttt{LinearOperator} (\S\ref{sec:matfree}) that MINRES and CG consume without modification.
+The full problem specification is encapsulated in a single frozen \texttt{Problem}
+dataclass (\S\ref{sec:problem}), providing a clean API for all solvers.
+
+The empirical results confirm that the speedup from \cite{minvar_paper} extends
+to the full constrained Markowitz setting.  MINRES with Ledoit-Wolf shrinkage is
+$1326\times$ faster than CVXPY on the synthetic benchmark ($n=1000$) and traces
+the efficient frontier for $n=500$ assets in $0.043$~s versus $36.1$~s for
+CVXPY with the same shrinkage (${\approx}838\times$ speedup; both solvers use
+$\alpha=1/3$).  The
+constraint-eliminated CG formulation \cite{hestenes1952} incurs an $O(n^2 m_\mathcal{A})$
+cost from the QR null-space basis for general $A$ (reaching $O(n^3)$ when many
+constraints are active), making it slower than MINRES for large $n$; restoring the
+$O(n)$ implicit Householder efficiency for the general case is a direction for future
+work, as is warm-starting the active set across efficient frontier points.  The dual-feasibility guarantee (Remark~\ref{rem:dualfeas}) is verified to hold for
+all reported benchmarks; the remark characterises the class of problems for which
+the add-only strategy is correct and identifies the extension to lower-bounded
+weights as the remaining scope limitation.
+
+\section*{Acknowledgements}
+
+The authors thank Martin~H.~Gutknecht (ETH~Z\"{u}rich) for supervising the 2004 diploma
+thesis \cite{schmelzer2004} on block MINRES, which motivated the present work.
+
+\bibliographystyle{siam/siamplain}
+\bibliography{bib/refs}
+
+\end{document}

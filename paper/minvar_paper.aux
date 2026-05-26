@@ -1,0 +1,102 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{markowitz1952}
+\citation{merton1972}
+\citation{ledoit2004}
+\citation{hestenes1952}
+\citation{golub2013}
+\citation{bajeux2012}
+\citation{clarabel2024}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{Doc-Start}\protected@file@percent }
+\newlabel{sec:problem}{{2}{2}{Problem Formulation}{Doc-Start}{}}
+\newlabel{sec:problem@cref}{{}{[1][2][]2}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Problem Formulation}{2}{Doc-Start}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Parameters of the \texttt  {Problem} specification.}}{2}{table.1}\protected@file@percent }
+\newlabel{tab:params}{{1}{2}{Parameters of the \texttt {Problem} specification}{table.1}{}}
+\newlabel{tab:params@cref}{{[table][1][]1}{[1][2][]2}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Dual problem.}{2}{section*.2}\protected@file@percent }
+\citation{ledoit2020}
+\newlabel{eq:general}{{1}{3}{Problem variants}{section*.3}{}}
+\newlabel{eq:general@cref}{{}{[1][2][]3}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Portfolio construction problems solved by the same primal--dual loop. $b$ is the benchmark weight vector; $F$ contains factor returns; $D$ is a diagonal specific-risk matrix; $R$ is the $N\times N$ regularisation target matrix (e.g.\ $\sqrt  {\bar  \lambda }\,I$ for classical Ledoit-Wolf shrinkage, where $\bar  \lambda = \|X\|_F^2/(nT)$ is the mean eigenvalue of $\hat  \Sigma $). Stacking of $\tilde  {X}$ is in the row direction. $^*\min _w (w-b)^\top \Sigma (w-b) = \min _w w^\top \Sigma w - 2(\Sigma b)^\top w + \mathrm  {const}$, so $\rho \mu = 2\Sigma b = 2X^\top (Xb)$ (two matrix--vector products). Since $\mu = \Sigma b$, the second SPD solve yields $v_2 = b$ exactly; tracking error adds no inner-solve cost.}}{3}{table.4}\protected@file@percent }
+\newlabel{tab:problems}{{2}{3}{Portfolio construction problems solved by the same primal--dual loop. $b$ is the benchmark weight vector; $F$ contains factor returns; $D$ is a diagonal specific-risk matrix; $R$ is the $N\times N$ regularisation target matrix (e.g.\ $\sqrt {\bar \lambda }\,I$ for classical Ledoit-Wolf shrinkage, where $\bar \lambda = \|X\|_F^2/(nT)$ is the mean eigenvalue of $\hat \Sigma $). Stacking of $\tilde {X}$ is in the row direction. $^*\min _w (w-b)^\top \Sigma (w-b) = \min _w w^\top \Sigma w - 2(\Sigma b)^\top w + \mathrm {const}$, so $\rho \mu = 2\Sigma b = 2X^\top (Xb)$ (two matrix--vector products). Since $\mu = \Sigma b$, the second SPD solve yields $v_2 = b$ exactly; tracking error adds no inner-solve cost}{table.4}{}}
+\newlabel{tab:problems@cref}{{[table][2][]2}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{What does not fit.}{3}{section*.5}\protected@file@percent }
+\newlabel{sec:kkt}{{3}{3}{Positive Definite Reduction and Primal-Dual Loop}{section*.5}{}}
+\newlabel{sec:kkt@cref}{{}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Positive Definite Reduction and Primal-Dual Loop}{3}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Positive definite reduction.}{3}{section*.6}\protected@file@percent }
+\citation{paige1975}
+\citation{greenbaum1997}
+\citation{greenbaum1997}
+\citation{simoncini2013}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Primal-dual outer loop}}{5}{section*.6}\protected@file@percent }
+\newlabel{alg:elim}{{1}{5}{Positive definite reduction}{section*.6}{}}
+\newlabel{alg:elim@cref}{{}{[1][4][]5}{}{}{}}
+\newlabel{sec:solvers}{{4}{5}{Computational Methods}{section*.6}{}}
+\newlabel{sec:solvers@cref}{{}{[1][4][]5}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Computational Methods}{5}{section*.6}\protected@file@percent }
+\newlabel{ssec:cg}{{4.1}{5}{CG Method}{section*.6}{}}
+\newlabel{ssec:cg@cref}{{}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}CG Method}{5}{section*.7}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces CG inner step (inner solver $f$ for Algorithm~\ref {alg:elim})}}{5}{section*.7}\protected@file@percent }
+\newlabel{alg:cg}{{2}{5}{CG Method}{section*.7}{}}
+\newlabel{alg:cg@cref}{{}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Convergence speed.}{5}{section*.8}\protected@file@percent }
+\citation{diamond2016}
+\citation{clarabel2024}
+\citation{clarabel2024}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}CVXPY Reference Implementation}{6}{section*.8}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {3}{\ignorespaces CVXPY reference solver}}{6}{section*.8}\protected@file@percent }
+\newlabel{alg:cvxpy}{{3}{6}{CVXPY Reference Implementation}{section*.8}{}}
+\newlabel{alg:cvxpy@cref}{{}{[1][6][]6}{}{}{}}
+\citation{lawson1974}
+\citation{ledoit2004}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Direct Solve (Baseline)}{7}{section*.8}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {4}{\ignorespaces Direct solver}}{7}{section*.8}\protected@file@percent }
+\newlabel{alg:kkt}{{4}{7}{Direct Solve (Baseline)}{section*.8}{}}
+\newlabel{alg:kkt@cref}{{}{[1][7][]7}{}{}{}}
+\newlabel{ssec:nnls}{{4.4}{7}{NNLS Solver}{section*.8}{}}
+\newlabel{ssec:nnls@cref}{{}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}NNLS Solver}{7}{section*.8}\protected@file@percent }
+\newlabel{sec:precond}{{5}{7}{Ledoit-Wolf Shrinkage}{section*.8}{}}
+\newlabel{sec:precond@cref}{{}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Ledoit-Wolf Shrinkage}{7}{section*.8}\protected@file@percent }
+\citation{ledoit2020}
+\citation{fast_minimum_variance}
+\newlabel{sec:results}{{6}{8}{Numerical Results}{section*.8}{}}
+\newlabel{sec:results@cref}{{}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Numerical Results}{8}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Spectrum of $\hat  \Sigma = \tfrac  {1}{T}X^\top X$.}{9}{section*.10}\protected@file@percent }
+\citation{ledoit2004}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--May~2026). Speedup relative to \texttt  {cvxpy} within each panel. ``Clarabel (direct API)'' calls the same interior-point solver without CVXPY's overhead; $>95\%$ of \texttt  {cvxpy}'s time is Python interface work. NNLS is slower with shrinkage because the augmented matrix grows from $T \times n$ to $(T+n) \times n$.}}{10}{table.11}\protected@file@percent }
+\newlabel{tab:sp500}{{3}{10}{S\&P~500 universe: 495 assets, 1192 trading days (Jul~2021--May~2026). Speedup relative to \texttt {cvxpy} within each panel. ``Clarabel (direct API)'' calls the same interior-point solver without CVXPY's overhead; $>95\%$ of \texttt {cvxpy}'s time is Python interface work. NNLS is slower with shrinkage because the augmented matrix grows from $T \times n$ to $(T+n) \times n$}{table.11}{}}
+\newlabel{tab:sp500@cref}{{[table][3][]3}{[1][9][]10}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{10}{figure.14}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). Right: CG iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum and reduces the condition number $\kappa (\Sigma _{\mathrm  {LW}})$, directly reducing CG iterations.}}{11}{figure.13}\protected@file@percent }
+\newlabel{fig:scaling}{{1}{11}{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). Right: CG iteration counts vs.\ shrinkage intensity $\alpha $ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha $ compresses the eigenvalue spectrum and reduces the condition number $\kappa (\Sigma _{\mathrm {LW}})$, directly reducing CG iterations}{figure.13}{}}
+\newlabel{fig:scaling@cref}{{[figure][1][]1}{[1][10][]11}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). KKT direct scales as $O(n^3)$; matrix-free CG scales empirically as $O(n^2)$ due to the iteration count growing slowly with the compressed spectrum; NNLS also scales as $O(n^3)$ (Lawson--Hanson normal equations). Reference slopes are anchored to the KKT curve at $n = 500$.}}{11}{figure.14}\protected@file@percent }
+\newlabel{fig:loglog}{{2}{11}{Wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). KKT direct scales as $O(n^3)$; matrix-free CG scales empirically as $O(n^2)$ due to the iteration count growing slowly with the compressed spectrum; NNLS also scales as $O(n^3)$ (Lawson--Hanson normal equations). Reference slopes are anchored to the KKT curve at $n = 500$}{figure.14}{}}
+\newlabel{fig:loglog@cref}{{[figure][2][]2}{[1][10][]11}{}{}{}}
+\citation{golub2013}
+\bibstyle{siam/siamplain}
+\bibdata{bib/refs}
+\bibcite{bajeux2012}{1}
+\bibcite{diamond2016}{2}
+\bibcite{golub2013}{3}
+\bibcite{clarabel2024}{4}
+\bibcite{greenbaum1997}{5}
+\bibcite{hestenes1952}{6}
+\bibcite{lawson1974}{7}
+\bibcite{ledoit2004}{8}
+\bibcite{ledoit2020}{9}
+\bibcite{markowitz1952}{10}
+\bibcite{merton1972}{11}
+\bibcite{paige1975}{12}
+\bibcite{fast_minimum_variance}{13}
+\bibcite{simoncini2013}{14}
+\@writefile{toc}{\contentsline {section}{References}{12}{figure.14}\protected@file@percent }
+\gdef \@abspage@last{12}

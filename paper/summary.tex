@@ -1,0 +1,96 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[margin=1.5cm, top=1.2cm, bottom=1.2cm, columnsep=0.6cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\setlength{\parskip}{3pt}
+
+\title{\textbf{Krylov Methods for the Minimum Variance Portfolio}\\[4pt]
+       \large One-Page Summary}
+\author{Thomas Schmelzer \and Michael Wolf \and Martin Stoll}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\subsubsection*{Problem}
+
+The long-only minimum variance portfolio is conventionally solved by forming a sample covariance
+matrix $\Sigma = X^\top X / T$ and passing it to a general-purpose QP solver. This paper argues
+the covariance matrix is unnecessary: all required operations reduce to matrix-vector products on
+the raw returns matrix $X \in \mathbb{R}^{T \times n}$.
+
+\subsubsection*{Key Insight}
+
+Working with $X$ directly, the equality-constrained problem yields a symmetric indefinite
+saddle-point system of size $(n+1)\times(n+1)$:
+\[
+\begin{pmatrix} 2X^\top X & \mathbf{1} \\ \mathbf{1}^\top & 0 \end{pmatrix}
+\begin{pmatrix} w \\ \lambda \end{pmatrix}
+=
+\begin{pmatrix} \mathbf{0} \\ 1 \end{pmatrix}.
+\]
+Standard CG requires positive definiteness and does not apply; MINRES \cite{paige1975} handles
+the indefinite case and never forms $X^\top X$ explicitly. The long-only constraint $w \geq 0$
+is handled by an active set loop.
+
+\subsubsection*{Solvers Compared}
+
+Four methods are benchmarked --- CVXPY/Clarabel (reference), direct KKT solve, MINRES, and
+constraint-eliminated CG --- all producing identical weights. The comparison is purely
+computational.
+
+\subsubsection*{Ledoit-Wolf Shrinkage as Preconditioner}
+
+Replacing $X$ with $\tilde{X} = [\sqrt{c}\,X;\,\sqrt{\gamma}\,I]$ incorporates Ledoit-Wolf
+shrinkage \cite{ledoit2004} without forming $\Sigma_{\mathrm{LW}}$. This compresses the eigenvalue
+spectrum and reduces Krylov iteration counts directly. Statistical regularisation and numerical
+preconditioning act on the same object: the eigenvalue distribution of the system matrix.
+
+\subsubsection*{Empirical Results}
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+ & Synthetic & S\&P~500 \\
+Method & speedup & speedup \\
+\midrule
+CVXPY (Clarabel) &   1$\times$ &   1$\times$ \\
+KKT direct       &  98$\times$ & 117$\times$ \\
+MINRES           & 644$\times$ & 354$\times$ \\
+CG (elim.)       & 558$\times$ & 385$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Results shown with Ledoit-Wolf shrinkage applied. On S\&P~500 data, MINRES drops from
+214 to 105 iterations with shrinkage; CG drops from 387 to 117. Real equity data is harder than
+synthetic due to a dominant market factor that inflates the condition number, making shrinkage
+more impactful in practice.
+
+\subsubsection*{Scaling}
+
+MINRES scales empirically as $O(n^2)$ vs.\ $O(n^3)$ for the direct solve; the gap widens beyond
+$n \approx 300$. In the rank-deficient regime ($T < n$), shrinkage is essential: without it the
+KKT system is singular and iterative solvers do not converge.
+
+\subsubsection*{Conclusion}
+
+The minimum variance portfolio problem, formulated directly in terms of the returns matrix, is a
+structured linear algebra problem. Ledoit-Wolf shrinkage and Krylov preconditioning theory address
+different problems but act on the same object. The KKT saddle-point structure extends naturally to
+the full Markowitz mean-variance setting; this generalisation is developed in a companion paper.
+
+\renewcommand{\refname}{\small References}
+\begingroup
+\small
+\bibliographystyle{plain}
+\bibliography{refs}
+\endgroup
+
+\end{document}

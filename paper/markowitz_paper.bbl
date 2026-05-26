@@ -1,0 +1,88 @@
+\begin{thebibliography}{10}
+
+\bibitem{bajeux2012}
+{\sc I.~Bajeux-Besnainou, W.~Bandara, and E.~Bura}, {\em A {K}rylov subspace
+  approach to large portfolio optimization}, Journal of Economic Dynamics and
+  Control, 36 (2012), pp.~1688--1699.
+
+\bibitem{benzi2005}
+{\sc M.~Benzi, G.~H. Golub, and J.~Liesen}, {\em Numerical solution of saddle
+  point problems}, Acta Numerica, 14 (2005), pp.~1--137.
+
+\bibitem{boyd2004}
+{\sc S.~Boyd and L.~Vandenberghe}, {\em Convex Optimization}, Cambridge
+  University Press, 2004.
+
+\bibitem{bunch1977}
+{\sc J.~R. Bunch and L.~Kaufman}, {\em Some stable methods for calculating
+  inertia and solving symmetric linear systems}, Mathematics of Computation, 31
+  (1977), pp.~163--179.
+
+\bibitem{choi2006}
+{\sc S.-C.~T. Choi}, {\em Iterative Methods for Singular Linear Equations and
+  Least-Squares Problems}, phd thesis, Stanford University, 2006.
+
+\bibitem{diamond2016}
+{\sc S.~Diamond and S.~Boyd}, {\em {CVXPY}: A {Python}-embedded modeling
+  language for convex optimization}, Journal of Machine Learning Research, 17
+  (2016), pp.~1--5.
+
+\bibitem{fischer1996}
+{\sc B.~Fischer}, {\em Polynomial Based Iteration Methods for Symmetric Linear
+  Systems}, Wiley-Teubner, 1996.
+
+\bibitem{golub2013}
+{\sc G.~H. Golub and C.~F. Van~Loan}, {\em Matrix Computations}, Johns Hopkins
+  University Press, 4th~ed., 2013.
+
+\bibitem{clarabel2024}
+{\sc P.~J. Goulart and Y.~Chen}, {\em Clarabel: An interior-point solver for
+  conic optimisation problems with quadratic objectives}, INFORMS Journal on
+  Computing, 36 (2024), pp.~481--499.
+
+\bibitem{greenbaum1997}
+{\sc A.~Greenbaum}, {\em Iterative Methods for Solving Linear Systems}, vol.~17
+  of Frontiers in Applied Mathematics, SIAM, Philadelphia, 1997.
+
+\bibitem{hestenes1952}
+{\sc M.~R. Hestenes and E.~Stiefel}, {\em Methods of conjugate gradients for
+  solving linear systems}, Journal of Research of the National Bureau of
+  Standards, 49 (1952), pp.~409--436.
+
+\bibitem{ledoit2004}
+{\sc O.~Ledoit and M.~Wolf}, {\em A well-conditioned estimator for
+  large-dimensional covariance matrices}, Journal of Multivariate Analysis, 88
+  (2004), pp.~365--411.
+
+\bibitem{markowitz1952}
+{\sc H.~Markowitz}, {\em Portfolio selection}, Journal of Finance, 7 (1952),
+  pp.~77--91.
+
+\bibitem{paige1975}
+{\sc C.~C. Paige and M.~A. Saunders}, {\em Solution of sparse indefinite
+  systems of linear equations}, SIAM Journal on Numerical Analysis, 12 (1975),
+  pp.~617--629.
+
+\bibitem{schmelzer2004}
+{\sc T.~Schmelzer}, {\em Block {K}rylov methods for {H}ermitian linear
+  systems}, diploma thesis, Department of Mathematics, University of
+  Kaiserslautern, 2004.
+
+\bibitem{fast_minimum_variance}
+{\sc T.~Schmelzer}, {\em fast-minimum-variance: Solving minimum variance
+  portfolios fast}.
+\newblock \url{https://github.com/Jebel-Quant/fast_minimum_variance}, 2026.
+\newblock {MIT} License.
+
+\bibitem{minvar_paper}
+{\sc T.~Schmelzer, M.~Wolf, and M.~Stoll}, {\em Krylov methods for the minimum
+  variance portfolio}.
+\newblock Working paper, Jebel Quant, 2026.
+
+\bibitem{simoncini2013}
+{\sc V.~Simoncini and D.~B. Szyld}, {\em On the superlinear convergence of
+  {MINRES}}, in Numerical Mathematics and Advanced Applications 2011, Springer,
+  2013.
+\newblock Proceedings of {ENUMATH} 2011.
+
+\end{thebibliography}
