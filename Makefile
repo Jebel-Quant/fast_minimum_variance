@@ -3,6 +3,7 @@
 
 DEFAULT_AI_MODEL=claude-sonnet-4.6
 LOGO_FILE=.rhiza/assets/rhiza-logo.svg
+GH_AW_ENGINE ?= copilot  # Default AI engine for gh-aw workflows (copilot, claude, or codex)
 
 # Override template default: fix quoting bug and typo (mkdocstring -> mkdocstrings)
 MKDOCS_EXTRA_PACKAGES = --with-editable . --with 'mkdocstrings[python]'
@@ -12,11 +13,3 @@ include .rhiza/rhiza.mk
 
 # Optional: developer-local extensions (not committed)
 -include local.mk
-
-.PHONY: paper
-paper: ## Build the LaTeX paper to PDF (pdflatex + bibtex + pdflatex x2)
-	cd paper && \
-	  pdflatex -interaction=nonstopmode minvar_paper.tex > /dev/null && \
-	  bibtex minvar_paper && \
-	  pdflatex -interaction=nonstopmode minvar_paper.tex > /dev/null && \
-	  pdflatex -interaction=nonstopmode minvar_paper.tex | grep -E "Output written|Warning|Error" || true
