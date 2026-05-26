@@ -43,8 +43,8 @@ def _():
     print("=" * 70)
     file = Path(__file__).parent / "data" / "sp500_pct_returns.parquet"
     df = pd.read_parquet(file)
-    R_sp = df.to_numpy()
-    T_sp, N_sp = R_sp.shape
+    R_sp = df.to_numpy()  # noqa: N806
+    _T_sp, N_sp = R_sp.shape  # noqa: N806
     alpha_sp = 0.5
     target_sp = np.var(R_sp) * np.eye(N_sp)  # mean squared entry = bar_lambda
     print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}")
@@ -69,7 +69,7 @@ def _():
 
     sp_no_lw, sp_lw = {}, {}
     for key, fn in configs_sp_no_lw:
-        (w, iters), t = run_timed(fn)
+        (_w, iters), t = run_timed(fn)
         sp_no_lw[key] = {"time_s": t, "iters": iters}
     for key, fn in configs_sp_lw:
         (_w, iters), t = run_timed(fn)
@@ -91,8 +91,8 @@ def _():
     print(f"{'n':>6}  {'kkt':>10}  {'cg':>10}  {'nnls':>10}")
     print("-" * 44)
     for n in ns:
-        T = 2 * n
-        R = rng2.standard_normal((T, n))
+        T = 2 * n  # noqa: N806
+        R = rng2.standard_normal((T, n))  # noqa: N806
         alpha = n / (n + T)
         bar_lam = float(np.linalg.norm(R, "fro") ** 2) / (n * T)
         tgt = bar_lam * np.eye(n)
@@ -106,8 +106,8 @@ def _():
 
     # ── Panel B: iterations vs shrinkage intensity alpha ──────────────────────────
 
-    n_iter, T_iter = 500, 250
-    R_iter = np.random.default_rng(1).standard_normal((T_iter, n_iter))
+    n_iter, T_iter = 500, 250  # noqa: N806
+    R_iter = np.random.default_rng(1).standard_normal((T_iter, n_iter))  # noqa: N806
     bar_lambda_iter = float(np.linalg.norm(R_iter, "fro") ** 2) / (n_iter * T_iter)
     alphas = np.linspace(0.01, 0.99, 40)
     cg_iters_by_alpha = []

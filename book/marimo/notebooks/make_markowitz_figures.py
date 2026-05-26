@@ -40,7 +40,7 @@ def _():
             lo = k * size
             hi = lo + size if k < n_sectors - 1 else N
             sector[lo:hi, k] = 1.0
-        C = np.hstack([-np.eye(N), sector])
+        C = np.hstack([-np.eye(N), sector])  # noqa: N806
         d = np.concatenate([np.zeros(N), np.full(n_sectors, cap)])
         return C, d
 
@@ -51,10 +51,10 @@ def _():
     print("=" * 70)
 
     rng = np.random.default_rng(0)
-    N_bench, T_bench = 1000, 2000
-    X_bench = rng.standard_normal((T_bench, N_bench))
+    N_bench, T_bench = 1000, 2000  # noqa: N806
+    X_bench = rng.standard_normal((T_bench, N_bench))  # noqa: N806
     mu_bench = rng.standard_normal(N_bench)
-    C_bench, d_bench = make_constraints(N_bench, 5, 0.25)
+    C_bench, d_bench = make_constraints(N_bench, 5, 0.25)  # noqa: N806
     alpha_bench = N_bench / (N_bench + T_bench)
 
     configs = [
@@ -106,10 +106,10 @@ def _():
     print("-" * 32)
 
     for n in ns:
-        T = 2 * n
-        X = rng2.standard_normal((T, n))
+        T = 2 * n  # noqa: N806
+        X = rng2.standard_normal((T, n))  # noqa: N806
         mu = rng2.standard_normal(n)
-        C, d = make_constraints(n, 5, 0.25)
+        C, d = make_constraints(n, 5, 0.25)  # noqa: N806
         alpha = n / (n + T)
         _, t_kkt = run_timed(
             lambda x=X, cc=C, dd=d, mm=mu: Problem(x, C=cc, d=dd, rho=0.5, mu=mm).solve_kkt(project=False)
@@ -130,10 +130,10 @@ def _():
     print("Efficient frontier  N=500, T=1000, 5 sector caps (21 rho values)")
     print("=" * 70)
 
-    N_ef, T_ef = 500, 1000
-    X_ef = np.random.default_rng(2).standard_normal((T_ef, N_ef))
+    N_ef, T_ef = 500, 1000  # noqa: N806
+    X_ef = np.random.default_rng(2).standard_normal((T_ef, N_ef))  # noqa: N806
     mu_ef = np.random.default_rng(3).standard_normal(N_ef)
-    C_ef, d_ef = make_constraints(N_ef, 5, 0.25)
+    C_ef, d_ef = make_constraints(N_ef, 5, 0.25)  # noqa: N806
     alpha_ef = N_ef / (N_ef + T_ef)
     rhos = np.linspace(0, 2, 21)
 
