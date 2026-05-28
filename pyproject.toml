@@ -8,6 +8,10 @@ version = "0.7.0"
 description = "Constructing minimum variance portfolios"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "Thomas Schmelzer", email = "thomas.s@yukkalab.com"},
+]
 dependencies = [
     "numpy>=2.0.0",
     "scipy>=1.0",
@@ -17,6 +21,10 @@ dependencies = [
     "cvx-linalg",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Jebel-Quant/fast_minimum_variance"
+Repository = "https://github.com/Jebel-Quant/fast_minimum_variance"
+
 #[project.optional-dependencies]
 #convex = [
 #    "cvxpy>=1.0",
@@ -25,6 +33,10 @@ dependencies = [
 #]
 
 [dependency-groups]
+lint = []
+test = [
+    "pytest>=8.0",
+]
 dev = [
     "marimo>=0.20.0",
     "matplotlib>=3.10.9",
