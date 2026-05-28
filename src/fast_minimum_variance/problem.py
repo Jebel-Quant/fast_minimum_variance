@@ -52,6 +52,7 @@ class _Problem(_BaseProblem):
         iters = [0]
 
         def _count(_):
+            """Increment iteration counter on each MINRES callback."""
             iters[0] += 1
 
         x, _ = minres(op, rhs, callback=_count)
