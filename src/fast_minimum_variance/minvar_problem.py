@@ -176,7 +176,7 @@ class _MinVarProblem(_BaseProblem):
                 return (x_a.T @ (x_a @ v)) / self.t
             return (1.0 - self.alpha) * (x_a.T @ (x_a @ v)) / self.t + self.alpha * (target_sub @ v)
 
-        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
         iters = [0]
 
@@ -209,7 +209,7 @@ class _MinVarProblem(_BaseProblem):
         )
 
         b_vec = np.concatenate([[1.0], np.zeros(n)])
-        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
+        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
         return a_mat, b_vec, cones
 
     def _osqp_constraints(self):
