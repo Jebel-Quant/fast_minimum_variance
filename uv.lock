@@ -461,10 +461,10 @@ test = [
 requires-dist = [
     { name = "clarabel", specifier = ">=0.11.0" },
     { name = "cvx-linalg" },
-    { name = "cvxpy", specifier = ">=1.0" },
+    { name = "cvxpy", specifier = ">=1.8" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "osqp", specifier = ">=1.1.1" },
-    { name = "scipy", specifier = ">=1.0" },
+    { name = "scipy", specifier = ">=1.14" },
 ]
 
 [package.metadata.requires-dev]
