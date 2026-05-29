@@ -52,6 +52,7 @@ class _Problem(_BaseProblem):
         iters = [0]
 
         def _count(_):
+            """Increment iteration counter on each MINRES callback."""
             iters[0] += 1
 
         x, _ = minres(op, rhs, callback=_count)
@@ -182,7 +183,7 @@ class _Problem(_BaseProblem):
             rhs[:na] = self.rho * self.mu
         rhs[na:] = np.concatenate([self.b, self.d[active]])
 
-        return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg]
+        return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg, missing-argument, unknown-argument]  # ty:ignore[missing-argument, unknown-argument]
 
     def _clarabel_constraints(self):
         """Return equality and inequality constraints for Clarabel."""
@@ -192,7 +193,7 @@ class _Problem(_BaseProblem):
         assert self.d is not None  # noqa: S101
         a_mat = vstack([csc_matrix(self.A.T), csc_matrix(self.C.T)], format="csc")
         b_vec = np.concatenate([self.b, self.d])
-        cones = [clarabel.ZeroConeT(self._m), clarabel.NonnegativeConeT(len(self.d))]  # type: ignore[attr-defined]
+        cones = [clarabel.ZeroConeT(self._m), clarabel.NonnegativeConeT(len(self.d))]  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
         return a_mat, b_vec, cones
 
     def _osqp_constraints(self):

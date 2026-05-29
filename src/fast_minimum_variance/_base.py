@@ -275,9 +275,9 @@ class _BaseProblem(ABC):
 
         a_mat, b_vec, cones = self._clarabel_constraints()
 
-        settings = clarabel.DefaultSettings()  # type: ignore[attr-defined]
+        settings = clarabel.DefaultSettings()  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
         settings.verbose = False
-        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # type: ignore[attr-defined]
+        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
 
         w = np.array(sol.x)
         if project:
