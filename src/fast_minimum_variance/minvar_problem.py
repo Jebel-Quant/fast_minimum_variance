@@ -7,6 +7,7 @@ import numpy as np
 from scipy.optimize import nnls
 from scipy.sparse import csc_matrix, eye, vstack
 from scipy.sparse.linalg import LinearOperator, cg
+from sklearn.utils.extmath import randomized_svd
 
 from ._base import _BaseProblem
 
@@ -212,7 +213,7 @@ class _MinVarProblem(_BaseProblem):
         cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined]
         return a_mat, b_vec, cones
 
-    def _precon_cg_step(self, active, k=50):
+    def _precon_cg_step(self, active, k=40):
         """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
 
         Builds a ``LinearOperator`` for ``v -> (1-alpha)*X_a'*(X_a*v) + alpha*target_sub*v``
@@ -247,14 +248,31 @@ class _MinVarProblem(_BaseProblem):
             else:
                 alpha_scalar = self.alpha * float(target_sub)
 
-        # Compute exact economy SVD
-        _u, s, vt = np.linalg.svd(x_a, full_matrices=False)
+        method = "randomized"
+        random_state = 42
 
-        # Truncate to your desired rank-k subspace
-        # (Safeguard in case k is larger than the actual dimensions of x_a)
-        rank_k = min(k, len(s))
-        s_k = s[:rank_k]
-        vt_k = vt[:rank_k, :]  # Shape: (rank_k, n_a)
+        if method == "randomized":
+            # Randomized SVD (Fast approximation)
+            rank_k = min(k, x_a.shape[0], x_a.shape[1])
+            _u, s_k, vt_k = randomized_svd(x_a, n_components=rank_k, n_iter=4, random_state=random_state)
+
+        elif method == "exact":
+            # Compute exact economy SVD
+            _u, s, vt = np.linalg.svd(x_a, full_matrices=False)
+
+            # Truncate to your desired rank-k subspace
+            rank_k = min(k, len(s))
+            s_k = s[:rank_k]
+            vt_k = vt[:rank_k, :]
+
+        # # Compute exact economy SVD
+        # _u, s, vt = np.linalg.svd(x_a, full_matrices=False)
+
+        # # Truncate to your desired rank-k subspace
+        # # (Safeguard in case k is larger than the actual dimensions of x_a)
+        # rank_k = min(k, len(s))
+        # s_k = s[:rank_k]
+        # vt_k = vt[:rank_k, :]  # Shape: (rank_k, n_a)
 
         # Due to Vt_k @ Vt_k.T = I, the Woodbury inner matrix simplifies to a diagonal.
         # Avoid division-by-zero for tiny singular values by clipping at 1e-12

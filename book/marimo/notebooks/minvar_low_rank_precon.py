@@ -24,7 +24,7 @@ with app.setup:
 
     import numpy as np
     import pandas as pd
-    from _common import print_table, run_timed
+    from _common import run_timed
 
     from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
@@ -42,32 +42,61 @@ def _():
     df = pd.read_parquet(file)
     R_sp = df.to_numpy()
     T_sp, N_sp = R_sp.shape
-    alpha_sp = 0.5
     target_sp = np.var(R_sp) * np.eye(N_sp)  # mean squared entry = bar_lambda
     print(f"Date range: {df.index[0].date()} → {df.index[-1].date()}")
-    print(f"alpha = {alpha_sp:.4f}")
 
-    configs_sp_no_lw = [
-        ("cg", lambda: MinVarProblem(R_sp).solve_precon_cg()),
-    ]
-    configs_sp_lw = [
-        ("cg", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_precon_cg()),
-    ]
+    alphas = np.linspace(0.05, 0.95, 10)
+    results = {}
 
-    sp_no_lw, sp_lw = {}, {}
-    for key, fn in configs_sp_no_lw:
-        (w, iters), t = run_timed(fn)
-        sp_no_lw[key] = {"time_s": t, "iters": iters}
-    for key, fn in configs_sp_lw:
-        (_w, iters), t = run_timed(fn)
-        sp_lw[key] = {"time_s": t, "iters": iters}
+    for alpha in alphas:
+        configs = [("cg", lambda a=alpha: MinVarProblem(R_sp, alpha=a, target=target_sp).solve_precon_cg())]
+        row = {}
+        for key, fn in configs:
+            (_w, iters), t = run_timed(fn)
+            row[key] = {"time_s": t, "iters": iters}
+        results[alpha] = row
 
-    print_table(f"With LW shrinkage (alpha={alpha_sp:.4f})", sp_lw, "cg")
+    # ── output ──────────────────────────────────────────────────────────────
+    print(f"\n{'Alpha':>8} │ {'CG Iters':>10} │ {'Time (s)':>10}")
+    print("─" * 35)
+    for alpha, row in results.items():
+        iters = row["cg"]["iters"]
+        t = row["cg"]["time_s"]
+        print(f"{alpha:>8.4f} │ {iters:>10d} │ {t:>10.4f}")
+
+    # configs_sp_lw = [
+    #     ("cg", lambda: MinVarProblem(R_sp, alpha=alpha_sp).solve_precon_cg())
+    # ]
+
+    # sp_lw = {}
+    # for key, fn in configs_sp_lw:
+    #     (_w, iters), t = run_timed(fn)
+    #     sp_lw[key] = {"time_s": t, "iters": iters}
+
+    # print_table(f"With LW shrinkage (alpha={alpha_sp:.4f})", sp_lw, "cg")
     return
 
 
 @app.cell
 def _():
+    import importlib.metadata
+
+    import marimo as mo
+
+    package_name = "fast_minimum_variance"  # <-- Replace with your package name
+
+    try:
+        dist = importlib.metadata.distribution(package_name)
+        direct_url = dist.read_text("direct_url.json")
+
+        if direct_url and '"editable": true' in direct_url:
+            status = mo.md(f"🔄 **{package_name}** is in **EDITABLE** mode. Changes take effect immediately.")
+        else:
+            status = mo.md(f"📦 **{package_name}** is in **STATIC** mode. You must reinstall to see changes.")
+    except importlib.metadata.PackageNotFoundError:
+        status = mo.md(f"❌ **{package_name}** is not installed in this environment.")
+
+    status
     return
 
 
