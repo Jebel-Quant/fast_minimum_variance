@@ -6,6 +6,8 @@ import pytest
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 from fast_minimum_variance.problem import _Problem as Problem
 
+NONNEGATIVE_TOLERANCE = 1e-8
+
 
 def _make_returns(T, N, seed=42):  # noqa: N803
     return np.random.default_rng(seed).standard_normal((T, N))
@@ -86,6 +88,24 @@ class TestMinVarSolveClarabel:
         w, iters = mvp.solve_clarabel(project=False)
         assert w.shape == (mvp.n,)
         assert iters >= 1
+
+    def test_boyd_experiment_orthogonal_factors(self):
+        """Orthogonal-factor MinVarProblem matches the simplex-constrained optimum."""
+        rng = np.random.default_rng(0)
+        x_mat, _ = np.linalg.qr(rng.standard_normal((5000, 50)))
+        gram = x_mat.T @ x_mat
+        np.testing.assert_allclose(gram, np.eye(50), atol=1e-10)
+
+        p = MinVarProblem(x_mat)
+        w, iters = p.solve_clarabel(project=False)
+
+        expected = np.full(50, 1.0 / 50.0)
+        assert w.shape == (50,)
+        assert iters >= 1
+        assert np.all(w >= -NONNEGATIVE_TOLERANCE), "Clarabel returned weights below non-negativity tolerance"
+        assert w.sum() == pytest.approx(1.0, abs=1e-6)
+        np.testing.assert_allclose(w, expected, atol=1e-5)
+        assert w @ gram @ w == pytest.approx(1.0 / 50.0, abs=1e-5)
 
 
 # ---------------------------------------------------------------------------
