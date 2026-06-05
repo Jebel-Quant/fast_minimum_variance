@@ -24,6 +24,9 @@ _benchmarks
 _jupyter
 _site
 
+# Paper folder (local only)
+paper/
+
 # LaTeX build artifacts
 docs/paper/*.aux
 docs/paper/*.fdb_latexmk
