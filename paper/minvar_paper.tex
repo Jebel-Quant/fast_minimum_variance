@@ -53,26 +53,31 @@
 
 \begin{abstract}
 The long-only minimum variance portfolio is routinely solved by assembling a sample covariance
-matrix and dispatching it to a general-purpose quadratic program. Both steps are unnecessary
-and expensive.
+matrix and dispatching it to a general-purpose quadratic program. Both steps are unnecessary:
+the covariance matrix is not a primitive of the problem---it is a computational detour.
 
-Conjugate gradients applied matrix-free to the returns matrix $X$ solve the problem in $O(nT)$
-work per iteration without ever forming the $n\times n$ covariance; a primal-dual active-set
-loop enforces non-negativity with negligible overhead. The covariance matrix is not a primitive
-of the problem---it is a computational detour.
+We propose two matrix-free strategies that operate directly on the returns matrix $X$ and
+never form the $n\times n$ covariance $\hat\Sigma = X^\top X/T$.  The first applies conjugate
+gradients within a primal-dual active-set loop: each CG step evaluates $\hat\Sigma v$ as two
+matrix-vector products with $X$ at $O(nT)$ cost, and the outer loop enforces non-negativity
+by iterating over a shrinking active set with a certified KKT stopping criterion.  The second
+treats the budget and non-negativity constraints as a single object---the probability simplex
+$\Delta_n = \{w : \mathbf{1}^\top w = 1,\, w \geq 0\}$---and projects each gradient step
+directly onto $\Delta_n$, eliminating the outer loop entirely.  The projection costs $O(n\log n)$
+\cite{duchi2008,condat2016} and the gradient remains matrix-free at $O(nT)$.
 
 Ledoit-Wolf shrinkage, already standard practice for statistical reasons, turns out to be
 identical to spectral preconditioning of the linear system: the same ridge term that shrinks
-sample eigenvalues toward their mean also compresses the condition number and reduces CG iteration
-counts dramatically. Statistical regularization and numerical preconditioning are the same
-operation applied to the same matrix, a connection that does not appear to have been made
-explicit in the existing literature.
+sample eigenvalues toward their mean also compresses the condition number $\kappa$ and reduces
+iteration counts for both methods.  Statistical regularization and numerical preconditioning
+are the same operation applied to the same matrix, a connection that does not appear to have
+been made explicit in the existing literature.
 
 Numerical experiments on S\&P~500 equity data and synthetic problems of growing size show
-order-of-magnitude speedups over interior-point solvers. For standard portfolio sizes a direct
-KKT solve already captures most of the gain; the matrix-free advantage of CG becomes decisive
-at larger $n$, where avoiding explicit covariance assembly reduces per-step cost from $O(n^2)$
-to $O(Tn)$.
+order-of-magnitude speedups over interior-point solvers.  For standard portfolio sizes a direct
+KKT solve already captures most of the gain; at larger $n$ the matrix-free methods become
+decisive, with CG offering $O(\sqrt\kappa)$ convergence and the simplex-projection approach
+a loop-free alternative at $O(\kappa)$ convergence.
 \end{abstract}
 
 \section{Introduction}
@@ -89,7 +94,6 @@ vector of asset returns. In practice, $\Sigma$ is unknown and must be estimated 
 %This paper argues that both steps are unnecessary and expensive.
 %\tcr{This is a bit confusing. What is meant by the first step? Estimating $\Sigma$? That is certainly necessary. Estimating $\Sigma$ by the sample covariance matrix?}
 
-\tcb{
 The Lagrangian for the problem
 \[
 \min_w\; w^\top \hat \Sigma w \quad \text{subject to} \quad \mathbf{1}^\top w = 1,
@@ -103,17 +107,8 @@ single rescaling
 \[
 w = v/(\mathbf{1}^\top v), \qquad v = \hat \Sigma^{-1}\mathbf{1}.
 \]
-What has \emph{not} been done is to exploit this structure computationally: the standard pipeline still forms $\hat \Sigma = X^\top X/T$ explicitly before solving.
-}
-
-%That the minimum-variance solution satisfies $w \propto \Sigma^{-1}\mathbf{1}$, where $\mathbf{1}$ denotes a conformable vector of ones,
-%is a classical observation: it follows
-%directly from the KKT stationarity condition $2\Sigma w = \lambda\mathbf{1}$
-%\tcr{At this point, many readers will not know what is meant by KKT.}
-%and was made explicit by
-%\cite{merton1972} in the context of the efficient frontier.  The budget constraint is recovered by the single rescaling
-%$w = v/(\mathbf{1}^\top v)$ where $v = \Sigma^{-1}\mathbf{1}$.  What has \emph{not} been done is to exploit this
-%structure computationally: the standard pipeline still forms $\Sigma = X^\top X/T$ explicitly before solving.
+What has \emph{not} been done is to exploit this structure computationally: the
+standard pipeline still forms $\hat \Sigma = X^\top X/T$ explicitly before solving.
 
 This paper makes two contributions.  First, we apply conjugate gradients (CG) to $\hat \Sigma v = \mathbf{1}$
 \emph{matrix free}: $\hat \Sigma = X^\top X$  never needs to be assembled explicitly.  Each CG iteration requires only two matrix-vector products
@@ -128,10 +123,12 @@ Statistical regularization and spectral preconditioning are, in this
 problem, the same operation applied to the same matrix---a connection that does not appear to have been made explicit in
 the existing literature.
 
-CG of Hestenes and Stiefel \cite{hestenes1952} is a cornerstone of large-scale scientific computing; e.g., see Golub and van Loan \cite{golub2013}. However, to the best of our knowledge it has not been
-applied yet
-to portfolio optimisation in the matrix-free form described here. The closest related work applies GMRES to the minimum
-variance problem when $\hat \Sigma$ is singular~\cite{bajeux2012}; that formulation still assembles $X^\top X$ and does not
+CG of Hestenes and Stiefel \cite{hestenes1952} is a cornerstone of large-scale scientific computing;
+e.g., see Golub and van Loan \cite{golub2013}. However, to the best of our knowledge it has not been
+applied yet to portfolio optimisation in the matrix-free form described here.
+The closest related work applies GMRES to the minimum
+variance problem when $\hat \Sigma$ is singular~\cite{bajeux2012}; that
+formulation still assembles $X^\top X$ and does not
 exploit the SPD structure or consider preconditioning. General-purpose solvers such as
 Clarabel~\cite{clarabel2024} handle the long-only constraint natively
 but require as input an estimate of the covariance matrix.
