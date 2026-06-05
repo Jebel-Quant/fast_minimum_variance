@@ -136,6 +136,29 @@ solver.  The Lipschitz constant $L = \lambda_{\max}(\tilde{X}^\top\tilde{X})$, n
 for the step size $\tau = 1/(2L)$, is estimated once by power iteration on $\tilde{X}$,
 again matrix-free.
 
+\begin{algorithm}[ht]
+\caption{Simplex-projection solver (proximal gradient, matrix-free)}\label{alg:proximal}
+\begin{algorithmic}[1]
+\Require Stacked matrix $\tilde{X} \in \mathbb{R}^{(T+n_R)\times n}$;\;
+         tolerance $\varepsilon = 10^{-6}$;\; $k_{\max} = 1{,}000$
+\Ensure Weight vector $w \in \Delta_n$
+\State Estimate $L \leftarrow \lambda_{\max}(\tilde{X}^\top\tilde{X})$ by power iteration
+  \hfill\textit{(matrix-free, $O(n_{\mathrm{pow}}\cdot nT)$)}
+\State $\tau \leftarrow (2L)^{-1}$;\; initialise $w_0 \in \mathbb{R}^n$ randomly;\; $k \leftarrow 0$
+\Loop
+  \State $g \leftarrow \tilde{X}^\top(\tilde{X}w_k)$
+    \hfill\textit{(matrix-free gradient, $O(nT)$)}
+  \State $w_{k+1} \leftarrow \Pi_{\Delta_n}(w_k - \tau\,g)$
+    \hfill\textit{(simplex projection, $O(n\log n)$)}
+  \If{$\|w_{k+1} - w_k\|_2 \leq \varepsilon$ \textbf{or} $k \geq k_{\max}$}
+    \textbf{ break}
+  \EndIf
+  \State $k \leftarrow k + 1$
+\EndLoop
+\State \Return $w_{k+1}$
+\end{algorithmic}
+\end{algorithm}
+
 \medskip
 The two strategies make different tradeoffs. The active-set loop solves a sequence of
 linear systems and benefits from fast inner solvers (Section~\ref{sec:solvers}); its
