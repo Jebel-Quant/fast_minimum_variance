@@ -284,6 +284,49 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, sol.iterations
 
+    def solve_proximal(self, *, project: bool = True):
+        """Solve via proximal gradient descent projected onto the probability simplex.
+
+        Minimises ``0.5 * w^T Σ_LW w`` subject to ``w >= 0, sum(w) = 1`` by
+        casting the objective as a least-squares problem and applying the
+        Duchi et al. (2008) simplex-projection step.  Return tilt (``rho != 0``)
+        is not supported.
+
+        Args:
+            project: Clip and renormalize after solving (see ``solve_kkt``).
+
+        Returns:
+            ``(w, 1)`` — weight vector of shape ``(N,)`` and iteration count
+            (always 1; the inner iteration count is not exposed).
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_proximal()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        from .proximal import prox_gradient
+
+        if self.target is None:
+            mat = self.X / np.sqrt(self.t)
+            vec = np.zeros(self.t)
+        else:
+            chol_t = np.linalg.cholesky(self.target)
+            mat = np.vstack([
+                np.sqrt(1.0 - self.alpha) / np.sqrt(self.t) * self.X,
+                np.sqrt(self.alpha) * chol_t.T,
+            ])
+            vec = np.zeros(mat.shape[0])
+
+        w = prox_gradient(mat, vec)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, 1
+
     def solve_osqp(self, *, project: bool = True):
         """Solve via OSQP (operator-splitting QP solver, direct API, no CVXPY overhead).
 
