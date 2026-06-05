@@ -1,0 +1,107 @@
+\section{Enforcing Non-Negativity}\label{sec:primaldual}
+
+Section~\ref{sec:pd} reduces the long-only problem to solving an SPD system, leaving
+$w \geq 0$ as the sole remaining constraint.  Two strategies are available.
+
+\paragraph{Active-set strategy}
+The first strategy separates the budget constraint from the non-negativity constraint.
+The budget-only problem is solved over a dynamically adjusted \emph{active set} of
+assets; non-negativity is then enforced iteratively without ever modifying the inner
+solve.
+
+In the \emph{primal step}, any asset with a negative weight is dropped from the active
+set and the budget-constrained SPD system is re-solved on the reduced universe.  Once
+all active weights are non-negative, the \emph{dual step} checks the KKT gradient
+condition for every excluded asset: global optimality requires every excluded asset $i$
+to satisfy
+\[
+  \nabla_i f(w) \;\geq\; \lambda\;,
+  \qquad
+  \nabla_i f(w) = \tfrac{2}{T}(X^\top Xw)_i - \rho\hat\mu_i\;,
+\]
+where $\lambda$ is the budget Lagrange multiplier recovered analytically from
+Section~\ref{sec:pd}.  An excluded asset that violates this condition would decrease
+portfolio variance if held at a small positive weight; it is re-added to the active set
+and the loop repeats.  The loop terminates when both primal and dual feasibility hold;
+together with stationarity from the inner solve this certifies global optimality.
+
+\begin{algorithm}[ht]
+\caption{Active-set outer loop (wraps any inner solver $f$)}\label{alg:elim}
+\begin{algorithmic}[1]
+\Require Inner solver $f$;\; tolerance $\varepsilon = 10^{-6}$
+\Ensure Weight vector $w \in \mathbb{R}^n$;\; total inner iteration count $k$
+\State $\mathrm{active} \leftarrow \{1,\ldots,n\}$;\; $k \leftarrow 0$
+\Loop
+  \State $(w_{\mathrm{a}},\, k_{\mathrm{step}}) \leftarrow f(\mathrm{active})$;\; $k \leftarrow k + k_{\mathrm{step}}$
+  \If{$\exists\, i \in \mathrm{active}$ with $w_{a,i} < -\varepsilon$}
+    \State $\mathrm{active} \leftarrow \mathrm{active} \setminus \{i : w_{a,i} < -\varepsilon\}$
+      \hfill\textit{(primal step: drop violators)}
+  \Else
+    \State $w_i \leftarrow w_{a,i}$ for $i \in \mathrm{active}$;\; $w_i \leftarrow 0$ for $i \notin \mathrm{active}$
+    \State $g_i \leftarrow \tfrac{2}{T}(X^\top Xw)_i - \rho\hat\mu_i$
+    \State $\lambda \leftarrow \mathrm{mean}_{j \in \mathrm{active}}(g_j)$
+    \State $\mathcal{V} \leftarrow \{i \notin \mathrm{active} : g_i < \lambda - \varepsilon\}$
+    \If{$\mathcal{V} = \emptyset$}
+      \State \textbf{break} \hfill\textit{(KKT satisfied; globally optimal)}
+    \EndIf
+    \State $\mathrm{active} \leftarrow \mathrm{active} \cup \mathcal{V}$
+      \hfill\textit{(dual step: re-add violators)}
+  \EndIf
+\EndLoop
+\State \Return $w$, $k$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Simplex-projection strategy}
+The second strategy treats the two constraints as a single geometric object: the
+probability simplex
+$\Delta_n = \{w \in \mathbb{R}^n : \mathbf{1}^\top w = 1,\, w \geq 0\}$.
+Rather than separating budget and non-negativity, gradient steps of the form
+\[
+  w_{k+1} = \Pi_{\Delta_n}\!\left(w_k - \tau\,\nabla f(w_k)\right)
+\]
+project directly onto $\Delta_n$ after each descent step, where $\Pi_{\Delta_n}$
+is the Euclidean projection.
+Duchi et al.\ \cite{duchi2008} and Condat~\cite{condat2016} show that $\Pi_{\Delta_n}$ can be computed in
+$O(n\log n)$ by a single sort-and-threshold pass, making each iteration cheap.
+There is no outer loop: both constraints are handled simultaneously, and the method
+terminates when the step size $\|w_{k+1} - w_k\|$ falls below a tolerance.
+
+The gradient $\nabla f(w) = \tilde{X}^\top(\tilde{X}w) - \tilde{X}^\top\mathbf{0}
+= \tilde{X}^\top(\tilde{X}w)$ is evaluated matrix-free in $O(nT)$ using two
+matrix-vector products with $\tilde{X}$, at the same cost per step as the CG inner
+solver.  The Lipschitz constant $L = \lambda_{\max}(\tilde{X}^\top\tilde{X})$, needed
+for the step size $\tau = 1/(2L)$, is estimated once by power iteration on $\tilde{X}$,
+again matrix-free.
+
+\begin{algorithm}[ht]
+\caption{Simplex-projection solver (proximal gradient, matrix-free)}\label{alg:proximal}
+\begin{algorithmic}[1]
+\Require Stacked matrix $\tilde{X} \in \mathbb{R}^{(T+n_R)\times n}$;\;
+         tolerance $\varepsilon = 10^{-6}$;\; $k_{\max} = 1{,}000$
+\Ensure Weight vector $w \in \Delta_n$
+\State Estimate $L \leftarrow \lambda_{\max}(\tilde{X}^\top\tilde{X})$ by power iteration
+  \hfill\textit{(matrix-free, $O(n_{\mathrm{pow}}\cdot nT)$)}
+\State $\tau \leftarrow (2L)^{-1}$;\; initialise $w_0 \in \mathbb{R}^n$ randomly;\; $k \leftarrow 0$
+\Loop
+  \State $g \leftarrow \tilde{X}^\top(\tilde{X}w_k)$
+    \hfill\textit{(matrix-free gradient, $O(nT)$)}
+  \State $w_{k+1} \leftarrow \Pi_{\Delta_n}(w_k - \tau\,g)$
+    \hfill\textit{(simplex projection, $O(n\log n)$)}
+  \If{$\|w_{k+1} - w_k\|_2 \leq \varepsilon$ \textbf{or} $k \geq k_{\max}$}
+    \textbf{ break}
+  \EndIf
+  \State $k \leftarrow k + 1$
+\EndLoop
+\State \Return $w_{k+1}$
+\end{algorithmic}
+\end{algorithm}
+
+\medskip
+The two strategies make different tradeoffs. The active-set loop solves a sequence of
+linear systems and benefits from fast inner solvers (Section~\ref{sec:solvers}); its
+convergence to global optimality is certified by the KKT check. The simplex-projection
+approach is single-stage and loop-free, but converges in $O(\kappa)$ gradient steps
+versus $O(\sqrt{\kappa})$ for CG, so it is most competitive when the condition number is
+moderate or the matrix-free $O(nT)$ cost dominates.
+Section~\ref{sec:solvers} develops concrete implementations of both strategies.
