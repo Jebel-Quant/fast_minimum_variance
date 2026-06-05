@@ -135,7 +135,7 @@ exploit the SPD structure or consider preconditioning. General-purpose solvers s
 Clarabel~\cite{clarabel2024} handle the long-only constraint natively
 but require as input an estimate of the covariance matrix.
 The remainder of the paper is organized as follows.
-\mbox{Sections~\ref{sec:problem}--\ref{sec:precond}} develop the formulation and solvers; Section~\ref{sec:results} reports
+\mbox{Sections~\ref{sec:problem}--\ref{sec:solvers}} develop the formulation, shrinkage, and solvers; Section~\ref{sec:results} reports
 empirical results on both synthetic and S\&P~500 data.
 
 \section{Problem Formulation}\label{sec:problem}
@@ -351,6 +351,77 @@ versus $O(\sqrt{\kappa})$ for CG, so it is most competitive when the condition n
 moderate or the matrix-free $O(nT)$ cost dominates.
 Section~\ref{sec:solvers} develops concrete implementations of both strategies.
 
+
+
+\section{Ledoit-Wolf Shrinkage}
+\label{sec:precond}
+
+It is well known that the sample covariance matrix $\hat \Sigma = \frac{1}{T}X^\top X$ is a poor estimator
+of the true covariance matrix $\Sigma$ when $n$ is ``not small" relative to $T$: its smallest
+eigenvalues are severely downward-biased, and the condition number (the ratio of largest to smallest eigenvalue) generally far exceeds that of the true covariance matrix.
+Ledoit and Wolf \cite{ledoit2004} propose replacing the sample covariance matrix with a convex
+combination of itself and the  scaled identity matrix (called the {\em shrinkage target}):
+\[
+\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot\hat\Sigma + \alpha\cdot \bar \lambda I \quad \mbox{with} \quad
+\bar\lambda = \frac{\|X\|_{\text{F}}^2}{nT}~.
+\]
+Here $\|\cdot\|_{\text{F}}$ denotes the Frobenius norm of a square matrix, and
+$\bar\lambda$ thus denotes the average eigenvalue of the sample covariance matrix.
+The implementation  \tcr{Should we say "Our implementation"?}
+uses a generalized $N\times N$ regularization shrinkage target matrix $R$
+(satisfying $\mathrm{target} = R^\top R$), \tcr{The target cannot satisfy both target = $R$ and
+target =  $R^\top R$}
+so that
+$\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot\hat\Sigma + \alpha \cdot R^\top R$.
+\tcr{Maybe we need a more general notation here, to allow for a generalized shrinkage target.}
+Classical Ledoit-Wolf shrinkage is recovered by setting $R = \sqrt{\bar\lambda}\,I$; for i.i.d.\ $\mathcal{N}(0,1)$
+synthetic returns $\bar\lambda \approx 1$ so $R = I$ is equivalent.
+The shrinkage intensity $\alpha \in (0,1)$ is
+chosen analytically to minimize the expected Frobenius distance to the true covariance matrix, requiring no cross-validation. \tcr{This is not quite true. We are consistently estimating the optimal $\alpha$ only, we cannot guarantee to minimize the expected F-norm distance in finite samples.}
+The effect on the spectrum is direct: the target term lifts every eigenvalue, bounding the smallest away from zero and
+compressing the overall spread. \tcr{Not sure what is meant by ``lifts every eigenvalue". Classical LW shrinkage moves all sample eigenvalues towards their average. So large eigenvalues go down, whereas small eigenvalues go up.}
+The condition number satisfies:
+\[
+\kappa(\hat \Sigma_{\text{LW}}) = \frac{\lambda_{\max}(\hat \Sigma_{\text{LW}})}{\lambda_{\min}(\hat \Sigma_{\text{LW}})} \leq
+\frac{(1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)}{\alpha\lambda_{\min}(R^\top R)}~,
+\]
+since $\lambda_{\min}(\hat \Sigma_{\text{LW}}) \geq \alpha\lambda_{\min}(R^\top R)$ and, by Weyl's inequality applied to
+$\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot \hat\Sigma + \alpha \cdot R^\top R$, $\lambda_{\max}(\hat \Sigma_{\text{LW}}) \leq
+(1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)$,
+where $\lambda_{\max}(\hat\Sigma) = \lambda_{\max}(X^\top X/T)$ is
+the largest sample eigenvalue. As $\alpha \to 1$, the bound approaches $\lambda_{\max}(R^\top R)/\lambda_{\min}(R^\top R)$,
+which equals $1$ for the classical choice $R = \sqrt{\bar\lambda}\,I$, correctly reflecting that full shrinkage
+yields a scalar multiple of the identity. For fixed data, the condition number decreases monotonically as $\alpha$
+increases, with the rate governed by the spectral ratio $\lambda_{\max}(\hat\Sigma)/\lambda_{\min}(R^\top R)$. For CG applied to
+$\hat \Sigma_{\text{LW}}\,v = \mathbf{1}$, the convergence rate is governed by $\kappa(\hat \Sigma_{\text{LW}})$; compressing the
+spectrum directly reduces iteration counts. Subsequent work by the same authors provides an analytical nonlinear
+shrinkage scheme that applies a different coefficient to each sample eigenvalue, typically achieving a smaller
+Frobenius loss than linear shrinkage when $n/T$ is not negligible; see \cite{ledoit2020}.
+Unfortunately, nonlinear shrinkage cannot be expressed as a simple augmented matrix
+$\tilde{X}$, so incorporating it into the matrix-free framework would require a separate Krylov-compatible
+preconditioner rather than a modified return matrix.
+
+In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\hat \Sigma_{\text{LW}}$
+explicitly. Setting $c = 1 - \alpha$, the stacked matrix $\tilde{X}
+= [\sqrt{c/T}\,X;\,\sqrt{\alpha}\,R]$ satisfies $\tilde{X}^\top \tilde{X} = \frac{c}{T}\,X^\top X + \alpha\,R^\top R
+= c\,\hat\Sigma + \alpha\,R^\top R = \hat \Sigma_{\text{LW}}$,
+so any of the solvers in Section~\ref{sec:solvers} can be applied to $\tilde{X}$ and produce exactly the LW-shrinkage portfolio weights.
+For $R = \sqrt{\bar\lambda}\,I$, this results in the classical Ledoit-Wolf linear shrinkage: $\hat \Sigma_{\text{LW}} = (1-\alpha) \cdot \hat\Sigma + \alpha \cdot \bar\lambda\,I$.
+
+From the perspective of numerical linear algebra, compressing the eigenvalue spectrum of the system matrix is precisely
+what a preconditioner does. Ledoit-Wolf shrinkage therefore plays a dual role: it reduces statistical estimation error
+and, as a side effect, accelerates iterative solvers by reducing the condition number of the input matrix relative the sample covariance matrix. The two motivations are independent
+but arrive at the same modified matrix. \tcr{I do not quite understand the meaning of this last sentence.}
+
+The proportional identity shrinkage target $\alpha \cdot \bar\lambda I$ is the simplest choice, but the preconditioning
+literature suggests sharper alternatives. A factor-model preconditioner, replacing $\alpha \cdot \bar\lambda I$ with a
+low-rank-plus-diagonal approximation $BB^\top + D$, would cluster eigenvalues more tightly at the cost of a slightly
+more expensive application. Incomplete Cholesky factorization of the shrunk matrix provides a general-purpose option.
+For rolling-window problems where the estimated covariance matrix changes slowly between periods, a preconditioner built from the
+previous period's factorization could be reused with minimal update cost. None of these
+\tcr{none of these what, approaches, methods, \ldots?}
+require forming the covariance
+matrix explicitly and each is compatible with the matrix-free framework described above.
 
 
 \section{Computational Methods}\label{sec:solvers}
@@ -630,76 +701,6 @@ exploited further---for instance in the $\ell_1$-ball variant of the long-only c
 studied in \cite{duchi2008}---or when one prefers a conceptually simple, loop-free
 implementation at the cost of slower per-problem convergence.
 }
-
-\section{Ledoit-Wolf Shrinkage}
-\label{sec:precond}
-
-It is well known that the sample covariance matrix $\hat \Sigma = \frac{1}{T}X^\top X$ is a poor estimator
-of the true covariance matrix $\Sigma$ when $n$ is ``not small" relative to $T$: its smallest
-eigenvalues are severely downward-biased, and the condition number (the ratio of largest to smallest eigenvalue) generally far exceeds that of the true covariance matrix.
-Ledoit and Wolf \cite{ledoit2004} propose replacing the sample covariance matrix with a convex
-combination of itself and the  scaled identity matrix (called the {\em shrinkage target}):
-\[
-\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot\hat\Sigma + \alpha\cdot \bar \lambda I \quad \mbox{with} \quad
-\bar\lambda = \frac{\|X\|_{\text{F}}^2}{nT}~.
-\]
-Here $\|\cdot\|_{\text{F}}$ denotes the Frobenius norm of a square matrix, and
-$\bar\lambda$ thus denotes the average eigenvalue of the sample covariance matrix.
-The implementation  \tcr{Should we say "Our implementation"?}
-uses a generalized $N\times N$ regularization shrinkage target matrix $R$
-(satisfying $\mathrm{target} = R^\top R$), \tcr{The target cannot satisfy both target = $R$ and
-target =  $R^\top R$}
-so that
-$\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot\hat\Sigma + \alpha \cdot R^\top R$.
-\tcr{Maybe we need a more general notation here, to allow for a generalized shrinkage target.}
-Classical Ledoit-Wolf shrinkage is recovered by setting $R = \sqrt{\bar\lambda}\,I$; for i.i.d.\ $\mathcal{N}(0,1)$
-synthetic returns $\bar\lambda \approx 1$ so $R = I$ is equivalent.
-The shrinkage intensity $\alpha \in (0,1)$ is
-chosen analytically to minimize the expected Frobenius distance to the true covariance matrix, requiring no cross-validation. \tcr{This is not quite true. We are consistently estimating the optimal $\alpha$ only, we cannot guarantee to minimize the expected F-norm distance in finite samples.}
-The effect on the spectrum is direct: the target term lifts every eigenvalue, bounding the smallest away from zero and
-compressing the overall spread. \tcr{Not sure what is meant by ``lifts every eigenvalue". Classical LW shrinkage moves all sample eigenvalues towards their average. So large eigenvalues go down, whereas small eigenvalues go up.}
-The condition number satisfies:
-\[
-\kappa(\hat \Sigma_{\text{LW}}) = \frac{\lambda_{\max}(\hat \Sigma_{\text{LW}})}{\lambda_{\min}(\hat \Sigma_{\text{LW}})} \leq
-\frac{(1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)}{\alpha\lambda_{\min}(R^\top R)}~,
-\]
-since $\lambda_{\min}(\hat \Sigma_{\text{LW}}) \geq \alpha\lambda_{\min}(R^\top R)$ and, by Weyl's inequality applied to
-$\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot \hat\Sigma + \alpha \cdot R^\top R$, $\lambda_{\max}(\hat \Sigma_{\text{LW}}) \leq
-(1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)$,
-where $\lambda_{\max}(\hat\Sigma) = \lambda_{\max}(X^\top X/T)$ is
-the largest sample eigenvalue. As $\alpha \to 1$, the bound approaches $\lambda_{\max}(R^\top R)/\lambda_{\min}(R^\top R)$,
-which equals $1$ for the classical choice $R = \sqrt{\bar\lambda}\,I$, correctly reflecting that full shrinkage
-yields a scalar multiple of the identity. For fixed data, the condition number decreases monotonically as $\alpha$
-increases, with the rate governed by the spectral ratio $\lambda_{\max}(\hat\Sigma)/\lambda_{\min}(R^\top R)$. For CG applied to
-$\hat \Sigma_{\text{LW}}\,v = \mathbf{1}$, the convergence rate is governed by $\kappa(\hat \Sigma_{\text{LW}})$; compressing the
-spectrum directly reduces iteration counts. Subsequent work by the same authors provides an analytical nonlinear
-shrinkage scheme that applies a different coefficient to each sample eigenvalue, typically achieving a smaller
-Frobenius loss than linear shrinkage when $n/T$ is not negligible; see \cite{ledoit2020}.
-Unfortunately, nonlinear shrinkage cannot be expressed as a simple augmented matrix
-$\tilde{X}$, so incorporating it into the matrix-free framework would require a separate Krylov-compatible
-preconditioner rather than a modified return matrix.
-
-In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\hat \Sigma_{\text{LW}}$
-explicitly. Setting $c = 1 - \alpha$, the stacked matrix $\tilde{X}
-= [\sqrt{c/T}\,X;\,\sqrt{\alpha}\,R]$ satisfies $\tilde{X}^\top \tilde{X} = \frac{c}{T}\,X^\top X + \alpha\,R^\top R
-= c\,\hat\Sigma + \alpha\,R^\top R = \hat \Sigma_{\text{LW}}$,
-so any of the solvers above can be applied to $\tilde{X}$ and produce exactly the LW-shrinkage portfolio weights.
-For $R = \sqrt{\bar\lambda}\,I$, this results in the classical Ledoit-Wolf linear shrinkage: $\hat \Sigma_{\text{LW}} = (1-\alpha) \cdot \hat\Sigma + \alpha \cdot \bar\lambda\,I$.
-
-From the perspective of numerical linear algebra, compressing the eigenvalue spectrum of the system matrix is precisely
-what a preconditioner does. Ledoit-Wolf shrinkage therefore plays a dual role: it reduces statistical estimation error
-and, as a side effect, accelerates iterative solvers by reducing the condition number of the input matrix relative the sample covariance matrix. The two motivations are independent
-but arrive at the same modified matrix. \tcr{I do not quite understand the meaning of this last sentence.}
-
-The proportional identity shrinkage target $\alpha \cdot \bar\lambda I$ is the simplest choice, but the preconditioning
-literature suggests sharper alternatives. A factor-model preconditioner, replacing $\alpha \cdot \bar\lambda I$ with a
-low-rank-plus-diagonal approximation $BB^\top + D$, would cluster eigenvalues more tightly at the cost of a slightly
-more expensive application. Incomplete Cholesky factorization of the shrunk matrix provides a general-purpose option.
-For rolling-window problems where the estimated covariance matrix changes slowly between periods, a preconditioner built from the
-previous period's factorization could be reused with minimal update cost. None of these
-\tcr{none of these what, approaches, methods, \ldots?}
-require forming the covariance
-matrix explicitly and each is compatible with the matrix-free framework described above.
 
 \section{Numerical Results}\label{sec:results}
 
