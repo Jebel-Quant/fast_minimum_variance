@@ -5,7 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from fast_minimum_variance import Problem
 from fast_minimum_variance.proximal import proj_simplex, prox_gradient
+
+
+def make_returns(T, N, seed=0):  # noqa: N803
+    return np.random.default_rng(seed).standard_normal((T, N))
 
 
 class TestProjSimplex:
@@ -268,3 +273,67 @@ class TestKKTConditions:
             lambdas = v[active_mask] - x[active_mask]
             # All should be approximately equal
             np.testing.assert_allclose(lambdas, lambdas[0], rtol=1e-8)
+
+
+class TestSolveProximal:
+    """Cross-validation: solve_proximal vs CVXPY reference."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        return make_returns(T=200, N=10, seed=42)
+
+    @pytest.fixture(scope="class")
+    def X_small(self):  # noqa: N802
+        return make_returns(T=100, N=5, seed=7)
+
+    def test_return_shape(self, X) -> None:  # noqa: N803
+        """solve_proximal returns (w, iters) with w of shape (N,)."""
+        w, iters = Problem(X).solve_proximal()
+        assert w.shape == (X.shape[1],)
+        assert iters == 1
+
+    def test_weights_sum_to_one(self, X) -> None:  # noqa: N803
+        """Weights must sum to 1."""
+        w, _ = Problem(X).solve_proximal()
+        np.testing.assert_allclose(w.sum(), 1.0, rtol=1e-6)
+
+    def test_weights_non_negative(self, X) -> None:  # noqa: N803
+        """Weights must be non-negative after projection."""
+        w, _ = Problem(X).solve_proximal()
+        assert np.all(w >= 0)
+
+    def test_plain_minvar_vs_cvxpy(self, X) -> None:  # noqa: N803
+        """Plain minimum variance agrees with CVXPY reference."""
+        w_prox, _ = Problem(X).solve_proximal()
+        w_cvx, _ = Problem(X).solve_cvxpy()
+        np.testing.assert_allclose(w_prox, w_cvx, atol=1e-3)
+
+    def test_with_shrinkage_vs_cvxpy(self, X) -> None:  # noqa: N803
+        """Shrinkage (alpha > 0, target = I) agrees with CVXPY reference."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w_prox, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_proximal()
+        w_cvx, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_cvxpy()
+        np.testing.assert_allclose(w_prox, w_cvx, atol=1e-3)
+
+    def test_small_problem_vs_cvxpy(self, X_small) -> None:  # noqa: N803
+        """Small problem (T=100, N=5) agrees with CVXPY reference."""
+        w_prox, _ = Problem(X_small).solve_proximal()
+        w_cvx, _ = Problem(X_small).solve_cvxpy()
+        np.testing.assert_allclose(w_prox, w_cvx, atol=1e-3)
+
+    @pytest.mark.parametrize("N", [2, 5, 20])
+    def test_various_sizes(self, N) -> None:  # noqa: N803
+        """Agreement with CVXPY holds for several problem sizes."""
+        X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
+        w_prox, _ = Problem(X).solve_proximal()
+        w_cvx, _ = Problem(X).solve_cvxpy()
+        np.testing.assert_allclose(w_prox, w_cvx, atol=1e-3)
+
+    def test_project_false(self, X) -> None:  # noqa: N803
+        """project=False skips clip-and-renormalize; result still on simplex from prox_gradient."""
+        w_proj, _ = Problem(X).solve_proximal(project=True)
+        w_raw, _ = Problem(X).solve_proximal(project=False)
+        # Both should satisfy constraints (prox_gradient enforces simplex internally)
+        np.testing.assert_allclose(w_raw.sum(), 1.0, rtol=1e-6)
+        assert np.all(w_raw >= -1e-10)

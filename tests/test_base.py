@@ -220,3 +220,49 @@ class TestSolveCvxpy:
         _SpyStub(_X3).solve_cvxpy()
         assert received["w_type"] == "Variable"
         assert received["cp"] is cp
+
+
+# ---------------------------------------------------------------------------
+# solve_proximal
+# ---------------------------------------------------------------------------
+
+
+class TestSolveProximal:
+    """Tests for _BaseProblem.solve_proximal template."""
+
+    def test_returns_tuple(self):
+        """solve_proximal returns a (w, iters) tuple."""
+        result = _Stub(_X3).solve_proximal()
+        assert isinstance(result, tuple) and len(result) == 2
+
+    def test_iters_is_one(self):
+        """Iteration count is always 1."""
+        _, iters = _Stub(_X3).solve_proximal()
+        assert iters == 1
+
+    def test_weight_shape(self):
+        """Returned weight vector has shape (N,)."""
+        w, _ = _Stub(_X3).solve_proximal()
+        assert w.shape == (_X3.shape[1],)
+
+    def test_project_true_sums_to_one(self):
+        """project=True ensures weights sum to 1."""
+        w, _ = _Stub(_X3).solve_proximal(project=True)
+        assert w.sum() == pytest.approx(1.0)
+
+    def test_project_true_non_negative(self):
+        """project=True ensures all weights are non-negative."""
+        w, _ = _Stub(_X3).solve_proximal(project=True)
+        assert np.all(w >= 0)
+
+    def test_project_false_still_on_simplex(self):
+        """project=False skips clip-and-renormalize; prox_gradient already enforces simplex."""
+        w, _ = _Stub(_X3).solve_proximal(project=False)
+        np.testing.assert_allclose(w.sum(), 1.0, rtol=1e-6)
+        assert np.all(w >= -1e-10)
+
+    def test_project_default_clips_and_renormalizes(self):
+        """Default (project=True) clips and renormalizes like other template solvers."""
+        w, _ = _Stub(_X3).solve_proximal()
+        assert w.sum() == pytest.approx(1.0)
+        assert np.all(w >= 0)
