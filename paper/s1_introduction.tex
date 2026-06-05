@@ -1,0 +1,48 @@
+\section{Introduction}
+
+The long-only minimum variance portfolio allocates capital across $n$ assets to minimize portfolio return variance subject to two constraints: the weights must sum to one (the portfolio is fully invested) and must be non-negative. The
+only input required in theory is the $n \times n$
+covariance matrix $\Sigma$ of the $n \times 1$
+vector of asset returns. In practice, $\Sigma$ is unknown and must be estimated from historical data. To this end, one uses a $T\times n$ matrix of demeaned returns $X$, where $T$ denotes the length of the estimation window (or the sample size). The classical estimator of $\Sigma$ is the sample covariance matrix $\hat \Sigma = X^\top X/T$.
+
+The Lagrangian for the problem
+\[
+\min_w\; w^\top \hat \Sigma w \quad \text{subject to} \quad \mathbf{1}^\top w = 1,
+\]
+where $\mathbf{1}$ denotes a conformable vector of ones, is
+\[
+\mathcal{L}(w,\lambda) = w^\top \hat \Sigma w - \lambda(\mathbf{1}^\top w - 1),
+\]
+whose stationarity condition $2 \hat \Sigma w = \lambda\mathbf{1}$ immediately gives $w \propto \hat \Sigma^{-1}\mathbf{1}$; this was made explicit by \cite{merton1972} in the context of the efficient frontier. The budget constraint is recovered by the
+single rescaling
+\[
+w = v/(\mathbf{1}^\top v), \qquad v = \hat \Sigma^{-1}\mathbf{1}.
+\]
+What has \emph{not} been done is to exploit this structure computationally: the
+standard pipeline still forms $\hat \Sigma = X^\top X/T$ explicitly before solving.
+
+This paper makes two contributions.  First, we apply conjugate gradients (CG) to $\hat \Sigma v = \mathbf{1}$
+\emph{matrix free}: $\hat \Sigma = X^\top X$  never needs to be assembled explicitly.  Each CG iteration requires only two matrix-vector products
+with $X$, reducing per-iteration cost from $O(n^2)$ to $O(nT)$ and eliminating $O(n^2)$ storage.  Non-negative weights are
+enforced by a primal-dual active-set loop that calls the CG solver on successively smaller subproblems.
+
+Second, we show that Ledoit-Wolf shrinkage~\cite{ledoit2004}, a method suggest to come up with a more accurate estimator of the true covariance matrix $\Sigma$ compared to the sample covariance matrix,
+plays a dual role in this framework.  Statistically, it
+reduces estimation error by shrinking sample eigenvalues toward their mean.  Numerically, the same modification
+compresses the eigenvalue spread of the system matrix and directly accelerates CG convergence. For example, on S\&P~500 equity data, using LW shrinkage instead of the sample covariance matrix reduces the number of CG iterations from 744 to 82.
+Statistical regularization and spectral preconditioning are, in this
+problem, the same operation applied to the same matrix---a connection that does not appear to have been made explicit in
+the existing literature.
+
+CG of Hestenes and Stiefel \cite{hestenes1952} is a cornerstone of large-scale scientific computing;
+e.g., see Golub and van Loan \cite{golub2013}. However, to the best of our knowledge it has not been
+applied yet to portfolio optimisation in the matrix-free form described here.
+The closest related work applies GMRES to the minimum
+variance problem when $\hat \Sigma$ is singular~\cite{bajeux2012}; that
+formulation still assembles $X^\top X$ and does not
+exploit the SPD structure or consider preconditioning. General-purpose solvers such as
+Clarabel~\cite{clarabel2024} handle the long-only constraint natively
+but require as input an estimate of the covariance matrix.
+The remainder of the paper is organized as follows.
+\mbox{Sections~\ref{sec:problem}--\ref{sec:solvers}} develop the formulation, shrinkage, and solvers; Section~\ref{sec:results} reports
+empirical results on both synthetic and S\&P~500 data.
