@@ -1,0 +1,26 @@
+The long-only minimum variance portfolio is routinely solved by assembling a sample covariance
+matrix and dispatching it to a general-purpose quadratic program. Both steps are unnecessary:
+the covariance matrix is not a primitive of the problem. It is a computational detour.
+
+We propose two matrix-free strategies that operate directly on the returns matrix $X$ and
+never form the $n\times n$ covariance $\hat\Sigma = X^\top X/T$.  The first applies conjugate
+gradients within a primal-dual active-set loop: each CG step evaluates $\hat\Sigma v$ as two
+matrix-vector products with $X$ at $O(nT)$ cost, and the outer loop enforces non-negativity
+by iterating over a shrinking active set with a certified KKT stopping criterion. The second
+treats the budget and non-negativity constraints via the probability simplex
+$\Delta_n = \{w : \mathbf{1}^\top w = 1,\, w \geq 0\}$. It projects each gradient step
+directly onto $\Delta_n$, eliminating the outer loop entirely. The projection costs $O(n\log n)$
+\cite{duchi2008,condat2016} and the gradient remains matrix-free at $O(nT)$.
+
+Ledoit-Wolf shrinkage, already standard practice for statistical reasons, turns out to be
+identical to spectral preconditioning of the linear system: the same ridge term that shrinks
+sample eigenvalues toward their mean also compresses the condition number $\kappa$ and reduces
+iteration counts for both methods. Statistical regularization and numerical preconditioning
+are the same operation applied to the same matrix, a connection that does not appear to have
+been made explicit in the existing literature.
+
+Numerical experiments on S\&P~500 equity data and synthetic problems of growing size show
+order-of-magnitude speedups over interior-point solvers. For standard portfolio sizes a direct
+KKT solve already captures most of the gain; at larger $n$ the matrix-free methods become
+decisive, with CG offering $O(\sqrt\kappa)$ convergence and the simplex-projection approach
+a loop-free alternative at $O(\kappa)$ convergence.
