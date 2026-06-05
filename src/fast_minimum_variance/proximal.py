@@ -4,6 +4,10 @@ This module implements proximal gradient descent for constrained linear least sq
 optimization on the probability simplex. The algorithm is based on iterative projection
 using the efficient simplex projection from Duchi et al. (2008).
 
+The gradient is evaluated matrix-free as mat.T @ (mat @ w), avoiding explicit assembly
+of the n x n normal matrix mat.T @ mat. The Lipschitz constant is estimated via power
+iteration, also matrix-free.
+
 References:
 ----------
 
@@ -72,6 +76,30 @@ def proj_simplex(
     return result
 
 
+def _lipschitz(
+    mat: NDArray[np.floating],
+    n_iter: int = 30,
+    rng: np.random.Generator | None = None,
+) -> float:
+    """Estimate lambda_max(mat.T @ mat) via power iteration (matrix-free).
+
+    Each iteration costs O(rows * cols) — two matrix-vector products with mat —
+    and never forms the cols x cols normal matrix.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    v = rng.standard_normal(mat.shape[1])
+    v /= np.linalg.norm(v)
+    lip = 1.0
+    for _ in range(n_iter):
+        w = mat.T @ (mat @ v)
+        lip = float(np.linalg.norm(w))
+        if lip < 1e-15:
+            return lip
+        v = w / lip
+    return lip
+
+
 def prox_gradient(
     mat: NDArray[np.floating],
     vec: NDArray[np.floating],
@@ -84,9 +112,10 @@ def prox_gradient(
         minimize 0.5 ||mat @ x - vec||^2
         subject to x >= 0, sum(x) = 1
 
-    The function uses proximal gradient descent with simplex projection to find
-    the solution. The step size is determined by the Lipschitz constant of the
-    gradient.
+    The gradient mat.T @ (mat @ x) - mat.T @ vec is evaluated matrix-free at each
+    step; the normal matrix mat.T @ mat is never formed. The Lipschitz constant
+    L = lambda_max(mat.T @ mat) is estimated once via power iteration, also
+    matrix-free, at O(n_power_iter * rows * cols) setup cost.
 
     Parameters
     ----------
@@ -118,15 +147,16 @@ def prox_gradient(
     """
     rng = np.random.default_rng()
     prim_var: NDArray[np.floating] = np.asarray(rng.standard_normal(size=mat.shape[1]))
-    sym_mat = mat.T @ mat
-    lip = np.linalg.norm(sym_mat, 2)  # Lipschitz constant of the gradient
-    step = 0.5 / lip if abs(lip) > 1e-15 else 1.0
+    lip = _lipschitz(mat, rng=rng)
+    step = 0.5 / lip if lip > 1e-15 else 1.0
 
+    # Precompute mat.T @ vec once; zero for minimum-variance (vec = 0).
     out_prod = mat.T @ vec
     ite = 0
     err_rel = eps_rel + 1
     while err_rel > eps_rel and ite < max_iter:
-        prim_var_new = proj_simplex(prim_var - step * (sym_mat @ prim_var - out_prod))
+        grad = mat.T @ (mat @ prim_var) - out_prod
+        prim_var_new = proj_simplex(prim_var - step * grad)
         err_rel = float(np.linalg.norm(prim_var - prim_var_new, 2))
         prim_var = prim_var_new.copy()
         ite += 1
