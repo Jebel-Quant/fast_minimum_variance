@@ -8,10 +8,11 @@
 \usepackage{algpseudocode}
 \usepackage{authblk}
 
-\newcommand{\tcr}{\textcolor{red}}
-\newcommand{\tcm}{\textcolor{magenta}}
-\newcommand{\tcg}{\textcolor{green}}
-\newcommand{\tcb}{\textcolor{blue}}
+\newcommand{\tcr}[1]{{\color{red}#1}}
+\newcommand{\tcm}[1]{{\color{magenta}#1}}
+\newcommand{\tcg}[1]{{\color{green}#1}}
+\newcommand{\tcb}[1]{{\color{blue}#1}}
+\newcommand{\tbr}[1]{{\color{brown}#1}}
 \newcommand{\norm}[1]{\lVert #1 \rVert}
 
 
@@ -568,7 +569,7 @@ bottleneck.
 \Function{DirectSolve}{active}
 \State Let $X_{\mathrm{a}} \leftarrow X_{:,\mathrm{active}}$,\; $n_a \leftarrow
   |\mathrm{active}|$
-  \State Assemble $\Sigma_{\mathrm{a}} \leftarrow \tfrac{1}{T}\,X_{\mathrm{a}}^\top X_{\mathrm{a}}
+  \State Assemble $\Sigma_{\mathrm{a}} \leftarrow \tfrac{1}{T}\,X_{\mathrm{a}}^\top X_{\mathrm{a}}$
     \hfill\textit{(SPD, $n_a\times n_a$)}
   \State Solve $\Sigma_{\mathrm{a}}\, v = \mathbf{1}$ by dense factorization
   \State \Return $v\,/\,(\mathbf{1}^\top v)$,\; $1$  \hfill\textit{(per-step count; no inner iterations)}
