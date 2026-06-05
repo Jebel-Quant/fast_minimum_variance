@@ -6,6 +6,14 @@
 \usepackage{xcolor}
 \usepackage{graphicx}
 \usepackage{algpseudocode}
+\usepackage{authblk}
+
+\newcommand{\tcr}{\textcolor{red}}
+\newcommand{\tcm}{\textcolor{magenta}}
+\newcommand{\tcg}{\textcolor{green}}
+\newcommand{\tcb}{\textcolor{blue}}
+\newcommand{\norm}[1]{\lVert #1 \rVert}
+
 
 \newsiamremark{remark}{Remark}
 \crefname{remark}{Remark}{Remarks}
@@ -26,15 +34,15 @@
 
 \title{Krylov Methods for the Minimum Variance Portfolio}
 
-\author{Thomas Schmelzer%
-  \thanks{Jebel Quant Research (\email{thomas@jqr.ae})}%
-  \and
-  Michael Wolf%
-  \thanks{Department of Economics, University of Zurich.}%
-  \and
-  Martin Stoll%
-  \thanks{Faculty of Mathematics, TU~Chemnitz.}%
-}
+\author[1]{Thomas Schmelzer}
+\author[2]{Martin Stoll}
+\author[3,4]{Michael Wolf}
+
+\affil[1]{\small Jebel Quant Research, Abu Dhabi}
+\affil[2]{\small Faculty of Mathematics, TU Chemnitz}
+\affil[3]{\small Department of Economics, University of Zurich}
+\affil[4]{\small ADIA Lab, Abu Dhabi}
+
 
 \headers{Krylov Methods for the Minimum Variance Portfolio}{T.~Schmelzer, M.~Wolf, and M.~Stoll}
 
@@ -44,19 +52,19 @@
 
 \begin{abstract}
 The long-only minimum variance portfolio is routinely solved by assembling a sample covariance
-matrix and dispatching it to a general-purpose quadratic programme. Both steps are unnecessary
+matrix and dispatching it to a general-purpose quadratic program. Both steps are unnecessary
 and expensive.
 
 Conjugate gradients applied matrix-free to the returns matrix $X$ solve the problem in $O(nT)$
 work per iteration without ever forming the $n\times n$ covariance; a primal-dual active-set
 loop enforces non-negativity with negligible overhead. The covariance matrix is not a primitive
-of the problem --- it is a computational detour.
+of the problem---it is a computational detour.
 
 Ledoit-Wolf shrinkage, already standard practice for statistical reasons, turns out to be
 identical to spectral preconditioning of the linear system: the same ridge term that shrinks
-sample eigenvalues toward their mean also compresses the condition number and cuts CG iteration
-counts dramatically. Statistical regularisation and numerical preconditioning are the same
-operation applied to the same matrix --- a connection that does not appear to have been made
+sample eigenvalues toward their mean also compresses the condition number and reduces CG iteration
+counts dramatically. Statistical regularization and numerical preconditioning are the same
+operation applied to the same matrix, a connection that does not appear to have been made
 explicit in the existing literature.
 
 Numerical experiments on S\&P~500 equity data and synthetic problems of growing size show
@@ -68,51 +76,91 @@ to $O(Tn)$.
 
 \section{Introduction}
 
-The minimum variance portfolio allocates capital across $n$ assets so as to minimise return variance subject only to
-full investment and non-negativity. Since \cite{markowitz1952} it has been standard practice to estimate a sample
-covariance matrix $\hat\Sigma = X^\top X / T$ from a $T \times n$ return matrix $X$ and pass it to a general-purpose
-quadratic programming solver. This paper argues that both steps are unnecessary and expensive.
+The long-only minimum variance portfolio allocates capital across $n$ assets to minimize portfolio return variance subject to two constraints: the weights must sum to one (the portfolio is fully invested) and must be non-negative. The
+only input required in theory is the $n \times n$
+covariance matrix $\Sigma$ of the $n \times 1$
+vector of asset returns. In practice, $\Sigma$ is unknown and must be estimated from historical data. To this end, one uses a $T\times n$ matrix of demeaned returns $X$, where $T$ denotes the length of the estimation window (or the sample size). The classical estimator of $\Sigma$ is the sample covariance matrix $\hat \Sigma = X^\top X/T$.
 
-That the minimum-variance solution satisfies $w \propto \Sigma^{-1}\mathbf{1}$ is a classical observation: it follows
-directly from the KKT stationarity condition $2\Sigma w = \lambda\mathbf{1}$ and was made explicit by
-\cite{merton1972} in the context of the efficient frontier.  The budget constraint is recovered by the single rescaling
-$w = v/(\mathbf{1}^\top v)$ where $v = \Sigma^{-1}\mathbf{1}$.  What has \emph{not} been done is to exploit this
-structure computationally: the standard pipeline still forms $\Sigma = X^\top X/T$ explicitly before solving.
+%Since Markowitz \cite{markowitz1952} it has been standard practice %\tcr{Did Markowitz already discuss estimation of $\Sigma$?} \tcb{He only had a $3 \times 3$ matrix in there} to estimate $\Sigma$ by the sample
+%covariance matrix $\hat\Sigma = X^\top X / T$ from a $T \times n$ demeaned return matrix $X$ and pass it to a general-purpose
+%quadratic programming solver. \tcb{We introduce a method bypassing the explicit computation and storage of the sample covariance matrix $\Sigma$. %It is sufficient to compute the product of $\Sigma v$ which boils down to two matrix-vector products $X^\top X v$.
+%}
+%This paper argues that both steps are unnecessary and expensive.
+%\tcr{This is a bit confusing. What is meant by the first step? Estimating $\Sigma$? That is certainly necessary. Estimating $\Sigma$ by the sample covariance matrix?}
 
-This paper makes two contributions.  First, we apply conjugate gradients (CG) to $\Sigma v = \mathbf{1}$
-\emph{matrix-free}: $\Sigma = X^\top X$ is never assembled.  Each CG iteration requires only two matrix-vector products
-with $X$, reducing per-iteration cost from $O(n^2)$ to $O(nT)$ and eliminating $O(n^2)$ storage.  Long-only weights are
+\tcb{
+The Lagrangian for the problem
+\[
+\min_w\; w^\top \hat \Sigma w \quad \text{subject to} \quad \mathbf{1}^\top w = 1,
+\]
+where $\mathbf{1}$ denotes a conformable vector of ones, is
+\[
+\mathcal{L}(w,\lambda) = w^\top \hat \Sigma w - \lambda(\mathbf{1}^\top w - 1),
+\]
+whose stationarity condition $2 \hat \Sigma w = \lambda\mathbf{1}$ immediately gives $w \propto \hat \Sigma^{-1}\mathbf{1}$; this was made explicit by \cite{merton1972} in the context of the efficient frontier. The budget constraint is recovered by the
+single rescaling
+\[
+w = v/(\mathbf{1}^\top v), \qquad v = \hat \Sigma^{-1}\mathbf{1}.
+\]
+What has \emph{not} been done is to exploit this structure computationally: the standard pipeline still forms $\hat \Sigma = X^\top X/T$ explicitly before solving.
+}
+
+%That the minimum-variance solution satisfies $w \propto \Sigma^{-1}\mathbf{1}$, where $\mathbf{1}$ denotes a conformable vector of ones,
+%is a classical observation: it follows
+%directly from the KKT stationarity condition $2\Sigma w = \lambda\mathbf{1}$
+%\tcr{At this point, many readers will not know what is meant by KKT.}
+%and was made explicit by
+%\cite{merton1972} in the context of the efficient frontier.  The budget constraint is recovered by the single rescaling
+%$w = v/(\mathbf{1}^\top v)$ where $v = \Sigma^{-1}\mathbf{1}$.  What has \emph{not} been done is to exploit this
+%structure computationally: the standard pipeline still forms $\Sigma = X^\top X/T$ explicitly before solving.
+
+This paper makes two contributions.  First, we apply conjugate gradients (CG) to $\hat \Sigma v = \mathbf{1}$
+\emph{matrix free}: $\hat \Sigma = X^\top X$  never needs to be assembled explicitly.  Each CG iteration requires only two matrix-vector products
+with $X$, reducing per-iteration cost from $O(n^2)$ to $O(nT)$ and eliminating $O(n^2)$ storage.  Non-negative weights are
 enforced by a primal-dual active-set loop that calls the CG solver on successively smaller subproblems.
 
-Second, we show that Ledoit-Wolf shrinkage~\cite{ledoit2004} plays a dual role in this framework.  Statistically, it
+Second, we show that Ledoit-Wolf shrinkage~\cite{ledoit2004}, a method suggest to come up with a more accurate estimator of the true covariance matrix $\Sigma$ compared to the sample covariance matrix,
+plays a dual role in this framework.  Statistically, it
 reduces estimation error by shrinking sample eigenvalues toward their mean.  Numerically, the same modification
-compresses the eigenvalue spread of the system matrix and directly accelerates CG convergence: on S\&P~500 equity data,
-shrinkage cuts CG iterations from 744 to 82.  Statistical regularisation and spectral preconditioning are, in this
+compresses the eigenvalue spread of the system matrix and directly accelerates CG convergence. For example, on S\&P~500 equity data, using LW shrinkage instead of the sample covariance matrix reduces the number of CG iterations from 744 to 82.
+Statistical regularization and spectral preconditioning are, in this
 problem, the same operation applied to the same matrix---a connection that does not appear to have been made explicit in
 the existing literature.
 
-CG~\cite{hestenes1952} is a cornerstone of large-scale scientific computing~\cite{golub2013} but has not been applied
+CG of Hestenes and Stiefel \cite{hestenes1952} is a cornerstone of large-scale scientific computing; e.g., see Golub and van Loan \cite{golub2013}. However, to the best of our knowledge it has not been
+applied yet
 to portfolio optimisation in the matrix-free form described here. The closest related work applies GMRES to the minimum
-variance problem when $\Sigma$ is singular~\cite{bajeux2012}; that formulation still assembles $X^\top X$ and does not
+variance problem when $\hat \Sigma$ is singular~\cite{bajeux2012}; that formulation still assembles $X^\top X$ and does not
 exploit the SPD structure or consider preconditioning. General-purpose solvers such as
-Clarabel~\cite{clarabel2024} handle the long-only constraint natively but require an explicit covariance matrix.
-ywa
-Sections~\ref{sec:problem}--\ref{sec:precond} develop the formulation and solvers; Section~\ref{sec:results} reports
+Clarabel~\cite{clarabel2024} handle the long-only constraint natively
+but require as input an estimate of the covariance matrix.
+The remainder of the paper is organized as follows.
+\mbox{Sections~\ref{sec:problem}--\ref{sec:precond}} develop the formulation and solvers; Section~\ref{sec:results} reports
 empirical results on both synthetic and S\&P~500 data.
 
 \section{Problem Formulation}\label{sec:problem}
-
-Let $X \in \mathbb{R}^{T \times n}$ be the demeaned return matrix for $n$ assets over $T$ trading days. The long-only
-minimum variance problem is:
+The long-only mean-variance portfolio solves
 \[
-\min_{w} \; w^\top \hat\Sigma\, w \quad \text{subject to} \quad \mathbf{1}^\top w = 1, \quad w \geq 0
+\min_{w}\; w^\top\Sigma\, w - \rho\,\mu^\top w
+\quad\text{subject to}\quad
+\mathbf{1}^\top w = 1,\quad w\geq 0~,
 \]
-where $\hat\Sigma = \frac{1}{T} X^\top X$ is the sample covariance matrix. This is equivalently stated as:
+where $\Sigma$ is the $n\times n$ covariance matrix of returns, $\mu$ is the $n\times 1$ vector of expected returns, and $\rho\geq 0$ controls the risk-return trade-off; setting $\rho=0$ recovers the pure long-only minimum variance portfolio.
+Since both $\Sigma$ and
+$\mu$ are unknown, in practice they must be replaced by estimates. Let $X\in\mathbb{R}^{T\times n}$ denote the demeaned return matrix for $n$ assets over the previous $T$ trading periods. The feasible problem formulation then is
 \[
-\min_{w} \; \frac{\|Xw\|^2}{T} = \min_{w}\; w^\top \hat\Sigma\, w \quad \text{subject to} \quad \mathbf{1}^\top w = 1, \quad w \geq 0
+\min_{w}\; w^\top\hat\Sigma\, w - \rho\,\hat\mu^\top w
+\quad\text{subject to}\quad
+\mathbf{1}^\top w = 1,\quad w\geq 0~.
 \]
-This reframing is key: the objective is now a normalised squared norm of $Xw$, and we can evaluate
-$w \mapsto X^\top(Xw)$ using two matrix-vector products, without ever forming $X^\top X$.
+The classical choice for estimating $\Sigma$
+the sample covariance matrix $\hat\Sigma = X^\top X/T$, for which $w^\top\hat\Sigma\, w = \norm{Xw}^2/T$, and the problem becomes
+\[
+\min_{w}\;\frac{\norm{Xw}^2}{T} - \rho\,\hat\mu^\top w
+\quad\text{subject to}\quad
+\mathbf{1}^\top w = 1,\quad w\geq 0~.
+\]
+This reframing is key: the variance term is now a normalised squared norm of $Xw$, and the gradient $w\mapsto X^\top(Xw)$ can be evaluated with two matrix--vector products, without ever forming $X^\top X$.
 
 \begin{table}[ht]
 \centering
@@ -121,8 +169,6 @@ $w \mapsto X^\top(Xw)$ using two matrix-vector products, without ever forming $X
 Parameter & Type & Description \\
 \midrule
 $X$        & $\mathbb{R}^{T \times n}$ & Demeaned return matrix \\
-$\texttt{target}$ & $\mathbb{R}^{n \times n}$ & Shrinkage target matrix (optional; default \texttt{None}) \\
-$\alpha$   & $[0,1]$                   & Shrinkage intensity; active only when \texttt{target} is provided (default $0$) \\
 $\rho$     & $\mathbb{R}_{\geq 0}$     & Return-tilt weight (default $0$) \\
 $\mu$      & $\mathbb{R}^n$            & Expected returns (default $\mathbf{0}$) \\
 \bottomrule
@@ -131,163 +177,189 @@ $\mu$      & $\mathbb{R}^n$            & Expected returns (default $\mathbf{0}$)
 \label{tab:params}
 \end{table}
 
-\paragraph{Dual problem.}
+\paragraph{Dual problem}
 Including multipliers for both constraints, the full Lagrangian is
 \[
-  \mathcal{L}(w, \lambda, \nu)
-  = \frac{\|Xw\|^2}{T} - \lambda(\mathbf{1}^\top w - 1) - \nu^\top w,
+\mathcal{L}(w,\, \lambda,\, \nu)
+= \frac{\lVert Xw\rVert^2}{T} - \rho\hat\mu^\top w
+  - \lambda(\mathbf{1}^\top w - 1) - \nu^\top w\;,
 \]
-where $\lambda\in\mathbb{R}$ is the budget multiplier and $\nu\geq\mathbf{0}$ is the vector of non-negativity
-multipliers. Minimising over $w$ via stationarity $\frac{2}{T} X^\top X w = \lambda\mathbf{1}+\nu$ gives the dual function
+where $\lambda\in\mathbb{R}$ is the budget multiplier and $\nu\geq\mathbf{0}$ is the vector of
+non-negativity multipliers. The stationarity condition
 \[
-  g(\lambda,\nu)
-  = \inf_w \mathcal{L}(w,\lambda,\nu)
-  = \lambda - \tfrac{T}{4}(\lambda\mathbf{1}+\nu)^\top(X^\top X)^{-1}(\lambda\mathbf{1}+\nu),
+\tfrac{2}{T}\, X^\top X w = \lambda\mathbf{1}+\nu+\rho\hat\mu
 \]
-defined when $X$ has full column rank; the dual problem is $\max_{\lambda,\,\nu\geq\mathbf{0}}\,g(\lambda,\nu)$. The
-feasible set $\{w:\mathbf{1}^\top w=1,\,w\geq\mathbf{0}\}$ is compact and $w=\tfrac{1}{n}\mathbf{1}$ is strictly
-feasible, so Slater's condition holds and strong duality obtains: the primal and dual optima coincide and the duality
-gap is zero.
+gives $w^* = \tfrac{T}{2}(X^\top X)^{-1}s$ with $s = \lambda\mathbf{1}+\nu+\rho\hat\mu$.
+Substituting into $\mathcal{L}$:
+\[
+\mathcal{L}(w^*,\,\lambda,\,\nu)
+= \tfrac{1}{T}(w^*)^\top X^\top X w^* - s^\top w^* + \lambda\;.
+\]
+From stationarity $\tfrac{1}{T}X^\top X w^* = \tfrac{s}{2}$, so the first term equals
+$\tfrac{1}{2}s^\top w^*$, giving
+\[
+g(\lambda,\,\nu)
+= \tfrac{1}{2}s^\top w^* - s^\top w^* + \lambda
+= -\tfrac{1}{2}s^\top w^* + \lambda\;.
+\]
+Substituting $w^* = \tfrac{T}{2}(X^\top X)^{-1}s$ yields the dual function
+\[
+g(\lambda,\,\nu)
+= \inf_w\; \mathcal{L}(w,\,\lambda,\,\nu)
+= \lambda - \tfrac{T}{4}\,
+  (\lambda\mathbf{1}+\nu+\rho\hat\mu)^\top(X^\top X)^{-1}
+  (\lambda\mathbf{1}+\nu+\rho\hat\mu)\;,
+\]
+defined when $X$ has full column rank; the dual problem is
+$\max_{\lambda,\,\nu\geq\mathbf{0}}\; g(\lambda,\,\nu)$.
+The feasible set $\{w:\mathbf{1}^\top w=1,\,w\geq\mathbf{0}\}$ is compact and
+$w=\tfrac{1}{n}\mathbf{1}$ is strictly feasible, so Slater's condition holds and
+strong duality obtains.
 
-At the optimum, complementary slackness ($\nu_i w_i = 0$ for all $i$) partitions assets into two types. \emph{Active}
-assets ($w_i>0$) have $\nu_i=0$; stationarity then gives $\frac{2}{T}(X^\top Xw)_i=\lambda$, so every active asset
-contributes equally to marginal portfolio variance. \emph{Excluded} assets ($w_i=0$) have
-$\nu_i = \frac{2}{T}(X^\top Xw)_i - \lambda \geq 0$:
-their marginal variance is at least $\lambda$ and they would increase portfolio variance if held at a positive level.
-The primal--dual loop in Section~\ref{sec:kkt} is a direct implementation of these conditions: the loop terminates
-precisely when both primal feasibility and dual feasibility hold, which---together with stationarity from each inner
-solve---is sufficient for global optimality.
+At the optimum, complementary slackness ($\nu_i w_i = 0$ for all $i$) partitions assets
+into two types. \emph{Active} assets ($w_i>0$) have $\nu_i=0$; stationarity then gives
+\[
+\tfrac{2}{T}\,(X^\top Xw)_i = \lambda+\rho\hat\mu_i\;,
+\]
+equating each active asset's marginal variance to the budget shadow price adjusted for its
+expected return. \emph{Excluded} assets ($w_i=0$) satisfy
+\[
+\nu_i = \tfrac{2}{T}\,(X^\top Xw)_i - \lambda - \rho\hat\mu_i \geq 0~.
+\]
+Their marginal variance exceeds this threshold, so holding them at a positive weight would
+increase variance net of return. The primal--dual loop in Section~\ref{sec:primaldual} is a direct
+implementation of these conditions: it terminates precisely when primal and dual feasibility
+both hold, which---together with stationarity from each inner solve---is sufficient for
+global optimality.
 
-\subsection*{Problem variants.}
+%\subsection*{Problem variants}
+%
+%The framework handles a range of standard portfolio construction %problems directly.  Each is expressed as
+%\begin{equation}
+%  \min_{w}\;\|\tilde{X}w\|^2 - \rho\mu^\top w
+%  \quad\text{subject to}\quad
+%  \mathbf{1}^\top w = 1,\;\; w \geq 0~,
+%  \label{eq:general}
+%\end{equation}
+%through choices of $\tilde{X}$, $\rho$, and $\mu$ summarized in %Table~\ref{tab:problems}. No change in the
+%algorithm is required; only the data passed to the solver change.
 
-The framework handles a range of standard portfolio construction problems directly.  Each is expressed as
-\begin{equation}
-  \min_{w}\;\|\tilde{X}w\|^2 - \rho\mu^\top w
-  \quad\text{subject to}\quad
-  \mathbf{1}^\top w = 1,\;\; w \geq 0,
-  \label{eq:general}
-\end{equation}
-through choices of $\tilde{X}$, $\rho$, and $\mu$ summarised in Table~\ref{tab:problems}. No change to the
-algorithm is required; only the data passed to the solver changes.
+%\begin{table}[ht]
+%\centering
+%\begin{tabular}{llll}
+%\toprule
+%Portfolio problem & $\tilde{X}$ & $\rho$ & $\mu$ \\
+%\midrule
+%Minimum variance & $X$ & $0$ & --- \\
+%Mean-variance (Markowitz) & $X$ & $>0$ & expected returns \\
+%Minimum tracking error$^*$ & $X$ & $2$ & $X^\top(Xb)$ \\
+%LW-regularized minimum variance & $[\sqrt{(1-%\alpha)/T}\,X;\,\sqrt{\alpha}\,R]$ & $0$ & --- \\
+%Factor-model covariance $FF^\top+D$ & $[F;\,D^{1/2}]$ & $0$ & --- \\
+%Regime-blended / multi-period & $[\omega_1 X_1;\,\ldots;\,\omega_K %X_K]$ & $0$ & --- \\
+%\bottomrule
+%\end{tabular}
+%\caption{Portfolio construction problems solved by the same primal--dual loop.
+%  $b$ is the benchmark weight vector; $F$ contains factor returns; $D$ is a diagonal specific-risk matrix;
+%  $R$ is the $N\times N$ regularisation target matrix (e.g.\ $\sqrt{\bar\lambda}\,I$ for classical Ledoit-Wolf
+%  shrinkage, where $\bar\lambda = \|X\|_F^2/(nT)$ is the mean eigenvalue of $\hat\Sigma$).
+%  Stacking of $\tilde{X}$ is in the row direction.
+%  $^*\min_w (w-b)^\top\Sigma(w-b) = \min_w w^\top\Sigma w - 2(\Sigma b)^\top w + \mathrm{const}$, so
+%  $\rho\mu = 2\Sigma b = 2X^\top(Xb)$ (two matrix--vector products).
+%  Since $\mu = \Sigma b$, the second SPD solve yields $v_2 = b$ exactly; tracking error adds no inner-solve cost.}
+%\label{tab:problems}
+%\end{table}
 
-\begin{table}[ht]
-\centering
-\begin{tabular}{llll}
-\toprule
-Portfolio problem & $\tilde{X}$ & $\rho$ & $\mu$ \\
-\midrule
-Minimum variance & $X$ & $0$ & --- \\
-Mean-variance (Markowitz) & $X$ & $>0$ & expected returns \\
-Minimum tracking error$^*$ & $X$ & $2$ & $X^\top(Xb)$ \\
-LW-regularised minimum variance & $[\sqrt{(1-\alpha)/T}\,X;\,\sqrt{\alpha}\,R]$ & $0$ & --- \\
-Factor-model covariance $FF^\top+D$ & $[F;\,D^{1/2}]$ & $0$ & --- \\
-Regime-blended / multi-period & $[\omega_1 X_1;\,\ldots;\,\omega_K X_K]$ & $0$ & --- \\
-\bottomrule
-\end{tabular}
-\caption{Portfolio construction problems solved by the same primal--dual loop.
-  $b$ is the benchmark weight vector; $F$ contains factor returns; $D$ is a diagonal specific-risk matrix;
-  $R$ is the $N\times N$ regularisation target matrix (e.g.\ $\sqrt{\bar\lambda}\,I$ for classical Ledoit-Wolf
-  shrinkage, where $\bar\lambda = \|X\|_F^2/(nT)$ is the mean eigenvalue of $\hat\Sigma$).
-  Stacking of $\tilde{X}$ is in the row direction.
-  $^*\min_w (w-b)^\top\Sigma(w-b) = \min_w w^\top\Sigma w - 2(\Sigma b)^\top w + \mathrm{const}$, so
-  $\rho\mu = 2\Sigma b = 2X^\top(Xb)$ (two matrix--vector products).
-  Since $\mu = \Sigma b$, the second SPD solve yields $v_2 = b$ exactly; tracking error adds no inner-solve cost.}
-\label{tab:problems}
-\end{table}
+%\paragraph{What does not fit}
+%The maximum Sharpe ratio portfolio, also called the tangency portfolio, solves
+%\[
+%\arg\max_w\; \frac{\mu^\top w}{\sqrt{w^\top\Sigma w}}
+%\quad\text{subject to}\quad \mathbf{1}^\top w = 1,\; w\geq 0.
+%\]
+%This is a fractional programme and does not reduce to \eqref{eq:general} with a fixed $\rho$.
+%It can be
+%recovered parametrically by sweeping $\rho$ over the efficient frontier and locating the tangency point, but this
+%requires multiple solves.  Problems with additional linear inequality constraints---sector limits, turnover
+%bounds, factor-exposure limits---also lie outside the current template; a general QP solver (e.g.\ CVXPY with
+%Clarabel) is the appropriate tool for those.
 
-\paragraph{What does not fit.}
-The maximum Sharpe ratio (tangency) portfolio $\arg\max_w \mu^\top w / \sqrt{w^\top\Sigma w}$, subject to
-$w \geq 0$, is a fractional programme and does not reduce to \eqref{eq:general} with a fixed $\rho$.  It can be
-recovered parametrically by sweeping $\rho$ over the efficient frontier and locating the tangency point, but this
-requires multiple solves.  Problems with additional linear inequality constraints---sector limits, turnover
-bounds, factor-exposure limits---also lie outside the current template; a general QP solver (e.g.\ CVXPY with
-Clarabel) is the appropriate tool for those.
+%The one structural requirement is that the covariance admit a factorization $\Sigma = \tilde{X}^\top\tilde{X}$
+%with $\tilde{X}$ available directly or by cheap row-augmentation, so that the matrix-vector product
+%$v\mapsto\tilde{X}^\top(\tilde{X}v)$ remains $O(T'n)$ per iteration.  Nonlinear shrinkage~\cite{ledoit2020},
+%which applies a separate coefficient to each sample eigenvalue, does not admit such a factorization and requires
+%a different preconditioning strategy.
 
-The one structural requirement is that the covariance admit a factorisation $\Sigma = \tilde{X}^\top\tilde{X}$
-with $\tilde{X}$ available directly or by cheap row-augmentation, so that the matrix-vector product
-$v\mapsto\tilde{X}^\top(\tilde{X}v)$ remains $O(T'n)$ per iteration.  Nonlinear shrinkage~\cite{ledoit2020},
-which applies a separate coefficient to each sample eigenvalue, does not admit such a factorisation and requires
-a different preconditioning strategy.
-
-\section{Positive Definite Reduction and Primal-Dual Loop}\label{sec:kkt}
+\section{Positive-Definite Reduction}\label{sec:pd}
 
 Ignoring the inequality constraints for now, the Lagrangian for the equality-constrained problem is:
 \[
-\mathcal{L}(w, \lambda) = \frac{\|Xw\|^2}{T} - \lambda(\mathbf{1}^\top w - 1)
+\mathcal{L}(w, \lambda) = \frac{\|Xw\|^2}{T} - \lambda(\mathbf{1}^\top w - 1)~ + \rho \hat \mu~.
 \]
 Setting the derivative to zero gives the stationarity condition
-$\frac{2}{T}\hat\Sigma\, w = \lambda \mathbf{1} + \rho\mu$, where $\hat\Sigma = X^\top X/T$ (or $\Sigma_{\mathrm{LW}}$ with shrinkage).
-For $\rho = 0$ this reduces to $\frac{2}{T}\hat\Sigma\, w = \lambda\mathbf{1}$, determining the solution up to a scalar.
+$\frac{2}{T}\hat\Sigma\, w = \lambda \mathbf{1} + \rho\hat \mu$, where $\hat\Sigma = X^\top X/T$ (or $\hat \Sigma_{\mathrm{LW}}$ with shrinkage).
+For $\rho = 0$, this reduces to $\frac{2}{T}\hat\Sigma\, w = \lambda\mathbf{1}$, determining the solution up to a scalar.
 
-\paragraph{Positive definite reduction.}
-When $\rho = 0$ (pure minimum variance), stationarity gives $2\hat\Sigma\, w = \lambda\mathbf{1}$,
+\paragraph{Positive-definite reduction}
+When $\rho = 0$ (pure long-only minimum variance), stationarity gives $2\hat\Sigma\, w = \lambda\mathbf{1}$,
 so $w$ is a scalar multiple of $\hat\Sigma^{-1}\mathbf{1}$.
 Setting $v_1 = \hat\Sigma^{-1}\mathbf{1}$ and writing $w = c\,v_1$, the budget constraint
-$\mathbf{1}^\top w = 1$ fixes
+$\mathbf{1}^\top w = 1$ \tcb{scales}
 \[
-  c = \frac{1}{\mathbf{1}^\top v_1}, \qquad w = \frac{v_1}{\mathbf{1}^\top v_1}.
+  c = \frac{1}{\mathbf{1}^\top v_1} \quad \mbox{and} \quad w = \frac{v_1}{\mathbf{1}^\top v_1}~.
 \]
-When $\rho \neq 0$, stationarity gives $2\hat\Sigma\, w = \lambda\mathbf{1} + \rho\mu$, so
-$w = \tfrac{\lambda}{2}\,\hat\Sigma^{-1}\mathbf{1} + \tfrac{\rho}{2}\,\hat\Sigma^{-1}\mu$.
-Setting $v_1 = \hat\Sigma^{-1}\mathbf{1}$ and $v_2 = \hat\Sigma^{-1}\mu$ (two SPD solves), the budget
+When $\rho \neq 0$, stationarity gives $2\hat\Sigma\, w = \lambda\mathbf{1} + \rho\hat \mu$, so
+$w = \tfrac{\lambda}{2}\,\hat\Sigma^{-1}\mathbf{1} + \tfrac{\rho}{2}\,\hat\Sigma^{-1}\hat \mu$.
+Setting $v_1 = \hat\Sigma^{-1}\mathbf{1}$ and $v_2 = \hat\Sigma^{-1}\hat \mu$ (two SPD solves), the budget
 constraint determines the multiplier
 \[
-  \lambda = \frac{2 - \rho\,(\mathbf{1}^\top v_2)}{\mathbf{1}^\top v_1},
+  \lambda = \frac{2 - \rho\,(\mathbf{1}^\top v_2)}{\mathbf{1}^\top v_1}~,
 \]
 and the weights follow as $w = \tfrac{\lambda}{2}\,v_1 + \tfrac{\rho}{2}\,v_2$.
 In both cases the $(n+1)\times(n+1)$ saddle-point system is never needed and $\lambda$ is
 recovered analytically rather than as part of the solve.
 
-When $\alpha > 0$ and a regularisation target $R$ is provided, the regularised matrix
-$\Sigma_{\mathrm{LW}} = \frac{1-\alpha}{T}\,X^\top X + \alpha\,R^\top R = (1-\alpha)\,\hat\Sigma + \alpha\,R^\top R$
-is symmetric positive definite and standard CG applies directly to $\Sigma_{\mathrm{LW}}\,v = \mathbf{1}$.
-For classical Ledoit-Wolf shrinkage one sets $R = \sqrt{\bar\lambda}\,I$ with $\bar\lambda = \|X\|_F^2/(nT)$,
-giving $\Sigma_{\mathrm{LW}} = (1-\alpha)\,\hat\Sigma + \alpha\bar\lambda\,I$.
-For completeness, the equivalent $(n+1)\times(n+1)$ saddle-point formulation
-\[
-\begin{pmatrix} 2\Sigma_{\mathrm{LW}} & \mathbf{1} \\ \mathbf{1}^\top & 0 \end{pmatrix}
-\begin{pmatrix} w \\ \lambda \end{pmatrix}
-=
-\begin{pmatrix} \mathbf{0} \\ 1 \end{pmatrix}
-\]
-is symmetric but indefinite and requires MINRES \cite{paige1975} rather than CG; it is shown here for completeness.
+\section{Primal-Dual Loop}\label{sec:primaldual}
 
-The long-only constraint $w \geq 0$ is enforced by a \textbf{primal-dual iterative procedure}. Each outer step solves
-the equality-constrained (budget-only) $n_a \times n_a$ positive definite system over the current asset universe. In the
-\emph{primal step}, any asset whose weight is negative is dropped. Once all active weights are non-negative, a
-\emph{dual step} checks the KKT gradient condition for every excluded asset: for global optimality, every excluded asset
-$i$ must satisfy
+The long-only constraint $w \geq 0$ is enforced by a \emph{primal--dual iterative procedure}.
+Each outer step solves the equality-constrained (budget-only) $n_a \times n_a$ positive
+definite system over the current active set. In the \emph{primal step}, any asset whose weight
+is negative is dropped. Once all active weights are non-negative, a \emph{dual step} checks
+the KKT gradient condition for every excluded asset: for global optimality, every excluded
+asset $i$ must satisfy
 \[
-  \nabla_i f(w) \;\geq\; \lambda,
-  \qquad
-  \nabla_i f(w) = 2\Bigl(\tfrac{1-\alpha}{T}(X^\top X w)_i + \alpha\,(R^\top R\,w)_i\Bigr) - \rho\mu_i,
+\nabla_i f(w) \;\geq\; \lambda\;,
+\quad\text{and}\quad
+\nabla_i f(w) = \tfrac{2}{T}(X^\top X w)_i - \rho\hat\mu_i\;,
 \]
-where $\lambda$ is the budget Lagrange multiplier and $R$ is the regularisation target matrix. An excluded asset that fails this
-condition would decrease portfolio variance if added at a small positive level; it is re-added to the active set and the
-loop repeats. The loop terminates when both primal and dual feasibility hold simultaneously; combined with stationarity
-from the KKT solve, this is sufficient for global optimality. The feasible set is non-empty and compact, so the
-constrained minimum exists.
+where $\lambda$ is the budget Lagrange multiplier. An excluded asset that fails this condition
+would improve the objective if added at a small positive level; it is re-added to the active
+set and the loop repeats. The loop terminates when both primal and dual feasibility hold
+simultaneously; combined with stationarity from the inner solve, this is sufficient for
+global optimality.
 
+
+
+\tcb{This comes all a bit too early:
 With Ledoit-Wolf shrinkage, the asset elimination loop converges rapidly in practice. Let $\bar\lambda = \|X\|_F^2/(nT)$
-denote the average eigenvalue of the sample covariance. The unconstrained minimiser satisfies $w^\star \propto
-\Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As $\alpha \to 1$, $\Sigma_{\mathrm{LW}} \to \bar\lambda I$ and $w^\star \to
-\frac{1}{n}\mathbf{1}$, the equal-weight portfolio with all components strictly positive. By continuity there exists a
+denote the average eigenvalue of the sample covariance. The unconstrained minimizer satisfies $w^\star \propto
+\hat \Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As $\alpha \to 1$, $\hat \Sigma_{\mathrm{LW}} \to \bar\lambda I$ and $w^\star \to
+\frac{1}{n}\mathbf{1}$, the equal-weighted $1/n$ portfolio with all components strictly positive. By continuity, there exists a
 threshold $\alpha^\star \in (0,1)$ above which every component of the unconstrained solution is positive; for $\alpha >
 \alpha^\star$ the first solve requires no asset to be dropped. The first-order expansion
 \[
-\Sigma_{\mathrm{LW}}^{-1}\mathbf{1} \approx \tfrac{1}{\alpha\bar\lambda}\mathbf{1} -
-\tfrac{1-\alpha}{\alpha^2\bar\lambda^2 T}X^\top X\mathbf{1},
+\hat \Sigma_{\mathrm{LW}}^{-1}\mathbf{1} \approx \tfrac{1}{\alpha\bar\lambda}\mathbf{1} -
+\tfrac{1-\alpha}{\alpha^2\bar\lambda^2 T}X^\top X\mathbf{1}~,
 \]
 valid for $\alpha$ close to one, shows that $\alpha^\star$ is governed by the spectral structure of $X^\top X$: assets
-with large total covariance exposure are the last to turn positive as $\alpha$ increases. For the LW-optimal $\alpha$
-and dense equity returns, the threshold is typically exceeded and the first solve yields few negative components. Across
+with large total covariance exposure are the last to turn positive as $\alpha$ increases. For the LW-optimal $\alpha$ \tcr{A brief explanation would be needed here, optimal in what sense?}
+and dense equity returns, the threshold is typically exceeded \tcr{This is an empirical finding, I guess? There cannot be an theory for such a finding} and the first solve yields few negative components. Across
 50 experiments with $n$ from 100 to 1000 and $T = 2n$, the elimination loop required 2--3 outer iterations in all cases;
-runtime is dominated by the linear solves.
+runtime is dominated by the linear solves. \tcr{Some reference to such experiments would be useful, that statement comes a bit ``out of the blue", without underlying details.}
+}
 
 \begin{algorithm}[ht]
 \caption{Primal-dual outer loop}\label{alg:elim}
 \begin{algorithmic}[1]
-\Require Inner solver $f$;\; tolerance $\varepsilon = 10^{-6}$;\; regularisation target $R$ (optional)
+\Require Inner solver $f$;\; tolerance $\varepsilon = 10^{-6}$;
 \Ensure Weight vector $w \in \mathbb{R}^n$;\; total inner iteration count $k$
 \State $\mathrm{active} \leftarrow \{1,\ldots,n\}$;\; $k \leftarrow 0$
 \Loop
@@ -297,7 +369,7 @@ runtime is dominated by the linear solves.
       \hfill\textit{(primal step: drop violators)}
   \Else
     \State $w_i \leftarrow w_{a,i}$ for $i \in \mathrm{active}$;\; $w_i \leftarrow 0$ for $i \notin \mathrm{active}$
-    \State $g_i \leftarrow 2\bigl(\tfrac{1-\alpha}{T}(X^\top X w)_i + \alpha\,(R^\top R\,w)_i\bigr) - \rho\mu_i$
+    \State $g_i \leftarrow \tfrac{2}{T}(X^\top X w)_i - \rho\hat \mu_i$
     \State $\lambda \leftarrow \mathrm{mean}_{j \in \mathrm{active}}(g_j)$
     \State $\mathcal{V} \leftarrow \{i \notin \mathrm{active} : g_i < \lambda - \varepsilon\}$
     \If{$\mathcal{V} = \emptyset$}
@@ -311,80 +383,113 @@ runtime is dominated by the linear solves.
 \end{algorithmic}
 \end{algorithm}
 
-Algorithm~\ref{alg:elim} accepts any inner solver $f$; Section~\ref{sec:solvers} presents four concrete choices:
-matrix-free CG (the primary method), a direct dense factorisation, non-negative least squares (NNLS), and the CVXPY interior-point reference.
+Algorithm~\ref{alg:elim} accepts any inner solver $f$; Section~\ref{sec:solvers} presents concrete choices for $f$.
+
 
 \section{Computational Methods}\label{sec:solvers}
 
 \subsection{CG Method}\label{ssec:cg}
 
-The inner solver $f$ for Algorithm~\ref{alg:elim} is conjugate gradients applied to the $n_a \times n_a$ SPD system
-derived in Section~\ref{sec:kkt}. The action of $\Sigma_{\mathrm{LW}}$ on a vector requires only two matrix-vector
-products with $X_{\mathrm{a}}$; the matrix itself is never formed.
+The inner solver $f$ for Algorithm~\ref{alg:elim} is conjugate gradients applied to the
+$n_a \times n_a$ SPD system derived in Section~\ref{sec:pd}. The action of $\hat\Sigma_a$
+on a vector requires only two matrix-vector products with $\tilde{X}_a$; the matrix itself
+is never formed.
 
 \begin{algorithm}[ht]
 \caption{CG inner step (inner solver $f$ for Algorithm~\ref{alg:elim})}\label{alg:cg}
 \begin{algorithmic}[1]
-\Require Active-asset index set $\mathrm{active}$;\; problem data;\; regularisation target $R$ (optional)
+\Require Active-asset index set $\mathrm{active}$;\; problem data $\tilde{X}$
 \Ensure Active-asset weights $w_{\mathrm{a}}$;\; CG iteration count $k$
 \Function{CgSolve}{active}
-\State Let $X_{\mathrm{a}} \leftarrow X_{:,\mathrm{active}}$,\; $R_{\mathrm{a}} \leftarrow R[\mathrm{active},\mathrm{active}]$,\; $n_a \leftarrow
-  |\mathrm{active}|$
-  \State Build matrix-free operator $\mathcal{S}$ of size $n_a \times n_a$:
-    \Statex\hspace{2em} $v \;\mapsto\; \tfrac{1-\alpha}{T}\,X_{\mathrm{a}}^\top(X_{\mathrm{a}}\,v) + \alpha\,R_{\mathrm{a}}^\top(R_{\mathrm{a}}\,v)$
-    \hfill\textit{($\Sigma_{\mathrm{LW}}$ applied matrix-free)}
-  \State Solve $\mathcal{S}\,v = \mathbf{1}$ via CG
-  \State \Return $v\,/\,(\mathbf{1}^\top v)$,\; iteration count
+\State Let $\tilde{X}_{\mathrm{a}} \leftarrow \tilde{X}_{:,\mathrm{active}}$,\;
+       $n_a \leftarrow |\mathrm{active}|$
+\State Build matrix-free operator $\mathcal{S}$ of size $n_a \times n_a$:
+  \Statex\hspace{2em}
+    $v \;\mapsto\; \tilde{X}_{\mathrm{a}}^\top(\tilde{X}_{\mathrm{a}}\,v)$
+    \hfill\textit{($\hat\Sigma_a$ applied matrix-free)}
+\State Solve $\mathcal{S}\,v = \mathbf{1}$ via CG
+\State \Return $v\,/\,(\mathbf{1}^\top v)$,\; iteration count
 \EndFunction
 \end{algorithmic}
 \end{algorithm}
 
-When an asset is dropped in the primal step, $\mathcal{S}$ is rebuilt for the reduced active set and CG restarts from
-scratch on the smaller system.
+When an asset is dropped in the primal step, $\mathcal{S}$ is rebuilt for the reduced active
+set and CG restarts from scratch on the smaller system.
 
-\paragraph{Convergence speed.}
+\paragraph{Convergence speed}
 The classical CG error bound \cite{greenbaum1997} states
 \[
-  \frac{\|e_k\|_{\Sigma_{\mathrm{LW}}}}{\|e_0\|_{\Sigma_{\mathrm{LW}}}}
-  \;\leq\;
-  2\!\left(\frac{\sqrt{\kappa}-1}{\sqrt{\kappa}+1}\right)^{\!k},
-  \qquad
-  \kappa = \kappa(\Sigma_{\mathrm{LW}}),
+\frac{\lVert e_k\rVert_{\hat\Sigma_a}}{\lVert e_0\rVert_{\hat\Sigma_a}}
+\;\leq\;
+2\!\left(\frac{\sqrt{\kappa}-1}{\sqrt{\kappa}+1}\right)^{\!k}\;,
+\qquad \kappa = \kappa(\hat\Sigma_a)\;,
 \]
-where $\|e\|_{\Sigma} = (e^\top \Sigma e)^{1/2}$ is the energy norm and $\kappa$ is the spectral condition number
-introduced in Section~\ref{sec:precond}.  Shrinkage compresses $\kappa$ monotonically as $\alpha$ increases, directly
-improving the asymptotic convergence rate.
+where $\lVert e\rVert_{\hat\Sigma_a} = (e^\top\hat\Sigma_a\, e)^{1/2}$ denotes the energy norm
+and $\kappa$ is the spectral condition number of the active-asset submatrix.
 
-A second, sharper bound follows from the rank structure of $\Sigma_{\mathrm{LW}}$.
+
+\tcb{That's just no required and wrong:
+A second, sharper bound follows from the rank structure of $\hat \Sigma_{\mathrm{LW}}$.
 Because $X_{\mathrm{a}} \in \mathbb{R}^{T \times n_a}$ has rank at most $\min(T,n_a)$, the matrix
-$\Sigma_{\mathrm{LW}} = \frac{1-\alpha}{T}X_{\mathrm{a}}^\top X_{\mathrm{a}} + \alpha R_{\mathrm{a}}^\top R_{\mathrm{a}}$
+$\hat \Sigma_{\mathrm{LW}} = \frac{1-\alpha}{T}X_{\mathrm{a}}^\top X_{\mathrm{a}} + \alpha R_{\mathrm{a}}^\top R_{\mathrm{a}}$
 has \emph{at most} $\min(T,n_a)+1$ distinct eigenvalues: exactly $n_a - \min(T,n_a)$ eigenvalues equal to
-$\alpha\lambda_{\min}(R_{\mathrm{a}}^\top R_{\mathrm{a}})$ (the ridge floor) and up to $\min(T,n_a)$ distinct eigenvalues above it.
+$\alpha\lambda_{\min}(R_{\mathrm{a}}^\top R_{\mathrm{a}})$ (the ridge floor) and up to $\min(T,n_a)$ distinct eigenvalues above it. \tcr{I do not quite understand. $\hat \Sigma_{\mathrm{LW}}$ has as many distinct eigenvalues as the sample covariance matrix, which have $n$ distinct eigenvalues with probability equal to one if the vector of asset returns has continuous distribution, and as long as $T > n$.}
 Since CG terminates in exact arithmetic in at most as many steps as there are distinct eigenvalues
-\cite{greenbaum1997}, convergence requires at most $\min(T,n_a)+1$ iterations.
-In the underdetermined regime $T < n_a$ this yields a bound of $T+1$, independent of the active-set size~$n_a$;
+(Greenbaum \cite{greenbaum1997}), convergence requires at most $\min(T,n_a)+1$ iterations.
+In the underdetermined regime $T < n_a$, this yields a bound of $T+1$, independent of the active-set size~$n_a$;
 adding assets to the portfolio does not increase the iteration count.
 This regime arises when the history window is shorter than the universe (a common scenario in, e.g.,
 high-frequency or short-window portfolio rebalancing), or within the primal-dual loop once enough assets have been
-excluded that $n_a$ exceeds $T$.  Shrinkage reinforces the rank-based bound by clustering the $\min(T,n_a)$
-non-ridge eigenvalues, causing super-linear acceleration in practice \cite{simoncini2013}.
+excluded that $n_a$ exceeds~$T$.  Shrinkage reinforces the rank-based bound by clustering the $\min(T,n_a)$
+non-ridge eigenvalues, causing super-linear acceleration in practice; e.g., see
+Simoncini and Szyld \cite{simoncini2013}.
 The iteration counts in Table~\ref{tab:sp500} illustrate the condition-number effect:
-on the S\&P~500 problem ($n=495$, $T=1192 > n$) shrinkage reduces CG iterations from 744 to 82, consistent
-with $\kappa(\Sigma_{\mathrm{LW}})$ decreasing monotonically as $\alpha$ increases (Section~\ref{sec:precond}).
+On the S\&P~500 problem ($n=495$, $T=1192 > n$), using LW shrinkage instead of the sample covariance matrix
+reduces CG iterations from 744 to 82, which is consistent
+with $\kappa(\hat \Sigma_{\mathrm{LW}})$ decreasing monotonically as $\alpha$ increases (Section~\ref{sec:precond}).}
+From the discussion above, it becomes clear that the distribution of the eigenvalues of the linear system is crucial for achieving fast convergence of the conjugate gradient method (cf. \cite{saad2003iterative}). One way of improving the convergence speed to solve the linear system $Ax=b$ is to use a preconditioner $M$ and the modified system $M^{-1}Ax=M^{-1}b,$ where the new system matrix $M^{-1}A$ has a more favorable distribution of the eigenvalues. The two main objectives for designing the preconditioner $M$ are that it somehow closely resembles $A$ but is also easy to apply. Preconditioners based on sketching \cite{meng2014lsrn,frangella2023randomized} are used for shifted symmetric positive definite systems. In spirit similar to what we suggest next is the method introduced in \cite{avron2010blendenpik} where a preconditioned matrix $XR^{-1}$ is fed into the LSQR solver \cite{paige1982algorithm}, where $R$ comes from a QR factorization.
+
+% \tcb{Should we have the cg algorithm here? A few words about preconditioning? Martin, don't hold back}
+
+\subsection*{Sherman-Morrison-Woodbury Preconditioner}
+One possibility for preconditioning the system matrix $A = \omega X_a^\top X_a + \gamma I$ is to use a low-rank approximation of the matrix $X_a$ and then apply the Sherman-Morrison-Woodbury \cite{golub2013} identity
+$
+\left(I+UCV\right)^{-1}=I-U\left(C^{-1}+VU\right)^{-1}V.
+$
+We then utilize the idea that $UCV$ is a low-rank approximation to a large square matrix and that $\left(C^{-1}+VU\right)$ is a small matrix. If additionally $V=U^\top$ is a matrix with orthogonal columns we get
+$\left(I+UCV\right)^{-1}=I-U\left(C^{-1}+I\right)^{-1}U^\top.$
+We now perform the low-rank approximation of $X_a$ using the truncated singular value decomposition. Obviously, the quality of such an approximation depends on the singular value decay of $X_a$.  We start by factoring out $\gamma$ and substitute the rank-$k$ SVD of $X_a \approx U_k S_k V_k^\top$
+to get the approximation
+\begin{equation}
+    A \approx \underbrace{\gamma\!\left(I + V_k \underbrace{\tfrac{\omega}{\gamma}S_k^2}_{C} V_k^\top\right)}_{M}~.
+\end{equation}
+Since $V_k^\top V_k = I_k$, we now obtain the preconditioner
+\begin{equation}
+    M^{-1} = \frac{1}{\gamma}\!\left(I - V_k\,\mathrm{diag}(d_k)\,V_k^\top\right),
+    \qquad
+    d_i = \frac{\omega\sigma_i^2}{\omega\sigma_i^2 + \gamma}.
+\end{equation}
+%
+
+Applying this matrix to a vector $v$, the preconditioner is given via
+%
+\begin{equation}
+    M^{-1}v = \frac{1}{\gamma}\!\left(v - V_k^\top\bigl(d_k \odot (V_k v)\bigr)\right)~.
+\end{equation}
 
 \subsection{CVXPY Reference Implementation}
 
 Before developing the Krylov solvers we establish a reference solution using CVXPY \cite{diamond2016}, a domain-specific
-language for convex optimisation. The minimum variance problem maps directly onto a least-squares objective, which CVXPY
+language for convex optimization. The minimum variance problem maps directly onto a least-squares objective, which CVXPY
 dispatches to a general-purpose interior-point solver.
 
 \begin{algorithm}[ht]
 \caption{CVXPY reference solver}\label{alg:cvxpy}
 \begin{algorithmic}[1]
-\Require Returns matrix $X \in \mathbb{R}^{T \times n}$;\; shrinkage $\alpha$;\; return tilt $\rho\mu$;\; target $R$
+\Require Returns matrix $X \in \mathbb{R}^{T \times n}$;\; shrinkage $\alpha$;\; return tilt $\rho\hat \mu$;
 \Ensure Weight vector $w$;\; interior-point iteration count $k$
 \State Declare $w \in \mathbb{R}^n$ as a CVXPY variable
-\State Minimise $\tfrac{1-\alpha}{T}\|Xw\|^2 + \alpha\|Rw\|^2 - \rho\mu^\top w$
+\State Minimise $\tfrac{1}{T}\|Xw\|^2 - \rho\hat \mu^\top w$
   \Statex\hspace{1.5em} subject to $\mathbf{1}^\top w = 1$,\; $w \geq \mathbf{0}$
 \State Dispatch to Clarabel interior-point solver \cite{clarabel2024}
 \State \Return $w$,\; $k$
@@ -392,41 +497,42 @@ dispatches to a general-purpose interior-point solver.
 \end{algorithm}
 
 The formulation is transparent and correct, and CVXPY handles the long-only constraint natively. We use the Clarabel
-interior-point solver \cite{clarabel2024}, which dispatches the problem as a second-order cone programme. Its cost is
+interior-point solver \cite{clarabel2024}, which dispatches the problem as a second-order cone program. Its cost is
 substantial: interior-point methods require $O(n^3)$ work per iteration, and the overhead of problem construction and
 solver communication adds further latency. On the S\&P~500 problem ($n = 495$) this amounts to roughly 1.6 seconds
 (Table~\ref{tab:sp500}), making CVXPY unsuitable for production use but ideal as a ground-truth reference.
 
-All three methods in this paper (CVXPY, KKT direct, and CG) solve the same optimisation problem and produce identical
+All three methods in this paper (CVXPY, KKT direct, and CG) solve the same optimization problem and produce identical
 portfolio weights up to numerical tolerance. The comparison is purely computational: the question is not which method
 finds a better portfolio, but which finds the same portfolio fastest.
 
 The speedup figures in Table~\ref{tab:sp500} should be read with this in mind. CVXPY and
-Clarabel are general-purpose tools: the same code handles additional convex constraints --- sector limits, turnover
-bounds, factor exposure constraints --- without modification. The CG method exploits the specific structure of the pure
+Clarabel are general-purpose tools: the same code handles additional convex constraints---sector limits, turnover bounds, factor-exposure constraints---without modification. The CG method exploits the specific structure of the pure
 long-only minimum variance problem and would require rework to accommodate constraints beyond the budget and
 non-negativity requirements. The speedup therefore conflates two effects: genuine algorithmic efficiency from exploiting
 problem structure, and the overhead of a framework designed for a far broader problem class. For the standard long-only
 constraint the full speedup is available; practitioners requiring richer constraint sets face a narrower tradeoff and
-may find a specialised QP solver a more appropriate baseline.
+may find a specialized QP solver a more appropriate baseline.
 
 \subsection{Direct Solve (Baseline)}
 
-For small $n$, \texttt{numpy.linalg.solve} applied to the $n_a \times n_a$ covariance matrix is fast and exact. It
-requires forming $X_{\mathrm{a}}^\top X_{\mathrm{a}}$ (an $O(n_a^2 T)$ operation), but for $n \ll T$ this is not the
+For small $n$, \texttt{numpy.linalg.solve} applied to the $n_a \times n_a$ covariance matrix
+\tcr{which covariance matrix, the sample covariance matrix or LW shrinkage?}
+is fast and exact. \tcr{Should it not be exact always, also for large~$n$?}
+It requires forming $X_{\mathrm{a}}^\top X_{\mathrm{a}}$ (an $O(n_a^2 T)$ operation), but for $n \ll T$ this is not the
 bottleneck.
 
 \begin{algorithm}[ht]
 \caption{Direct solver}\label{alg:kkt}
 \begin{algorithmic}[1]
-\Require Problem data;\; regularisation target $R$ (optional)
+\Require Problem data;
 \Ensure Weight vector $w$;\; outer elimination step count $s$
 \Function{DirectSolve}{active}
-\State Let $X_{\mathrm{a}} \leftarrow X_{:,\mathrm{active}}$,\; $R_{\mathrm{a}} \leftarrow R[\mathrm{active},\mathrm{active}]$,\; $n_a \leftarrow
+\State Let $X_{\mathrm{a}} \leftarrow X_{:,\mathrm{active}}$,\; $n_a \leftarrow
   |\mathrm{active}|$
-  \State Assemble $\Sigma_{\mathrm{a}} \leftarrow \tfrac{1-\alpha}{T}\,X_{\mathrm{a}}^\top X_{\mathrm{a}} + \alpha\,R_{\mathrm{a}}^\top R_{\mathrm{a}}$
+  \State Assemble $\Sigma_{\mathrm{a}} \leftarrow \tfrac{1}{T}\,X_{\mathrm{a}}^\top X_{\mathrm{a}}
     \hfill\textit{(SPD, $n_a\times n_a$)}
-  \State Solve $\Sigma_{\mathrm{a}}\, v = \mathbf{1}$ by dense factorisation
+  \State Solve $\Sigma_{\mathrm{a}}\, v = \mathbf{1}$ by dense factorization
   \State \Return $v\,/\,(\mathbf{1}^\top v)$,\; $1$  \hfill\textit{(per-step count; no inner iterations)}
 \EndFunction
 \State $(w,\, s) \leftarrow \textsc{EliminationLoop}(\textsc{DirectSolve})$
@@ -438,14 +544,14 @@ bottleneck.
 
 
 \subsection{NNLS Solver}\label{ssec:nnls}
-
+\tcb{But NNLS is using an active-set method under the hood, too
 An alternative approach bypasses the primal-dual loop entirely by reformulating the long-only constraint as a
 non-negative least squares (NNLS) problem. Starting from the objective $\min_w \frac{1-\alpha}{T}\|Xw\|^2 +
 \alpha\|Rw\|^2$, the budget constraint $\mathbf{1}^\top w = 1$ is incorporated via a large-penalty row, yielding the
 augmented system:
 \[
-  \min_{w \geq 0}\; \left\|\begin{pmatrix} \sqrt{(1-\alpha)/T}\,X \\ \sqrt{\alpha}\,R \\ M\,\mathbf{1}^\top \end{pmatrix}
-  w - \begin{pmatrix} \mathbf{0} \\ \mathbf{0} \\ M \end{pmatrix}\right\|^2,
+  \min_{w \geq 0}\; \left\|\begin{pmatrix} \sqrt{1/T}\,X \\ M\,\mathbf{1}^\top \end{pmatrix}
+  w - \begin{pmatrix} \mathbf{0} \\ M \end{pmatrix}\right\|^2,
 \]
 where $M = \|X\|_F \cdot T$ is a penalty large enough to enforce $\mathbf{1}^\top w \approx 1$ to machine precision.
 The non-negativity constraint $w \geq 0$ is handled natively by the Lawson-Hanson active-set algorithm
@@ -457,8 +563,10 @@ requires no post-processing. However, NNLS does not benefit from the matrix-free
 algorithm implicitly forms normal equations $A^\top A$ where $A$ is the augmented matrix, incurring the same $O(n^2 T)$
 cost as the direct KKT solve. With Ledoit-Wolf shrinkage, the augmented matrix grows from $T \times n$ to $(T+n) \times
 n$, making NNLS paradoxically slower with shrinkage than without, an inversion of the pattern seen for KKT and CG.
-Table~\ref{tab:sp500} confirms this: on the S\&P~500 problem NNLS takes $0.038$\,s without
-shrinkage but $0.086$\,s with it, while CG moves in the opposite direction.
+Table~\ref{tab:sp500} confirms this: on the S\&P~500 problem, NNLS takes $0.038$\,s without
+shrinkage but $0.086$\,s with it, whereas CG moves in the opposite direction.
+}
+
 
 \subsection{Proximal Gradient}\label{ssec:proximal}
 
@@ -511,6 +619,7 @@ linear scan; it is the inner loop of Algorithm~\ref{alg:proximal}.
 \end{algorithmic}
 \end{algorithm}
 
+\tbr{
 \paragraph{Cost per iteration.}
 The matrix $\Sigma_{\mathrm{LW}}$ is assembled once at $O(n^2(T+n_R))$ cost (the same setup as
 the direct KKT solve) and cached; the largest eigenvalue $L$ is computed alongside it.  Each
@@ -553,64 +662,76 @@ The proximal gradient approach is most attractive when the simplex-projection st
 exploited further---for instance in the $\ell_1$-ball variant of the long-only constraint
 studied in \cite{duchi2008}---or when one prefers a conceptually simple, loop-free
 implementation at the cost of slower per-problem convergence.
+}
 
 \section{Ledoit-Wolf Shrinkage}
 \label{sec:precond}
 
-The sample covariance matrix $\frac{1}{T}X^\top X$ is a poor estimator when $n$ is large relative to $T$: its smallest
-eigenvalues are severely downward-biased, and the eigenvalue spread (the ratio of largest to smallest) far exceeds that
-of the true covariance. Ledoit and Wolf \cite{ledoit2004} propose replacing the sample covariance with a convex
-combination of the sample estimate and a scaled identity:
+It is well known that the sample covariance matrix $\hat \Sigma = \frac{1}{T}X^\top X$ is a poor estimator
+of the true covariance matrix $\Sigma$ when $n$ is ``not small" relative to $T$: its smallest
+eigenvalues are severely downward-biased, and the condition number (the ratio of largest to smallest eigenvalue) generally far exceeds that of the true covariance matrix.
+Ledoit and Wolf \cite{ledoit2004} propose replacing the sample covariance matrix with a convex
+combination of itself and the  scaled identity matrix (called the {\em shrinkage target}):
 \[
-\Sigma_{\text{LW}} = (1-\alpha)\,\hat\Sigma + \alpha\cdot\mathrm{target}, \quad \bar\lambda = \frac{\|X\|_F^2}{nT}
+\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot\hat\Sigma + \alpha\cdot \bar \lambda I \quad \mbox{with} \quad
+\bar\lambda = \frac{\|X\|_{\text{F}}^2}{nT}~.
 \]
-where $\bar\lambda$ is the average eigenvalue of the sample covariance and the classical choice is
-$\mathrm{target} = \bar\lambda I$.  The implementation uses a general $N\times N$ regularisation target matrix $R$
-(satisfying $\mathrm{target} = R^\top R$), so that
-$\Sigma_{\text{LW}} = (1-\alpha)\,\hat\Sigma + \alpha\,R^\top R$.
+Here $\|\cdot\|_{\text{F}}$ denotes the Frobenius norm of a square matrix, and
+$\bar\lambda$ thus denotes the average eigenvalue of the sample covariance matrix.
+The implementation  \tcr{Should we say "Our implementation"?}
+uses a generalized $N\times N$ regularization shrinkage target matrix $R$
+(satisfying $\mathrm{target} = R^\top R$), \tcr{The target cannot satisfy both target = $R$ and
+target =  $R^\top R$}
+so that
+$\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot\hat\Sigma + \alpha \cdot R^\top R$.
+\tcr{Maybe we need a more general notation here, to allow for a generalized shrinkage target.}
 Classical Ledoit-Wolf shrinkage is recovered by setting $R = \sqrt{\bar\lambda}\,I$; for i.i.d.\ $\mathcal{N}(0,1)$
 synthetic returns $\bar\lambda \approx 1$ so $R = I$ is equivalent.
 The shrinkage intensity $\alpha \in (0,1)$ is
-chosen analytically to minimise the expected Frobenius distance to the true covariance, requiring no cross-validation.
+chosen analytically to minimize the expected Frobenius distance to the true covariance matrix, requiring no cross-validation. \tcr{This is not quite true. We are consistently estimating the optimal $\alpha$ only, we cannot guarantee to minimize the expected F-norm distance in finite samples.}
 The effect on the spectrum is direct: the target term lifts every eigenvalue, bounding the smallest away from zero and
-compressing the overall spread. The condition number satisfies:
+compressing the overall spread. \tcr{Not sure what is meant by ``lifts every eigenvalue". Classical LW shrinkage moves all sample eigenvalues towards their average. So large eigenvalues go down, whereas small eigenvalues go up.}
+The condition number satisfies:
 \[
-\kappa(\Sigma_{\text{LW}}) = \frac{\lambda_{\max}(\Sigma_{\text{LW}})}{\lambda_{\min}(\Sigma_{\text{LW}})} \leq
-\frac{(1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)}{\alpha\lambda_{\min}(R^\top R)}
+\kappa(\hat \Sigma_{\text{LW}}) = \frac{\lambda_{\max}(\hat \Sigma_{\text{LW}})}{\lambda_{\min}(\hat \Sigma_{\text{LW}})} \leq
+\frac{(1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)}{\alpha\lambda_{\min}(R^\top R)}~,
 \]
-since $\lambda_{\min}(\Sigma_{\text{LW}}) \geq \alpha\lambda_{\min}(R^\top R)$ and, by Weyl's inequality applied to
-$\Sigma_{\text{LW}} = (1-\alpha)\hat\Sigma + \alpha R^\top R$, $\lambda_{\max}(\Sigma_{\text{LW}}) \leq
+since $\lambda_{\min}(\hat \Sigma_{\text{LW}}) \geq \alpha\lambda_{\min}(R^\top R)$ and, by Weyl's inequality applied to
+$\hat \Sigma_{\text{LW}} = (1-\alpha)\cdot \hat\Sigma + \alpha \cdot R^\top R$, $\lambda_{\max}(\hat \Sigma_{\text{LW}}) \leq
 (1-\alpha)\lambda_{\max}(\hat\Sigma) + \alpha\lambda_{\max}(R^\top R)$,
 where $\lambda_{\max}(\hat\Sigma) = \lambda_{\max}(X^\top X/T)$ is
-the largest sample eigenvalue. As $\alpha \to 1$ the bound approaches $\lambda_{\max}(R^\top R)/\lambda_{\min}(R^\top R)$,
+the largest sample eigenvalue. As $\alpha \to 1$, the bound approaches $\lambda_{\max}(R^\top R)/\lambda_{\min}(R^\top R)$,
 which equals $1$ for the classical choice $R = \sqrt{\bar\lambda}\,I$, correctly reflecting that full shrinkage
 yields a scalar multiple of the identity. For fixed data, the condition number decreases monotonically as $\alpha$
 increases, with the rate governed by the spectral ratio $\lambda_{\max}(\hat\Sigma)/\lambda_{\min}(R^\top R)$. For CG applied to
-$\Sigma_{\text{LW}}\,v = \mathbf{1}$, the convergence rate is governed by $\kappa(\Sigma_{\text{LW}})$; compressing the
+$\hat \Sigma_{\text{LW}}\,v = \mathbf{1}$, the convergence rate is governed by $\kappa(\hat \Sigma_{\text{LW}})$; compressing the
 spectrum directly reduces iteration counts. Subsequent work by the same authors provides an analytical nonlinear
-shrinkage formula \cite{ledoit2020} that applies a different coefficient to each sample eigenvalue, achieving a smaller
-Frobenius loss when $n/T$ is not negligible. Nonlinear shrinkage cannot be expressed as a simple augmented matrix
+shrinkage scheme that applies a different coefficient to each sample eigenvalue, typically achieving a smaller
+Frobenius loss than linear shrinkage when $n/T$ is not negligible; see \cite{ledoit2020}.
+Unfortunately, nonlinear shrinkage cannot be expressed as a simple augmented matrix
 $\tilde{X}$, so incorporating it into the matrix-free framework would require a separate Krylov-compatible
 preconditioner rather than a modified return matrix.
 
-In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\Sigma_{\text{LW}}$
+In the implementation, shrinkage is applied by augmenting the return matrix rather than forming $\hat \Sigma_{\text{LW}}$
 explicitly. Setting $c = 1 - \alpha$, the stacked matrix $\tilde{X}
 = [\sqrt{c/T}\,X;\,\sqrt{\alpha}\,R]$ satisfies $\tilde{X}^\top \tilde{X} = \frac{c}{T}\,X^\top X + \alpha\,R^\top R
-= c\,\hat\Sigma + \alpha\,R^\top R = \Sigma_{\text{LW}}$,
+= c\,\hat\Sigma + \alpha\,R^\top R = \hat \Sigma_{\text{LW}}$,
 so any of the solvers above can be applied to $\tilde{X}$ and produce exactly the LW-shrinkage portfolio weights.
-For $R = \sqrt{\bar\lambda}\,I$ this gives classical Ledoit-Wolf: $\Sigma_{\text{LW}} = (1-\alpha)\,\hat\Sigma + \alpha\bar\lambda\,I$.
+For $R = \sqrt{\bar\lambda}\,I$, this results in the classical Ledoit-Wolf linear shrinkage: $\hat \Sigma_{\text{LW}} = (1-\alpha) \cdot \hat\Sigma + \alpha \cdot \bar\lambda\,I$.
 
 From the perspective of numerical linear algebra, compressing the eigenvalue spectrum of the system matrix is precisely
 what a preconditioner does. Ledoit-Wolf shrinkage therefore plays a dual role: it reduces statistical estimation error
-and, as a side effect, accelerates iterative solvers by clustering the eigenvalues. The two motivations are independent
-but arrive at the same modified matrix.
+and, as a side effect, accelerates iterative solvers by reducing the condition number of the input matrix relative the sample covariance matrix. The two motivations are independent
+but arrive at the same modified matrix. \tcr{I do not quite understand the meaning of this last sentence.}
 
-The proportional identity shrinkage target $\alpha\bar\lambda I$ is the simplest choice, but the preconditioning
-literature suggests sharper alternatives. A factor-model preconditioner, replacing $\alpha\bar\lambda I$ with a
+The proportional identity shrinkage target $\alpha \cdot \bar\lambda I$ is the simplest choice, but the preconditioning
+literature suggests sharper alternatives. A factor-model preconditioner, replacing $\alpha \cdot \bar\lambda I$ with a
 low-rank-plus-diagonal approximation $BB^\top + D$, would cluster eigenvalues more tightly at the cost of a slightly
-more expensive application. Incomplete Cholesky factorisation of the shrunk matrix provides a general-purpose option.
-For rolling-window problems where the covariance changes slowly between periods, a preconditioner built from the
-previous period's factorisation could be reused with minimal update cost. None of these require forming the covariance
+more expensive application. Incomplete Cholesky factorization of the shrunk matrix provides a general-purpose option.
+For rolling-window problems where the estimated covariance matrix changes slowly between periods, a preconditioner built from the
+previous period's factorization could be reused with minimal update cost. None of these
+\tcr{none of these what, approaches, methods, \ldots?}
+require forming the covariance
 matrix explicitly and each is compatible with the matrix-free framework described above.
 
 \section{Numerical Results}\label{sec:results}
@@ -618,7 +739,7 @@ matrix explicitly and each is compatible with the matrix-free framework describe
 All experiments were run on an Apple M4 Pro (14-core CPU, 48\,GB RAM) under Python~3.12, NumPy~2.4, SciPy~1.17,
 CVXPY~1.8.2, and Clarabel~0.11.1. The iterative solvers use SciPy's default relative residual tolerance of $10^{-5}$,
 which was reached in all reported runs; reported times are the minimum of three repeated solves and cover only the
-solve itself --- construction of the shrinkage target $\hat\sigma^2 I$ is excluded, as it requires a single pass over
+solve itself---construction of the shrinkage target $\hat\sigma^2 I$ is excluded, as it requires a single pass over
 $X$ and is negligible relative to any solver. All implementations are available in the companion package
 \cite{fast_minimum_variance}.
 
@@ -627,34 +748,35 @@ $X$ and is negligible relative to any solver. All implementations are available 
 
 The dataset consists of daily percentage returns for 495 S\&P~500 constituents over the period July~2021--May~2026
 (1192 trading days, $T/n \approx 2.4$), sourced from Yahoo Finance via the \texttt{yfinance} Python package.
-Tickers with more than 5\% missing observations are excluded; short gaps are forward-filled. The return
+Tickers with more than 5\% missing observations are excluded; short gaps are forward-filled. \tcr{Please explain what is meant by ``forward-filled"? Why not replace missing values by zero?}
+The return
 matrix $X$ is formed by demeaning the returns column-wise.
 
-\paragraph{Spectrum of $\hat\Sigma = \tfrac{1}{T}X^\top X$.}
+\paragraph{Spectrum of $\hat\Sigma = \tfrac{1}{T}X^\top X$}
 The eigenvalue structure of the sample covariance is qualitatively different from that of a random Gaussian matrix and
 is the reason the S\&P~500 problem is a meaningful test case for the preconditioning argument. For a random $T \times n$
 matrix with i.i.d.\ $\mathcal{N}(0,\sigma^2)$ entries, the Marchenko-Pastur law predicts that the bulk of the spectrum
 lies in the interval $[\sigma^2(1-\sqrt{n/T})^2,\,\sigma^2(1+\sqrt{n/T})^2]$, giving a mild condition number that
 grows modestly with $n/T$. The equity spectrum is nothing like this.
 
-The largest eigenvalue is $\lambda_1 \approx 0.067$, the market factor, which alone accounts for $\approx 30\%$ of
-total portfolio variance. To apply the Marchenko-Pastur law we estimate $\sigma^2$ as the average squared entry of $X$,
+The largest eigenvalue is $\lambda_1 \approx 0.067$, corresponding the market factor, which alone accounts for $\approx 30\%$ of
+total portfolio variance. To apply the Marchenko-Pastur law, we estimate $\sigma^2$ as the average squared entry of $X$,
 \[
-  \hat\sigma^2 = \frac{\|X\|_F^2}{nT} \approx 0.000457,
+  \hat\sigma^2 = \frac{\|X\|_F^2}{nT} \approx 0.000457~,
 \]
 the natural entry-level variance of a daily percentage return. The MP upper edge $\hat\sigma^2(1+\sqrt{n/T})^2 \approx 0.00123$
 then identifies 22 eigenvalues as statistically significant factors; the remaining 473 are consistent with noise yet
 still span a wide range down to $\lambda_{\min} \approx 6 \times 10^{-7}$. The resulting condition number is
 \[
-  \kappa(\hat\Sigma) = \frac{\lambda_{\max}}{\lambda_{\min}} \approx 109{,}000,
+  \kappa(\hat\Sigma) = \frac{\lambda_{\max}}{\lambda_{\min}} \approx 109{,}000~,
 \]
 far larger than the $O(10)$--$O(100)$ range typical of random matrices at this aspect ratio.  The first ten
 eigenvalues account for half the total variance, while the bottom half of the spectrum contributes less than $3\%$.
 This extreme imbalance---a handful of dominant factors and a long tail of near-zero noise eigenvalues---is precisely
 what makes CG slow without preconditioning (744 iterations) and what makes shrinkage decisive: lifting
-$\lambda_{\min}$ by even a moderate $\alpha$ collapses the condition number and cuts the iteration count to 82.
+$\lambda_{\min}$ by even a moderate $\alpha$ dramatically reduces the condition number and thus the iteration count to 82.
 
-Table~\ref{tab:sp500} reports timings and iteration counts for all solvers on this dataset.
+Table~\ref{tab:sp500} reports timings and iteration counts on this dataset for the various solvers we consider.
 
 \begin{table}[ht]
 \centering
@@ -685,27 +807,28 @@ $T \times n$ to $(T+n) \times n$.}
 \end{table}
 
 The real-data results reveal two effects. First, without shrinkage the equity system is hard to solve iteratively:
-CG requires 744 iterations and is slower than KKT direct (0.0120\,s vs.\ 0.0056\,s). The strong factor structure of
+CG requires 744 iterations and is slower than KKT direct (0.0120\,s vs 0.0056\,s). The strong factor structure of
 equity returns concentrates variance along a few eigendirections, inflating the condition number and offsetting the
 matrix-free advantage of CG.
 
-Second, Ledoit-Wolf shrinkage benefits both iterative and direct solvers: it cuts CG iterations from 744 to~82 and
+Second, Ledoit-Wolf shrinkage benefits both iterative and direct solvers: it reduces CG iterations from 744 to~82 and
 reduces active-set outer steps from~22 to~6, since a lower condition number means fewer assets end up with negative
 unconstrained weights and the primal-dual loop converges faster. At $n=495$, KKT direct (0.0062\,s, $399\times$ over
 CVXPY) and CG (0.0042\,s, $594\times$) are both well under a millisecond and within a factor of~1.5 of each other.
-For portfolios of this size KKT direct is the practical recommendation: it requires no convergence tolerance and is
+For portfolios of this size, KKT direct is the practical recommendation: it requires no convergence tolerance and is
 faster without shrinkage.  CG's advantage lies at larger $n$, where avoiding explicit assembly of
 $\tilde{X}^\top\tilde{X}$ reduces per-step cost from $O(n^2)$ to $O(Tn)$ (Figure~\ref{fig:scaling}).
 The ``Clarabel (direct API)'' row confirms the speedup is not merely framework overhead: bypassing CVXPY reduces
-Clarabel's time from 2.5\,s to 0.092\,s, yet KKT direct ($0.006$\,s) is still $15\times$ faster. These results are
-specific to this five-year window; iteration counts depend on the factor structure of equity returns and may differ
+Clarabel's time from 2.5\,s to 0.092\,s, yet KKT direct ($0.006$\,s) is still $15\times$ faster. Not that these results may be
+specific to five-year window considered; iteration counts depend on the factor structure of equity returns and may differ
 in other market regimes.
 
 \subsection*{Scaling with problem size}
 
 Figure~\ref{fig:scaling} uses synthetic i.i.d.\ Gaussian data to isolate the computational scaling of each solver
 across a range of problem sizes and shrinkage levels; the spectral properties of the data are irrelevant here since the
-point is to measure cost growth, not iteration counts. The left panel shows wall-clock time as a function of $n$ (with
+point is to measure cost growth, not iteration counts.
+The left panel shows wall-clock time as a function of $n$ (with
 $T = 2n$ and LW shrinkage throughout). The KKT direct solve
 scales as $O(n^3)$, dominated by the $n \times n$ linear system. Each Krylov iteration requires $O(nT) = O(n^2)$ work
 for the two matrix-vector products with $X$; with the spectrum compressed by shrinkage the iteration count grows slowly
@@ -714,7 +837,7 @@ with $n$, giving an empirical scaling close to $O(n^2)$ and a gap that widens vi
 The right panel uses the rank-deficient setting $T = 250 < n = 500$, in which $X^\top X$ has at most $T$ non-zero
 eigenvalues and the unshrunk sample covariance is singular. This regime is practically relevant: asset universes with
 more instruments than trading days arise when securities with limited common history are pooled, or when a large
-cross-section is combined with a short lookback window. Without shrinkage the KKT system is singular and the iterative
+cross-section is combined with a short lookback window. Without shrinkage, the KKT system is singular and the iterative
 solvers do not converge; every point in the panel has $\alpha > 0$. The preconditioning effect of shrinkage is strongest
 precisely here: iteration counts fall steeply as $\alpha$ increases from zero, reaching the practical operating point at
 moderate $\alpha$ values well below unity.
@@ -722,17 +845,17 @@ moderate $\alpha$ values well below unity.
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\linewidth]{graphs/minvar_scaling.pdf}
-\caption{Left: wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied
-throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). Right: CG iteration counts vs.\ shrinkage
-intensity $\alpha$ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger $\alpha$ compresses the eigenvalue
-spectrum and reduces the condition number $\kappa(\Sigma_{\mathrm{LW}})$, directly reducing CG iterations.}
+\caption{Left: wall-clock time vs number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied
+throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). Right: CG iteration counts vs shrinkage
+intensity $\alpha$ at fixed $n=500$, $T=250$ (rank-deficient baseline). Larger values of $\alpha$ compress the eigenvalue
+spectrum and reduce the condition number $\kappa(\hat \Sigma_{\mathrm{LW}})$, thereby reducing CG iterations.}
 \label{fig:scaling}
 \end{figure}
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.65\linewidth]{graphs/minvar_loglog.pdf}
-\caption{Wall-clock time vs.\ number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied
+\caption{Wall-clock time vs number of assets $n$ (log--log scale, $T = 2n$, Ledoit-Wolf shrinkage applied
 throughout) for KKT direct, CG (matrix-free), and NNLS (Lawson--Hanson). KKT direct scales as $O(n^3)$; matrix-free
 CG scales empirically as $O(n^2)$ due to the iteration count growing slowly with the compressed spectrum; NNLS also
 scales as $O(n^3)$ (Lawson--Hanson normal equations). Reference slopes are anchored to the KKT curve at $n = 500$.}
@@ -741,34 +864,39 @@ scales as $O(n^3)$ (Lawson--Hanson normal equations). Reference slopes are ancho
 
 \section{Conclusion}
 
-The long-only minimum variance portfolio problem, formulated directly in terms of the returns matrix,
-reduces to solving the $n\times n$ symmetric positive definite system $\Sigma_{\mathrm{LW}}\, v = \mathbf{1}$ via
+The long-only minimum variance portfolio problem, formulated
+directly in terms of the returns matrix,
+reduces to solving the $n\times n$ symmetric positive definite system $\hat \Sigma_{\mathrm{LW}}\, v = \mathbf{1}$ via
 conjugate gradients, followed by a single rescaling $w = v/(\mathbf{1}^\top v)$.
 The covariance matrix is never formed; all operations are matrix-vector products with $X$.
+\tcr{This paragraph has to be reworked. What is meant by ``formulated directly in terms of the returns matrix"?
+This sounds like the input is the sample covariance matrix. But then the input is the LW matrix, which requires more than just the returns matrix. Also, a conclusion has to be somewhat self-contained, so one cannot just throw out terms like CVXPY or KKT.}
 
 The empirical results on 495 S\&P~500 constituents over five years confirm the practical value of this approach.
 For portfolios up to $n \approx 1000$, KKT direct is already 300--400$\times$ faster than CVXPY across both
 shrinkage regimes and requires no convergence tolerance: it is the practical recommendation.  Without shrinkage, the
 matrix-free advantage of CG is offset by high iteration counts (744 on S\&P~500 equity data) driven by the strong
 factor structure of equity returns.  Ledoit-Wolf shrinkage \cite{ledoit2004} benefits both solvers: it compresses
-the eigenvalue spectrum, cuts CG iterations to~82, and reduces active-set outer steps from~22 to~6, since a lower
+the eigenvalue spectrum, reduces CG iterations to~82, and reduces active-set outer steps from~22 to~6, since a lower
 condition number shrinks the unconstrained minimum-variance portfolio toward equal weights and fewer assets receive
-negative weights in the primal step.  At $n=495$ CG (0.0042\,s) edges KKT direct (0.0062\,s) by a factor of~1.5.
-CG's advantage becomes decisive at large $n$: the scaling experiments show CG is roughly $2\times$ faster than KKT
-at $n=2000$, a gap that widens further as $n$ grows.
+negative weights in the primal step.  \tcr{That sentence is really a bit too long.}
+At $n=495$ CG (0.0042\,s) edges KKT direct (0.0062\,s) by a factor of~1.5.
+CG's advantage becomes decisive at large $n$: the scaling experiments show CG is roughly two times faster than KKT
+at $n=2000$, a gap that widens even further as $n$ grows.
 
 The shrinkage estimator of Ledoit and Wolf and the preconditioning theory of Golub and Van Loan \cite{golub2013} address
-different problems but act on the same object: the eigenvalue spectrum of the system matrix. This connection, which the
+different problems but act on the same object, the eigenvalue spectrum of the system matrix. This connection, which the
 two literatures do not usually make explicit, points toward richer preconditioners (factor-model or low-rank structured)
 as a productive direction for future work.
 
-The SPD structure extends naturally beyond the minimum variance setting. Adding a return term $\rho\mu^\top w$ to the
-objective requires solving two systems ($\Sigma_{\mathrm{LW}}\, v_1 = \mathbf{1}$ and $\Sigma_{\mathrm{LW}}\, v_2 = \mu$) and recovering the budget
-multiplier analytically; the full Markowitz mean-variance problem is handled in a companion paper.
+The SPD structure extends naturally beyond the minimum variance setting. Adding a return term $\rho\hat \mu^\top w$ to the
+objective requires solving two systems ($\hat \Sigma_{\mathrm{LW}}\, v_1 = \mathbf{1}$ and $\hat \Sigma_{\mathrm{LW}}\, v_2 = \hat \mu$) and recovering the budget
+multiplier analytically. The full Markowitz mean-variance problem will be addressed in future work in a companion paper.
 
 
 
-\bibliographystyle{siam/siamplain}
+% \bibliographystyle{siam/siamplain}
+\bibliographystyle{siam}
 \bibliography{bib/refs}
 
 \end{document}
