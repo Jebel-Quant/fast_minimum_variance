@@ -316,6 +316,9 @@ constraint determines the multiplier
 and the weights follow as $w = \tfrac{\lambda}{2}\,v_1 + \tfrac{\rho}{2}\,v_2$.
 In both cases the $(n+1)\times(n+1)$ saddle-point system is never needed and $\lambda$ is
 recovered analytically rather than as part of the solve.
+The long-only problem therefore reduces to solving a symmetric positive definite system
+$\hat\Sigma_{\mathrm{LW}}\,v = b$ for one or two right-hand sides, subject to the remaining
+inequality constraint $w \geq 0$; the latter is addressed in Section~\ref{sec:primaldual}.
 
 \section{Primal-Dual Loop}\label{sec:primaldual}
 
