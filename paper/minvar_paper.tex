@@ -293,29 +293,16 @@ bottleneck.
 
 
 
-\subsection{NNLS Solver}\label{ssec:nnls}
-\tcb{But NNLS is using an active-set method under the hood, too
-An alternative approach bypasses the primal-dual loop entirely by reformulating the long-only constraint as a
-non-negative least squares (NNLS) problem. Starting from the objective $\min_w \frac{1-\alpha}{T}\|Xw\|^2 +
-\alpha\|Rw\|^2$, the budget constraint $\mathbf{1}^\top w = 1$ is incorporated via a large-penalty row, yielding the
-augmented system:
-\[
-  \min_{w \geq 0}\; \left\|\begin{pmatrix} \sqrt{1/T}\,X \\ M\,\mathbf{1}^\top \end{pmatrix}
-  w - \begin{pmatrix} \mathbf{0} \\ M \end{pmatrix}\right\|^2,
-\]
-where $M = \|X\|_F \cdot T$ is a penalty large enough to enforce $\mathbf{1}^\top w \approx 1$ to machine precision.
-The non-negativity constraint $w \geq 0$ is handled natively by the Lawson-Hanson active-set algorithm
-\cite{lawson1974}, which solves NNLS by iterating over the free-variable set rather than forming an explicit KKT
-system.
-
-This formulation has two practical advantages: it is single-shot (no outer primal-dual loop), and the budget constraint
-requires no post-processing. However, NNLS does not benefit from the matrix-free structure of CG: the Lawson-Hanson
-algorithm implicitly forms normal equations $A^\top A$ where $A$ is the augmented matrix, incurring the same $O(n^2 T)$
-cost as the direct KKT solve. With Ledoit-Wolf shrinkage, the augmented matrix grows from $T \times n$ to $(T+n) \times
-n$, making NNLS paradoxically slower with shrinkage than without, an inversion of the pattern seen for KKT and CG.
-Table~\ref{tab:sp500} confirms this: on the S\&P~500 problem, NNLS takes $0.038$\,s without
-shrinkage but $0.086$\,s with it, whereas CG moves in the opposite direction.
-}
+\paragraph{NNLS baseline.}
+For completeness we include a non-negative least squares (NNLS) solver as an additional
+baseline.  The budget constraint $\mathbf{1}^\top w = 1$ is enforced by a large-penalty
+row appended to $\tilde{X}$, and the Lawson--Hanson algorithm~\cite{lawson1974} handles
+$w \geq 0$ natively via an active-set over the free-variable set.  NNLS requires no
+outer primal-dual loop, but the Lawson--Hanson steps implicitly form normal equations
+$A^\top A$, incurring the same $O(n^2 T)$ cost as the direct KKT solve.  With
+Ledoit-Wolf shrinkage the augmented matrix grows from $T \times n$ to $(T+n) \times n$,
+making NNLS paradoxically \emph{slower} with shrinkage---the opposite of CG and KKT
+(Table~\ref{tab:sp500}).
 
 
 \subsection{Proximal Gradient}\label{ssec:proximal}
