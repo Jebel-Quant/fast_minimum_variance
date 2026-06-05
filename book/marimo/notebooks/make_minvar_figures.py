@@ -57,6 +57,7 @@ def _():
         ("kkt", lambda: MinVarProblem(R_sp).solve_kkt()),
         ("cg", lambda: MinVarProblem(R_sp).solve_cg()),
         ("nnls", lambda: MinVarProblem(R_sp).solve_nnls()),
+        ("proximal", lambda: MinVarProblem(R_sp).solve_proximal()),
     ]
     configs_sp_lw = [
         ("cvxpy", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_cvxpy()),
@@ -65,6 +66,7 @@ def _():
         ("kkt", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_kkt()),
         ("cg", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_cg()),
         ("nnls", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_nnls()),
+        ("proximal", lambda: MinVarProblem(R_sp, alpha=alpha_sp, target=target_sp).solve_proximal()),
     ]
 
     sp_no_lw, sp_lw = {}, {}
@@ -86,10 +88,10 @@ def _():
     print("=" * 70)
 
     ns = [50, 100, 200, 300, 500, 750, 1000, 1500, 2000]
-    times = {k: [] for k in ("kkt", "cg", "nnls")}
+    times = {k: [] for k in ("kkt", "cg", "nnls", "proximal")}
     rng2 = np.random.default_rng(0)
-    print(f"{'n':>6}  {'kkt':>10}  {'cg':>10}  {'nnls':>10}")
-    print("-" * 44)
+    print(f"{'n':>6}  {'kkt':>10}  {'cg':>10}  {'nnls':>10}  {'proximal':>10}")
+    print("-" * 57)
     for n in ns:
         T = 2 * n  # noqa: N806
         R = rng2.standard_normal((T, n))  # noqa: N806
@@ -99,10 +101,12 @@ def _():
         _, t_kkt = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_kkt())
         _, t_cg = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_cg())
         _, t_nnls = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_nnls())
+        _, t_prox = run_timed(lambda r=R, a=alpha, t=tgt: MinVarProblem(r, alpha=a, target=t).solve_proximal())
         times["kkt"].append(t_kkt)
         times["cg"].append(t_cg)
         times["nnls"].append(t_nnls)
-        print(f"{n:>6}  {t_kkt:>10.4f}  {t_cg:>10.4f}  {t_nnls:>10.4f}")
+        times["proximal"].append(t_prox)
+        print(f"{n:>6}  {t_kkt:>10.4f}  {t_cg:>10.4f}  {t_nnls:>10.4f}  {t_prox:>10.4f}")
 
     # ── Panel B: iterations vs shrinkage intensity alpha ──────────────────────────
 
@@ -125,9 +129,9 @@ def _():
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.5, 2.8))
 
-    colors = {"kkt": "#1f77b4", "cg": "#ff7f0e", "nnls": "#2ca02c"}
-    labels = {"kkt": "KKT direct", "cg": "CG (matrix-free)", "nnls": "NNLS"}
-    for key in ("kkt", "cg", "nnls"):
+    colors = {"kkt": "#1f77b4", "cg": "#ff7f0e", "nnls": "#2ca02c", "proximal": "#9467bd"}
+    labels = {"kkt": "KKT direct", "cg": "CG (matrix-free)", "nnls": "NNLS", "proximal": "Proximal gradient"}
+    for key in ("kkt", "cg", "nnls", "proximal"):
         ax1.plot(ns, times[key], marker="o", markersize=3, label=labels[key], color=colors[key])
     ax1.set_xscale("log")
     ax1.set_yscale("log")
@@ -156,7 +160,7 @@ def _():
 
     fig2, ax = plt.subplots(figsize=(4.5, 3.2))
 
-    for key in ("kkt", "cg", "nnls"):
+    for key in ("kkt", "cg", "nnls", "proximal"):
         ax.plot(ns, times[key], marker="o", markersize=4, label=labels[key], color=colors[key])
 
     # Reference slope lines anchored to the KKT curve at n=500
