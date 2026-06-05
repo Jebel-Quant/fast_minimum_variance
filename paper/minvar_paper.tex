@@ -232,62 +232,6 @@ implementation of these conditions: it terminates precisely when primal and dual
 both hold, which---together with stationarity from each inner solve---is sufficient for
 global optimality.
 
-%\subsection*{Problem variants}
-%
-%The framework handles a range of standard portfolio construction %problems directly.  Each is expressed as
-%\begin{equation}
-%  \min_{w}\;\|\tilde{X}w\|^2 - \rho\mu^\top w
-%  \quad\text{subject to}\quad
-%  \mathbf{1}^\top w = 1,\;\; w \geq 0~,
-%  \label{eq:general}
-%\end{equation}
-%through choices of $\tilde{X}$, $\rho$, and $\mu$ summarized in %Table~\ref{tab:problems}. No change in the
-%algorithm is required; only the data passed to the solver change.
-
-%\begin{table}[ht]
-%\centering
-%\begin{tabular}{llll}
-%\toprule
-%Portfolio problem & $\tilde{X}$ & $\rho$ & $\mu$ \\
-%\midrule
-%Minimum variance & $X$ & $0$ & --- \\
-%Mean-variance (Markowitz) & $X$ & $>0$ & expected returns \\
-%Minimum tracking error$^*$ & $X$ & $2$ & $X^\top(Xb)$ \\
-%LW-regularized minimum variance & $[\sqrt{(1-%\alpha)/T}\,X;\,\sqrt{\alpha}\,R]$ & $0$ & --- \\
-%Factor-model covariance $FF^\top+D$ & $[F;\,D^{1/2}]$ & $0$ & --- \\
-%Regime-blended / multi-period & $[\omega_1 X_1;\,\ldots;\,\omega_K %X_K]$ & $0$ & --- \\
-%\bottomrule
-%\end{tabular}
-%\caption{Portfolio construction problems solved by the same primal--dual loop.
-%  $b$ is the benchmark weight vector; $F$ contains factor returns; $D$ is a diagonal specific-risk matrix;
-%  $R$ is the $N\times N$ regularisation target matrix (e.g.\ $\sqrt{\bar\lambda}\,I$ for classical Ledoit-Wolf
-%  shrinkage, where $\bar\lambda = \|X\|_F^2/(nT)$ is the mean eigenvalue of $\hat\Sigma$).
-%  Stacking of $\tilde{X}$ is in the row direction.
-%  $^*\min_w (w-b)^\top\Sigma(w-b) = \min_w w^\top\Sigma w - 2(\Sigma b)^\top w + \mathrm{const}$, so
-%  $\rho\mu = 2\Sigma b = 2X^\top(Xb)$ (two matrix--vector products).
-%  Since $\mu = \Sigma b$, the second SPD solve yields $v_2 = b$ exactly; tracking error adds no inner-solve cost.}
-%\label{tab:problems}
-%\end{table}
-
-%\paragraph{What does not fit}
-%The maximum Sharpe ratio portfolio, also called the tangency portfolio, solves
-%\[
-%\arg\max_w\; \frac{\mu^\top w}{\sqrt{w^\top\Sigma w}}
-%\quad\text{subject to}\quad \mathbf{1}^\top w = 1,\; w\geq 0.
-%\]
-%This is a fractional programme and does not reduce to \eqref{eq:general} with a fixed $\rho$.
-%It can be
-%recovered parametrically by sweeping $\rho$ over the efficient frontier and locating the tangency point, but this
-%requires multiple solves.  Problems with additional linear inequality constraints---sector limits, turnover
-%bounds, factor-exposure limits---also lie outside the current template; a general QP solver (e.g.\ CVXPY with
-%Clarabel) is the appropriate tool for those.
-
-%The one structural requirement is that the covariance admit a factorization $\Sigma = \tilde{X}^\top\tilde{X}$
-%with $\tilde{X}$ available directly or by cheap row-augmentation, so that the matrix-vector product
-%$v\mapsto\tilde{X}^\top(\tilde{X}v)$ remains $O(T'n)$ per iteration.  Nonlinear shrinkage~\cite{ledoit2020},
-%which applies a separate coefficient to each sample eigenvalue, does not admit such a factorization and requires
-%a different preconditioning strategy.
-
 \section{Positive-Definite Reduction}\label{sec:pd}
 
 Ignoring the inequality constraints for now, the Lagrangian for the equality-constrained problem is:
@@ -318,51 +262,41 @@ In both cases the $(n+1)\times(n+1)$ saddle-point system is never needed and $\l
 recovered analytically rather than as part of the solve.
 The long-only problem therefore reduces to solving a symmetric positive definite system
 $\hat\Sigma_{\mathrm{LW}}\,v = b$ for one or two right-hand sides, subject to the remaining
-inequality constraint $w \geq 0$; the latter is addressed in Section~\ref{sec:primaldual}.
+inequality constraint $w \geq 0$; the latter is addressed in Section~\ref{sec:primaldual},
+which presents two strategies for doing so.
 
-\section{Primal-Dual Loop}\label{sec:primaldual}
 
-The long-only constraint $w \geq 0$ is enforced by a \emph{primal--dual iterative procedure}.
-Each outer step solves the equality-constrained (budget-only) $n_a \times n_a$ positive
-definite system over the current active set. In the \emph{primal step}, any asset whose weight
-is negative is dropped. Once all active weights are non-negative, a \emph{dual step} checks
-the KKT gradient condition for every excluded asset: for global optimality, every excluded
-asset $i$ must satisfy
+\section{Enforcing Non-Negativity}\label{sec:primaldual}
+
+Section~\ref{sec:pd} reduces the long-only problem to solving an SPD system, leaving
+$w \geq 0$ as the sole remaining constraint.  Two strategies are available.
+
+\paragraph{Active-set strategy.}
+The first strategy separates the budget constraint from the non-negativity constraint.
+The budget-only problem is solved over a dynamically adjusted \emph{active set} of
+assets; non-negativity is then enforced iteratively without ever modifying the inner
+solve.
+
+In the \emph{primal step}, any asset with a negative weight is dropped from the active
+set and the budget-constrained SPD system is re-solved on the reduced universe.  Once
+all active weights are non-negative, the \emph{dual step} checks the KKT gradient
+condition for every excluded asset: global optimality requires every excluded asset $i$
+to satisfy
 \[
-\nabla_i f(w) \;\geq\; \lambda\;,
-\quad\text{and}\quad
-\nabla_i f(w) = \tfrac{2}{T}(X^\top X w)_i - \rho\hat\mu_i\;,
+  \nabla_i f(w) \;\geq\; \lambda\;,
+  \qquad
+  \nabla_i f(w) = \tfrac{2}{T}(X^\top Xw)_i - \rho\hat\mu_i\;,
 \]
-where $\lambda$ is the budget Lagrange multiplier. An excluded asset that fails this condition
-would improve the objective if added at a small positive level; it is re-added to the active
-set and the loop repeats. The loop terminates when both primal and dual feasibility hold
-simultaneously; combined with stationarity from the inner solve, this is sufficient for
-global optimality.
-
-
-
-\tcb{This comes all a bit too early:
-With Ledoit-Wolf shrinkage, the asset elimination loop converges rapidly in practice. Let $\bar\lambda = \|X\|_F^2/(nT)$
-denote the average eigenvalue of the sample covariance. The unconstrained minimizer satisfies $w^\star \propto
-\hat \Sigma_{\mathrm{LW}}^{-1}\mathbf{1}$. As $\alpha \to 1$, $\hat \Sigma_{\mathrm{LW}} \to \bar\lambda I$ and $w^\star \to
-\frac{1}{n}\mathbf{1}$, the equal-weighted $1/n$ portfolio with all components strictly positive. By continuity, there exists a
-threshold $\alpha^\star \in (0,1)$ above which every component of the unconstrained solution is positive; for $\alpha >
-\alpha^\star$ the first solve requires no asset to be dropped. The first-order expansion
-\[
-\hat \Sigma_{\mathrm{LW}}^{-1}\mathbf{1} \approx \tfrac{1}{\alpha\bar\lambda}\mathbf{1} -
-\tfrac{1-\alpha}{\alpha^2\bar\lambda^2 T}X^\top X\mathbf{1}~,
-\]
-valid for $\alpha$ close to one, shows that $\alpha^\star$ is governed by the spectral structure of $X^\top X$: assets
-with large total covariance exposure are the last to turn positive as $\alpha$ increases. For the LW-optimal $\alpha$ \tcr{A brief explanation would be needed here, optimal in what sense?}
-and dense equity returns, the threshold is typically exceeded \tcr{This is an empirical finding, I guess? There cannot be an theory for such a finding} and the first solve yields few negative components. Across
-50 experiments with $n$ from 100 to 1000 and $T = 2n$, the elimination loop required 2--3 outer iterations in all cases;
-runtime is dominated by the linear solves. \tcr{Some reference to such experiments would be useful, that statement comes a bit ``out of the blue", without underlying details.}
-}
+where $\lambda$ is the budget Lagrange multiplier recovered analytically from
+Section~\ref{sec:pd}.  An excluded asset that violates this condition would decrease
+portfolio variance if held at a small positive weight; it is re-added to the active set
+and the loop repeats.  The loop terminates when both primal and dual feasibility hold;
+together with stationarity from the inner solve this certifies global optimality.
 
 \begin{algorithm}[ht]
-\caption{Primal-dual outer loop}\label{alg:elim}
+\caption{Active-set outer loop (wraps any inner solver $f$)}\label{alg:elim}
 \begin{algorithmic}[1]
-\Require Inner solver $f$;\; tolerance $\varepsilon = 10^{-6}$;
+\Require Inner solver $f$;\; tolerance $\varepsilon = 10^{-6}$
 \Ensure Weight vector $w \in \mathbb{R}^n$;\; total inner iteration count $k$
 \State $\mathrm{active} \leftarrow \{1,\ldots,n\}$;\; $k \leftarrow 0$
 \Loop
@@ -372,11 +306,11 @@ runtime is dominated by the linear solves. \tcr{Some reference to such experimen
       \hfill\textit{(primal step: drop violators)}
   \Else
     \State $w_i \leftarrow w_{a,i}$ for $i \in \mathrm{active}$;\; $w_i \leftarrow 0$ for $i \notin \mathrm{active}$
-    \State $g_i \leftarrow \tfrac{2}{T}(X^\top X w)_i - \rho\hat \mu_i$
+    \State $g_i \leftarrow \tfrac{2}{T}(X^\top Xw)_i - \rho\hat\mu_i$
     \State $\lambda \leftarrow \mathrm{mean}_{j \in \mathrm{active}}(g_j)$
     \State $\mathcal{V} \leftarrow \{i \notin \mathrm{active} : g_i < \lambda - \varepsilon\}$
     \If{$\mathcal{V} = \emptyset$}
-      \State \textbf{break} \hfill\textit{(KKT conditions satisfied; globally optimal)}
+      \State \textbf{break} \hfill\textit{(KKT satisfied; globally optimal)}
     \EndIf
     \State $\mathrm{active} \leftarrow \mathrm{active} \cup \mathcal{V}$
       \hfill\textit{(dual step: re-add violators)}
@@ -386,7 +320,36 @@ runtime is dominated by the linear solves. \tcr{Some reference to such experimen
 \end{algorithmic}
 \end{algorithm}
 
-Algorithm~\ref{alg:elim} accepts any inner solver $f$; Section~\ref{sec:solvers} presents concrete choices for $f$.
+\paragraph{Simplex-projection strategy.}
+The second strategy treats the two constraints as a single geometric object: the
+probability simplex
+$\Delta_n = \{w \in \mathbb{R}^n : \mathbf{1}^\top w = 1,\, w \geq 0\}$.
+Rather than separating budget and non-negativity, gradient steps of the form
+\[
+  w_{k+1} = \Pi_{\Delta_n}\!\left(w_k - \tau\,\nabla f(w_k)\right)
+\]
+project directly onto $\Delta_n$ after each descent step, where $\Pi_{\Delta_n}$
+is the Euclidean projection.
+Duchi et al.\ \cite{duchi2008} show that $\Pi_{\Delta_n}$ can be computed in
+$O(n\log n)$ by a single sort-and-threshold pass, making each iteration cheap.
+There is no outer loop: both constraints are handled simultaneously, and the method
+terminates when the step size $\|w_{k+1} - w_k\|$ falls below a tolerance.
+
+The gradient $\nabla f(w) = \tilde{X}^\top(\tilde{X}w) - \tilde{X}^\top\mathbf{0}
+= \tilde{X}^\top(\tilde{X}w)$ is evaluated matrix-free in $O(nT)$ using two
+matrix-vector products with $\tilde{X}$, at the same cost per step as the CG inner
+solver.  The Lipschitz constant $L = \lambda_{\max}(\tilde{X}^\top\tilde{X})$, needed
+for the step size $\tau = 1/(2L)$, is estimated once by power iteration on $\tilde{X}$,
+again matrix-free.
+
+\medskip
+The two strategies make different tradeoffs.  The active-set loop solves a sequence of
+linear systems and benefits from fast inner solvers (Section~\ref{sec:solvers}); its
+convergence to global optimality is certified by the KKT check.  The simplex-projection
+approach is single-stage and loop-free, but converges in $O(\kappa)$ gradient steps
+versus $O(\sqrt{\kappa})$ for CG, so it is most competitive when the condition number is
+moderate or the matrix-free $O(nT)$ cost dominates.
+Section~\ref{sec:solvers} develops concrete implementations of both strategies.
 
 
 \section{Computational Methods}\label{sec:solvers}
