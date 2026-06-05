@@ -271,7 +271,7 @@ which presents two strategies for doing so.
 Section~\ref{sec:pd} reduces the long-only problem to solving an SPD system, leaving
 $w \geq 0$ as the sole remaining constraint.  Two strategies are available.
 
-\paragraph{Active-set strategy.}
+\paragraph{Active-set strategy}
 The first strategy separates the budget constraint from the non-negativity constraint.
 The budget-only problem is solved over a dynamically adjusted \emph{active set} of
 assets; non-negativity is then enforced iteratively without ever modifying the inner
@@ -320,7 +320,7 @@ together with stationarity from the inner solve this certifies global optimality
 \end{algorithmic}
 \end{algorithm}
 
-\paragraph{Simplex-projection strategy.}
+\paragraph{Simplex-projection strategy}
 The second strategy treats the two constraints as a single geometric object: the
 probability simplex
 $\Delta_n = \{w \in \mathbb{R}^n : \mathbf{1}^\top w = 1,\, w \geq 0\}$.
@@ -330,7 +330,7 @@ Rather than separating budget and non-negativity, gradient steps of the form
 \]
 project directly onto $\Delta_n$ after each descent step, where $\Pi_{\Delta_n}$
 is the Euclidean projection.
-Duchi et al.\ \cite{duchi2008} show that $\Pi_{\Delta_n}$ can be computed in
+Duchi et al.\ \cite{duchi2008} and Condat~\cite{condat2016} show that $\Pi_{\Delta_n}$ can be computed in
 $O(n\log n)$ by a single sort-and-threshold pass, making each iteration cheap.
 There is no outer loop: both constraints are handled simultaneously, and the method
 terminates when the step size $\|w_{k+1} - w_k\|$ falls below a tolerance.
@@ -343,13 +343,14 @@ for the step size $\tau = 1/(2L)$, is estimated once by power iteration on $\til
 again matrix-free.
 
 \medskip
-The two strategies make different tradeoffs.  The active-set loop solves a sequence of
+The two strategies make different tradeoffs. The active-set loop solves a sequence of
 linear systems and benefits from fast inner solvers (Section~\ref{sec:solvers}); its
-convergence to global optimality is certified by the KKT check.  The simplex-projection
+convergence to global optimality is certified by the KKT check. The simplex-projection
 approach is single-stage and loop-free, but converges in $O(\kappa)$ gradient steps
 versus $O(\sqrt{\kappa})$ for CG, so it is most competitive when the condition number is
 moderate or the matrix-free $O(nT)$ cost dominates.
 Section~\ref{sec:solvers} develops concrete implementations of both strategies.
+
 
 
 \section{Computational Methods}\label{sec:solvers}
@@ -556,7 +557,7 @@ $L = \lambda_{\max}(\Sigma_{\mathrm{LW}})$.  The projected gradient iteration is
 where $\Pi_{\Delta_n}$ denotes Euclidean projection onto the simplex.
 
 \paragraph{Simplex projection.}
-Duchi et al.\ \cite{duchi2008} give an $O(n\log n)$ closed-form algorithm for $\Pi_{\Delta_n}$:
+Duchi et al.\ \cite{duchi2008} and Condat~\cite{condat2016} give an $O(n\log n)$ closed-form algorithm for $\Pi_{\Delta_n}$:
 sort $v$ in decreasing order to obtain $\mu_1 \geq \cdots \geq \mu_n$, find the largest index
 $\rho$ such that $\mu_\rho > \tfrac{1}{\rho}\bigl(\sum_{j=1}^{\rho}\mu_j - 1\bigr)$, set
 $\theta = \tfrac{1}{\rho}\bigl(\sum_{j=1}^{\rho}\mu_j - 1\bigr)$, and return
