@@ -79,7 +79,7 @@ x \\ \lambda_\mathcal{A} \\ \nu
 The KKT matrix is symmetric but indefinite: the off-diagonal blocks
 $[A_\mathcal{A}^\top,\, E^\top]$ introduce negative eigenvalues, so the standard
 Conjugate Gradient (CG) method, which requires symmetric positive definiteness, cannot
-be applied directly to the full system.  MINRES handles symmetric indefinite systems via
+be applied directly to the full system. MINRES handles symmetric indefinite systems via
 short three-term recurrences and requires only matrix-vector products with the KKT
 operator:
 \[
@@ -95,7 +95,7 @@ No matrix factorisation is required. Warm starts are used between active-set ite
 \subsection{Conjugate Gradient in the Null Space}
 
 An alternative that recovers a symmetric positive definite (SPD) system is to eliminate
-the equality constraints explicitly and apply CG to the resulting reduced problem.  We
+the equality constraints explicitly and apply CG to the resulting reduced problem. We
 describe the procedure in detail.
 
 \paragraph{Setup}
@@ -107,7 +107,7 @@ B = \begin{bmatrix} A_\mathcal{A} \\ E \end{bmatrix} \in \mathbb{R}^{s \times n}
 f = \begin{bmatrix} b_\mathcal{A} \\ d \end{bmatrix} \in \mathbb{R}^{s},
 \end{equation}
 where $s = |\mathcal{A}| + \operatorname{rows}(E)$ is the total number of active
-constraints.  We assume $B$ has full row rank ($s < n$) and $P \succ 0$.
+constraints. We assume $B$ has full row rank ($s < n$) and $P \succ 0$.
 
 \paragraph{Null-space basis via QR}
 Compute the full QR factorisation of $B^\top \in \mathbb{R}^{n \times s}$:
@@ -133,7 +133,7 @@ Every vector satisfying $Bx = f$ can be decomposed as
 \begin{equation}\label{eq:decomp}
 x = x_p + Q_2\,\tilde{x}, \qquad \tilde{x} \in \mathbb{R}^{n-s},
 \end{equation}
-since $B(x_p + Q_2\tilde{x}) = f + B Q_2\tilde{x} = f$.  Substituting
+since $B(x_p + Q_2\tilde{x}) = f + B Q_2\tilde{x} = f$. Substituting
 \eqref{eq:decomp} into the quadratic objective and differentiating with respect to
 the free variable $\tilde{x}$:
 \[
@@ -149,7 +149,7 @@ yields the $(n-s) \times (n-s)$ reduced linear system
 \end{equation}
 The reduced matrix $\hat{P} = Q_2^\top P Q_2$ is SPD: $P \succ 0$ implies
 $\tilde{x}^\top \hat{P}\tilde{x} = (Q_2\tilde{x})^\top P(Q_2\tilde{x}) > 0$ for all
-$\tilde{x} \ne 0$ because $Q_2$ has full column rank.  CG is therefore directly
+$\tilde{x} \ne 0$ because $Q_2$ has full column rank. CG is therefore directly
 applicable to \eqref{eq:reduced}.
 
 \paragraph{Matrix-free reduced operator}
@@ -164,18 +164,18 @@ The dominant per-iteration cost is therefore $O(Tn + n^2)$.
 
 \paragraph{QR setup cost}
 Computing the full orthogonal factor $Q$ by applying $s$ Householder reflectors to the
-$n \times n$ identity costs $O(n^2 s)$ per active-set step.  When many inequality
+$n \times n$ identity costs $O(n^2 s)$ per active-set step. When many inequality
 constraints are active---e.g.\ long-only with $s = O(n)$---this reaches $O(n^3)$ and
 dominates the per-iteration cost, making constraint-eliminated CG slower than MINRES in
-that regime.  MINRES, by contrast, incurs no such setup cost and has per-iteration cost
+that regime. MINRES, by contrast, incurs no such setup cost and has per-iteration cost
 $O(Tn + sn) = O(Tn)$ for $s \ll T$.
 
 \paragraph{Special case: single budget constraint}
 When $B = \mathbf{1}^\top$ ($s = 1$), the null-space basis $Q_2$ is the Householder
-complement of $\hat{e}_1 = \mathbf{1}/\|\mathbf{1}\|$.  The maps $Q_2\,\tilde{v}$ and
+complement of $\hat{e}_1 = \mathbf{1}/\|\mathbf{1}\|$. The maps $Q_2\,\tilde{v}$ and
 $Q_2^\top w$ can be applied implicitly via the rank-one reflector
 $I - 2\hat{e}_1\hat{e}_1^\top$ in $O(n)$, reducing the per-iteration cost from
-$O(n^2)$ to $O(Tn)$ and the QR setup to $O(n)$.  This is the approach used in the
+$O(n^2)$ to $O(Tn)$ and the QR setup to $O(n)$. This is the approach used in the
 minimum-variance companion paper for the single budget constraint.
 
 \paragraph{Recovering the primal solution}

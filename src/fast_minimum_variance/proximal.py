@@ -78,11 +78,13 @@ def proj_simplex(
 
 def _lipschitz(
     mat: NDArray[np.floating],
+    extra_matvec=None,
     n_iter: int = 30,
     rng: np.random.Generator | None = None,
 ) -> float:
-    """Estimate lambda_max(mat.T @ mat) via power iteration (matrix-free).
+    """Estimate lambda_max(mat.T @ mat + extra) via power iteration (matrix-free).
 
+    extra_matvec: optional callable v -> extra @ v for a second SPD contribution.
     Each iteration costs O(rows * cols) — two matrix-vector products with mat —
     and never forms the cols x cols normal matrix.
     """
@@ -93,6 +95,8 @@ def _lipschitz(
     lip = 1.0
     for _ in range(n_iter):
         w = mat.T @ (mat @ v)
+        if extra_matvec is not None:
+            w = w + extra_matvec(v)
         lip = float(np.linalg.norm(w))
         if lip < 1e-15:
             return lip
@@ -103,51 +107,56 @@ def _lipschitz(
 def prox_gradient(
     mat: NDArray[np.floating],
     vec: NDArray[np.floating],
+    *,
+    extra_grad=None,
     eps_rel: float = 1e-6,
-    max_iter: int = 1000,
-) -> NDArray[np.floating]:
+    max_iter: int = 100000,
+) -> tuple[NDArray[np.floating], int]:
     """Perform proximal gradient descent to solve a constrained optimization problem.
 
     Solves the optimization problem:
-        minimize 0.5 ||mat @ x - vec||^2
+        minimize 0.5 ||mat @ x - vec||^2 + g(x)
         subject to x >= 0, sum(x) = 1
 
-    The gradient mat.T @ (mat @ x) - mat.T @ vec is evaluated matrix-free at each
-    step; the normal matrix mat.T @ mat is never formed. The Lipschitz constant
-    L = lambda_max(mat.T @ mat) is estimated once via power iteration, also
-    matrix-free, at O(n_power_iter * rows * cols) setup cost.
+    where g captures an optional extra gradient term supplied via ``extra_grad``.
+    The gradient is evaluated matrix-free at each step; the normal matrix
+    mat.T @ mat is never formed. The Lipschitz constant is estimated once via
+    power iteration at O(n_power_iter * rows * cols) setup cost.
 
     Parameters
     ----------
     mat : NDArray[np.floating]
-        A matrix of shape (n_samples, n_features) used in the optimization
-        problem.
+        A matrix of shape (n_samples, n_features).
     vec : NDArray[np.floating]
-        A vector of shape (n_samples,) used in the optimization problem.
+        A vector of shape (n_samples,).
+    extra_grad : callable, optional
+        v -> additional gradient term (e.g. ``alpha * target @ v`` for
+        Ledoit-Wolf shrinkage). Must be SPD for convergence guarantees.
+        When provided, the Lipschitz estimate accounts for this term.
     eps_rel : float, optional
-        The relative error threshold for stopping criteria. Default is 1e-6.
+        Relative step-size change stopping tolerance. Default is 1e-6.
     max_iter : int, optional
-        The maximum number of iterations for the algorithm. Default is 1000.
+        Maximum number of iterations. Default is 100000.
 
     Returns:
     -------
-    NDArray[np.floating]
-        The solution vector of shape (n_features,) obtained after the
-        optimization process.
+    tuple[NDArray[np.floating], int]
+        ``(w, n_iters)`` — weight vector of shape (n_features,) and the
+        number of gradient steps taken.
 
     Examples:
     --------
     >>> import numpy as np
     >>> mat = np.array([[1.0, 0.5], [0.5, 1.0]])
     >>> vec = np.ones(2)
-    >>> result = prox_gradient(mat, vec)
+    >>> result, _ = prox_gradient(mat, vec)
     >>> bool(np.isclose(result.sum(), 1.0))
     True
 
     """
     rng = np.random.default_rng()
     prim_var: NDArray[np.floating] = np.asarray(rng.standard_normal(size=mat.shape[1]))
-    lip = _lipschitz(mat, rng=rng)
+    lip = _lipschitz(mat, extra_matvec=extra_grad, rng=rng)
     step = 0.5 / lip if lip > 1e-15 else 1.0
 
     # Precompute mat.T @ vec once; zero for minimum-variance (vec = 0).
@@ -156,8 +165,10 @@ def prox_gradient(
     err_rel = eps_rel + 1
     while err_rel > eps_rel and ite < max_iter:
         grad = mat.T @ (mat @ prim_var) - out_prod
+        if extra_grad is not None:
+            grad = grad + extra_grad(prim_var)
         prim_var_new = proj_simplex(prim_var - step * grad)
         err_rel = float(np.linalg.norm(prim_var - prim_var_new, 2))
         prim_var = prim_var_new.copy()
         ite += 1
-    return prim_var
+    return prim_var, ite

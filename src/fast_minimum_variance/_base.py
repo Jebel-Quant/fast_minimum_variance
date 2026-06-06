@@ -131,8 +131,8 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, iters
 
-    def solve_cvxpy(self, *, project: bool = True):
-        """Solve via CVXPY / Clarabel (reference interior-point solver).
+    def solve_cvxpy(self, *, project: bool = True, backend: str = "clarabel"):
+        """Solve via CVXPY with a configurable backend solver.
 
         Requires the ``convex`` extra::
 
@@ -140,9 +140,11 @@ class _BaseProblem(ABC):
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
+            backend: CVXPY solver name (default ``"clarabel"``; ``"osqp"`` is
+                also supported).
 
         Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and Clarabel
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and solver
             iteration count.
 
         Examples:
@@ -167,8 +169,9 @@ class _BaseProblem(ABC):
         if self.rho != 0.0 and self.mu is not None:
             objective = objective - self.rho * (self.mu @ w)
 
+        cvxpy_solver = cp.CLARABEL if backend.lower() == "clarabel" else cp.OSQP
         problem = cp.Problem(cp.Minimize(objective), self._cvxpy_constraints(w, cp))
-        problem.solve(solver=cp.CLARABEL)
+        problem.solve(solver=cvxpy_solver)
 
         result = w.value
         if result is None:
@@ -235,6 +238,60 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, iters
 
+    def solve_osqp(self, *, project: bool = True):
+        """Solve via OSQP (operator-splitting QP solver).
+
+        Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and
+        calls OSQP directly. Returns ``(w, iters)`` where ``iters`` is the
+        OSQP iteration count.
+
+        Args:
+            project: Clip and renormalize after solving (see ``solve_kkt``).
+
+        Returns:
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
+            OSQP iterations.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_osqp()
+            >>> float(round(w.sum(), 6))
+            1.0
+            >>> bool((w >= -1e-6).all())
+            True
+        """
+        n = self.n
+
+        if self.target is None:
+            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
+        else:
+            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
+
+        p_upper = triu(csc_matrix(p_dense), format="csc")
+
+        q = np.zeros(n)
+        if self.rho != 0.0 and self.mu is not None:
+            q = -self.rho * self.mu
+
+        a_mat, l_vec, u_vec = self._osqp_constraints()
+
+        solver = osqp.OSQP()
+        solver.setup(
+            p_upper, q, a_mat, l_vec, u_vec,
+            warm_starting=True,
+            verbose=False,
+            eps_abs=1e-8,
+            eps_rel=1e-8,
+        )
+        result = solver.solve()
+
+        w = np.array(result.x)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, result.info.iter
+
     def solve_clarabel(self, *, project: bool = True):
         """Solve via Clarabel interior-point solver (direct API, no CVXPY overhead).
 
@@ -287,17 +344,21 @@ class _BaseProblem(ABC):
     def solve_proximal(self, *, project: bool = True):
         """Solve via proximal gradient descent projected onto the probability simplex.
 
-        Minimises ``0.5 * w^T Σ_LW w`` subject to ``w >= 0, sum(w) = 1`` by
-        casting the objective as a least-squares problem and applying the
-        Duchi et al. (2008) simplex-projection step.  Return tilt (``rho != 0``)
-        is not supported.
+        Minimises ``0.5 * w^T Σ_LW w`` subject to ``w >= 0, sum(w) = 1``.
+        The gradient is computed in two separate terms so that the per-step
+        cost remains ``O(nT)`` regardless of whether shrinkage is applied:
+
+            grad = (1-α)/T · X^T(Xw) + α · target @ w
+
+        This avoids stacking a (T+n)×n matrix, which would inflate per-step
+        cost by O(n) under shrinkage. Return tilt (``rho != 0``) is not supported.
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
 
         Returns:
-            ``(w, 1)`` — weight vector of shape ``(N,)`` and iteration count
-            (always 1; the inner iteration count is not exposed).
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and the number
+            of gradient steps taken.
 
         Examples:
             >>> import numpy as np
@@ -311,19 +372,18 @@ class _BaseProblem(ABC):
         """
         from .proximal import prox_gradient
 
-        if self.target is None:
-            mat = self.X / np.sqrt(self.t)
-            vec = np.zeros(self.t)
+        if self.target is not None and self.alpha > 0.0:
+            c = 1.0 - self.alpha
+            mat = np.sqrt(c) / np.sqrt(self.t) * self.X
+            alpha, target = self.alpha, self.target
+            extra_grad = lambda v, a=alpha, tgt=target: a * (tgt @ v)
         else:
-            chol_t = np.linalg.cholesky(self.target)
-            mat = np.vstack([
-                np.sqrt(1.0 - self.alpha) / np.sqrt(self.t) * self.X,
-                np.sqrt(self.alpha) * chol_t.T,
-            ])
-            vec = np.zeros(mat.shape[0])
+            mat = self.X / np.sqrt(self.t)
+            extra_grad = None
 
-        w = prox_gradient(mat, vec)
+        vec = np.zeros(self.t)
+        w, n_iters = prox_gradient(mat, vec, extra_grad=extra_grad)
         if project:
             w = self._clip_and_renormalize(w)
-        return w, 1
+        return w, n_iters
 

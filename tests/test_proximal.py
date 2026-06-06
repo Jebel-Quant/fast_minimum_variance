@@ -121,7 +121,7 @@ class TestProxGradient:
     def test_cla(self, resource_dir) -> None:
         """Test against CLA expected values."""
         covar = np.genfromtxt(resource_dir / "CLA_Data.csv", delimiter=",", skip_header=1)[3:]
-        result = prox_gradient(covar, np.ones(10))
+        result, _ = prox_gradient(covar, np.ones(10))
         expected = np.array([0, 0.41200, 0, 0, 0, 0, 0.27612, 0.31188, 0, 0])
         assert np.linalg.norm(result - expected, 1) < 1e-5
 
@@ -130,7 +130,7 @@ class TestProxGradient:
         rng = np.random.default_rng(42)
         mat = rng.standard_normal((5, 3))
         vec = rng.standard_normal(5)
-        result = prox_gradient(mat, vec)
+        result, _ = prox_gradient(mat, vec)
 
         np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-6)
         assert np.all(result >= -1e-10)
@@ -142,7 +142,7 @@ class TestProxGradient:
         m, n = shape
         mat = rng.standard_normal((m, n))
         vec = rng.standard_normal(m)
-        result = prox_gradient(mat, vec)
+        result, _ = prox_gradient(mat, vec)
 
         assert result.shape == (n,)
         np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-5)
@@ -153,7 +153,7 @@ class TestProxGradient:
         n = 5
         mat = np.eye(n)
         vec = np.array([0.1, 0.2, 0.3, 0.2, 0.2])  # Already on simplex
-        result = prox_gradient(mat, vec)
+        result, _ = prox_gradient(mat, vec)
         np.testing.assert_allclose(result, vec, rtol=1e-5)
 
     def test_convergence_tolerance(self) -> None:
@@ -162,8 +162,8 @@ class TestProxGradient:
         mat = rng.standard_normal((10, 5))
         vec = rng.standard_normal(10)
 
-        result_loose = prox_gradient(mat, vec, eps_rel=1e-3)
-        result_tight = prox_gradient(mat, vec, eps_rel=1e-10)
+        result_loose, _ = prox_gradient(mat, vec, eps_rel=1e-3)
+        result_tight, _ = prox_gradient(mat, vec, eps_rel=1e-10)
 
         # Both should satisfy constraints
         np.testing.assert_allclose(result_loose.sum(), 1.0, rtol=1e-3)
@@ -175,9 +175,9 @@ class TestProxGradient:
         mat = rng.standard_normal((100, 50))
         vec = rng.standard_normal(100)
 
-        # Should still produce valid output even with few iterations
-        result = prox_gradient(mat, vec, max_iter=10)
+        result, iters = prox_gradient(mat, vec, max_iter=10)
         assert result.shape == (50,)
+        assert iters <= 10
 
     def test_objective_convergence(self) -> None:
         """Test that algorithm converges to similar objective values."""
@@ -189,7 +189,7 @@ class TestProxGradient:
         # but objective values should be similar
         objectives = []
         for _ in range(5):
-            result = prox_gradient(mat, vec, eps_rel=1e-10)
+            result, _ = prox_gradient(mat, vec, eps_rel=1e-10)
             obj = 0.5 * np.linalg.norm(mat @ result - vec) ** 2
             objectives.append(obj)
 
@@ -200,7 +200,7 @@ class TestProxGradient:
         """Test with near-zero matrix (low Lipschitz constant)."""
         mat = np.array([[1e-10, 0], [0, 1e-10]])
         vec = np.array([1.0, 1.0])
-        result = prox_gradient(mat, vec)
+        result, _ = prox_gradient(mat, vec)
         assert result.shape == (2,)
         np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-5)
 
@@ -208,7 +208,7 @@ class TestProxGradient:
         """Test with rank-deficient matrix."""
         mat = np.array([[1, 2, 3], [2, 4, 6]])  # Rank 1
         vec = np.array([1.0, 2.0])
-        result = prox_gradient(mat, vec)
+        result, _ = prox_gradient(mat, vec)
         assert result.shape == (3,)
         np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-5)
 
@@ -225,7 +225,7 @@ class TestNumericalStability:
         mat = u @ np.diag(s) @ vt
         vec = np.array([1.0, 1.0, 1.0])
 
-        result = prox_gradient(mat, vec, eps_rel=1e-6, max_iter=5000)
+        result, _ = prox_gradient(mat, vec, eps_rel=1e-6, max_iter=5000)
         assert result.shape == (2,)
         # May not converge perfectly but should satisfy constraints approximately
         assert abs(result.sum() - 1.0) < 0.01
@@ -238,7 +238,7 @@ class TestNumericalStability:
         mat = rng.standard_normal((m, n))
         vec = rng.standard_normal(m)
 
-        result = prox_gradient(mat, vec)
+        result, _ = prox_gradient(mat, vec)
         np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-5)
         assert np.all(result >= -1e-10)
 
@@ -290,7 +290,7 @@ class TestSolveProximal:
         """solve_proximal returns (w, iters) with w of shape (N,)."""
         w, iters = Problem(X).solve_proximal()
         assert w.shape == (X.shape[1],)
-        assert iters == 1
+        assert iters >= 1
 
     def test_weights_sum_to_one(self, X) -> None:  # noqa: N803
         """Weights must sum to 1."""

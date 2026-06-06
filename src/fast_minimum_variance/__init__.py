@@ -64,4 +64,6 @@ def Problem(  # noqa: N802
     return _Problem(X, target=target, A=A, b=b, C=C, d=d, alpha=alpha, rho=rho, mu=mu)
 
 
-__all__ = ["Problem"]
+from .data import simulate_equity_returns
+
+__all__ = ["Problem", "simulate_equity_returns"]

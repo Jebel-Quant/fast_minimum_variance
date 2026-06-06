@@ -1,7 +1,7 @@
 \section{Enforcing Non-Negativity}\label{sec:primaldual}
 
 Section~\ref{sec:pd} reduces the long-only problem to solving an SPD system, leaving
-$w \geq 0$ as the sole remaining constraint.  Two strategies are available.
+$w \geq 0$ as the sole remaining constraint. Two strategies are available.
 
 \paragraph{Active-set strategy}
 The first strategy separates the budget constraint from the non-negativity constraint.
@@ -10,7 +10,7 @@ assets; non-negativity is then enforced iteratively without ever modifying the i
 solve.
 
 In the \emph{primal step}, any asset with a negative weight is dropped from the active
-set and the budget-constrained SPD system is re-solved on the reduced universe.  Once
+set and the budget-constrained SPD system is re-solved on the reduced universe. Once
 all active weights are non-negative, the \emph{dual step} checks the KKT gradient
 condition for every excluded asset: global optimality requires every excluded asset $i$
 to satisfy
@@ -20,9 +20,9 @@ to satisfy
   \nabla_i f(w) = \tfrac{2}{T}(X^\top Xw)_i - \rho\hat\mu_i\;,
 \]
 where $\lambda$ is the budget Lagrange multiplier recovered analytically from
-Section~\ref{sec:pd}.  An excluded asset that violates this condition would decrease
+Section~\ref{sec:pd}. An excluded asset that violates this condition would decrease
 portfolio variance if held at a small positive weight; it is re-added to the active set
-and the loop repeats.  The loop terminates when both primal and dual feasibility hold;
+and the loop repeats. The loop terminates when both primal and dual feasibility hold;
 together with stationarity from the inner solve this certifies global optimality.
 
 \begin{algorithm}[ht]
@@ -67,28 +67,36 @@ $O(n\log n)$ by a single sort-and-threshold pass, making each iteration cheap.
 There is no outer loop: both constraints are handled simultaneously, and the method
 terminates when the step size $\|w_{k+1} - w_k\|$ falls below a tolerance.
 
-The gradient $\nabla f(w) = \tilde{X}^\top(\tilde{X}w) - \tilde{X}^\top\mathbf{0}
-= \tilde{X}^\top(\tilde{X}w)$ is evaluated matrix-free in $O(nT)$ using two
-matrix-vector products with $\tilde{X}$, at the same cost per step as the CG inner
-solver.  The Lipschitz constant $L = \lambda_{\max}(\tilde{X}^\top\tilde{X})$, needed
-for the step size $\tau = 1/(2L)$, is estimated once by power iteration on $\tilde{X}$,
-again matrix-free.
+Although $\hat\Sigma = \tilde{X}^\top\tilde{X}$ admits a stacked-matrix
+representation (Section~\ref{sec:precond}), assembling or storing $\tilde{X}$ is
+unnecessary. The gradient decomposes additively as
+\[
+  \nabla f(w) = \hat\Sigma\,w
+  = \frac{1-\alpha}{T}\,X^\top(Xw) + \alpha\,\hat\Sigma_0\,w\,,
+\]
+and each term is applied separately: the data contribution costs $O(nT)$ via two
+matrix-vector products with $X$, and the target contribution costs $O(n^2)$ for a general
+$\hat\Sigma_0$ or $O(n)$ for a scaled identity. The Lipschitz constant
+$L = \lambda_{\max}(\hat\Sigma)$, needed for the step size $\tau = 1/(2L)$,
+is estimated once by power iteration on the same two-term operator, also matrix-free.
 
 \begin{algorithm}[ht]
 \caption{Simplex-projection solver (proximal gradient, matrix-free)}\label{alg:proximal}
 \begin{algorithmic}[1]
-\Require Stacked matrix $\tilde{X} \in \mathbb{R}^{(T+n_R)\times n}$;\;
-         tolerance $\varepsilon = 10^{-6}$;\; $k_{\max} = 1{,}000$
+\Require Returns matrix $X \in \mathbb{R}^{T\times n}$;\; shrinkage intensity $\alpha$;\;
+         target $\hat\Sigma_0 \in \mathbb{R}^{n\times n}$;\; tolerance $\varepsilon = 10^{-6}$
 \Ensure Weight vector $w \in \Delta_n$
-\State Estimate $L \leftarrow \lambda_{\max}(\tilde{X}^\top\tilde{X})$ by power iteration
-  \hfill\textit{(matrix-free, $O(n_{\mathrm{pow}}\cdot nT)$)}
+\State Define operator $\mathcal{A}$:\; $v \mapsto \tfrac{1-\alpha}{T}X^\top(Xv) + \alpha\,\hat\Sigma_0 v$
+  \hfill\textit{($\hat\Sigma$ applied matrix-free)}
+\State Estimate $L \leftarrow \lambda_{\max}(\mathcal{A})$ by power iteration
+  \hfill\textit{($O(n_{\mathrm{pow}}\cdot nT)$)}
 \State $\tau \leftarrow (2L)^{-1}$;\; initialise $w_0 \in \mathbb{R}^n$ randomly;\; $k \leftarrow 0$
 \Loop
-  \State $g \leftarrow \tilde{X}^\top(\tilde{X}w_k)$
-    \hfill\textit{(matrix-free gradient, $O(nT)$)}
+  \State $g \leftarrow \mathcal{A}(w_k)$
+    \hfill\textit{(gradient, $O(nT)$)}
   \State $w_{k+1} \leftarrow \Pi_{\Delta_n}(w_k - \tau\,g)$
     \hfill\textit{(simplex projection, $O(n\log n)$)}
-  \If{$\|w_{k+1} - w_k\|_2 \leq \varepsilon$ \textbf{or} $k \geq k_{\max}$}
+  \If{$\|w_{k+1} - w_k\|_2 \leq \varepsilon$}
     \textbf{ break}
   \EndIf
   \State $k \leftarrow k + 1$
@@ -101,7 +109,10 @@ again matrix-free.
 The two strategies make different tradeoffs. The active-set loop solves a sequence of
 linear systems and benefits from fast inner solvers (Section~\ref{sec:solvers}); its
 convergence to global optimality is certified by the KKT check. The simplex-projection
-approach is single-stage and loop-free, but converges in $O(\kappa)$ gradient steps
-versus $O(\sqrt{\kappa})$ for CG, so it is most competitive when the condition number is
-moderate or the matrix-free $O(nT)$ cost dominates.
+approach is single-stage and loop-free; unlike CG, it is not a Krylov method---each
+step applies the gradient operator and projects onto $\Delta_n$ without building a Krylov
+subspace, so residuals are not orthogonalised against prior directions. This is why its
+convergence is $O(\kappa)$ gradient steps versus $O(\sqrt{\kappa})$ for CG; both methods
+share the same $O(nT)$ per-step cost, so the $\sqrt{\kappa}$ gap in iteration count
+translates directly to a runtime gap on ill-conditioned problems.
 Section~\ref{sec:solvers} develops concrete implementations of both strategies.
