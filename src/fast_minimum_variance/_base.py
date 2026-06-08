@@ -35,12 +35,19 @@ class _BaseProblem(ABC):
     alpha: float = 0.0
     rho: float = 0.0
     mu: np.ndarray | None = None
+    target_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — low-rank + identity factors
 
     def __post_init__(self):
-        """Validate target shape when supplied; shrinkage is only active when target is not None."""
+        """Validate target/target_lr shapes when supplied."""
         n = self.n
         if self.target is not None and self.target.shape != (n, n):
             raise ValueError(f"target must be a square {n} x {n} matrix, got {self.target.shape}")  # noqa: TRY003
+        if self.target_lr is not None:
+            bar_lam, U_k, delta_k = self.target_lr
+            if U_k.shape[0] != n or U_k.shape[1] != delta_k.shape[0]:
+                raise ValueError(  # noqa: TRY003
+                    f"target_lr: U_k must be ({n}, k) and delta_k (k,), got {U_k.shape}, {delta_k.shape}"
+                )
 
     # ------------------------------------------------------------------
     # Shared utilities
@@ -126,10 +133,10 @@ class _BaseProblem(ABC):
             >>> bool((w >= 0).all())
             True
         """
-        w, iters = self._constraint_active_set(self._kkt_step)
+        w, outer, _inner = self._constraint_active_set(self._kkt_step)
         if project:
             w = self._clip_and_renormalize(w)
-        return w, iters
+        return w, outer
 
     def solve_cvxpy(self, *, project: bool = True, backend: str = "clarabel"):
         """Solve via CVXPY with a configurable backend solver.
@@ -188,23 +195,23 @@ class _BaseProblem(ABC):
                      after solving.  Set to ``False`` for custom constraints.
 
         Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total CG
-            iteration count across all outer active-set steps.
+            ``(w, outer_steps, inner_iters)`` — weight vector, number of outer
+            active-set steps, and total CG iterations summed across all steps.
 
         Examples:
             >>> import numpy as np
             >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_cg()
+            >>> w, outer, inner = Problem(X).solve_cg()
             >>> float(round(w.sum(), 10))
             1.0
             >>> bool((w >= 0).all())
             True
         """
-        w, iters = self._constraint_active_set(self._cg_step)
+        w, outer, inner = self._constraint_active_set(self._cg_step)
         if project:
             w = self._clip_and_renormalize(w)
-        return w, iters
+        return w, outer, inner
 
     def solve_nnls(self, *, project: bool = True):
         """Solve via non-negative least squares (scipy.optimize.nnls).
@@ -383,6 +390,50 @@ class _BaseProblem(ABC):
 
         vec = np.zeros(self.t)
         w, n_iters = prox_gradient(mat, vec, extra_grad=extra_grad)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, n_iters
+
+    def solve_fista(self, *, project: bool = True):
+        """Solve via Nesterov-accelerated proximal gradient (FISTA).
+
+        Uses the Beck-Teboulle momentum sequence to achieve $O(1/k^2)$
+        convergence for convex objectives; for strongly convex $f$ with
+        condition number $\\kappa$ the linear rate is $(1-1/\\sqrt{\\kappa})^k$,
+        matching CG's asymptotic iteration count.  Same per-step cost
+        $O(nT)$ as ``solve_proximal``, typically 2--10$\\times$ fewer
+        iterations.
+
+        Args:
+            project: Clip and renormalize after solving (see ``solve_proximal``).
+
+        Returns:
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and the number
+            of gradient steps taken.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_fista()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        from .proximal import fista_gradient
+
+        if self.target is not None and self.alpha > 0.0:
+            c = 1.0 - self.alpha
+            mat = np.sqrt(c) / np.sqrt(self.t) * self.X
+            alpha, target = self.alpha, self.target
+            extra_grad = lambda v, a=alpha, tgt=target: a * (tgt @ v)
+        else:
+            mat = self.X / np.sqrt(self.t)
+            extra_grad = None
+
+        vec = np.zeros(self.t)
+        w, n_iters = fista_gradient(mat, vec, extra_grad=extra_grad)
         if project:
             w = self._clip_and_renormalize(w)
         return w, n_iters
