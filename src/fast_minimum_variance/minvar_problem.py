@@ -193,6 +193,7 @@ class _MinVarProblem(_BaseProblem):
             c_lr = self.alpha
 
             def _apply_target(v):
+                """Apply low-rank target: bar_lam * v + U (delta * (U^T v))."""
                 return bar_lam_lr * v + U_k_a @ (delta_k_lr * (U_k_a.T @ v))
         else:
             target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
@@ -200,11 +201,13 @@ class _MinVarProblem(_BaseProblem):
             c_lr = self.alpha if target_sub is not None else 0.0
 
             def _apply_target(v):
+                """Apply dense target submatrix to v."""
                 return target_sub @ v  # type: ignore[operator]
 
         count1 = [0]
 
         def matvec(v):
+            """Apply Sigma_a to v for the budget-constraint CG solve."""
             count1[0] += 1
             result = c_data * (x_a.T @ (x_a @ v)) / self.t
             if c_lr:
@@ -220,6 +223,7 @@ class _MinVarProblem(_BaseProblem):
         count2 = [0]
 
         def matvec2(v):
+            """Apply Sigma_a to v for the return-tilt CG solve."""
             count2[0] += 1
             result = c_data * (x_a.T @ (x_a @ v)) / self.t
             if c_lr:
