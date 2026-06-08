@@ -50,6 +50,50 @@ class _MinVarProblem(_BaseProblem):
     # No extra fields — X, alpha, rho, mu all inherited from _BaseProblem.
 
     # ------------------------------------------------------------------
+    # Shared helpers used by both active-set loop variants
+    # ------------------------------------------------------------------
+
+    def _compute_gradient(self, w):
+        """Return the full objective gradient at w, including rho*mu adjustment."""
+        data_grad = (self.X.T @ (self.X @ w)) / self.t
+        if self.target_lr is not None:
+            bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
+            tgt_w = bar_lam * w + U_k @ (delta_k * (U_k.T @ w))
+            grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * tgt_w)
+        elif self.target is not None:
+            grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * self.target @ w)
+        else:
+            grad = 2.0 * data_grad
+        if self.rho != 0.0 and self.mu is not None:
+            grad = grad - self.rho * self.mu
+        return grad
+
+    @staticmethod
+    def _primal_drop(w_a, asset_active, tol):
+        """Drop negative-weight assets from active set in-place; return True if any dropped."""
+        if not np.any(w_a < -tol):
+            return False
+        idx = np.where(asset_active)[0]
+        strong = w_a < -10 * tol
+        if np.any(strong):
+            asset_active[idx[strong]] = False
+        else:
+            asset_active[idx[np.argmin(w_a)]] = False
+        return True
+
+    def _dual_add(self, grad, asset_active, tol):
+        """Return index of excluded asset that violates KKT dual condition, or -1 if none."""
+        excluded = ~asset_active
+        if not excluded.any():
+            return -1
+        g_a = grad[asset_active]
+        lambda_ = np.median(g_a) if g_a.size > 5 else g_a.mean()
+        nu = grad - lambda_
+        idx_ex = np.where(excluded)[0]
+        j = idx_ex[np.argmin(nu[excluded])]
+        return int(j) if nu[j] < -tol else -1
+
+    # ------------------------------------------------------------------
     # Outer loop: primal elimination + dual feasibility check
     # ------------------------------------------------------------------
     def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):
@@ -65,73 +109,27 @@ class _MinVarProblem(_BaseProblem):
         asset_active = np.ones(n, dtype=bool)
         total_inner_iters = 0
         outer_steps = 0
-
         prev_active = None
+        w = np.zeros(n)
 
         for _ in range(max_iter):
             if prev_active is not None and np.array_equal(prev_active, asset_active):
                 break  # pragma: no cover - structurally unreachable safety guard
             prev_active = asset_active.copy()
 
-            # === Solve ===
             w_a, step_iters = solve_fn(asset_active)
             outer_steps += 1
             total_inner_iters += step_iters
 
-            # === PRIMAL STEP ===
-            neg = w_a < -tol
-            if np.any(neg):
-                idx = np.where(asset_active)[0]
+            if self._primal_drop(w_a, asset_active, tol):
+                continue
 
-                strong = w_a < -10 * tol
-
-                if np.any(strong):
-                    asset_active[idx[strong]] = False
-                else:
-                    j = idx[np.argmin(w_a)]
-                    asset_active[j] = False
-
-                continue  # CRITICAL
-
-            # === Assemble full vector ===
             w = np.zeros(n)
             w[asset_active] = w_a
 
-            # === Gradient ===
-            data_grad = (self.X.T @ (self.X @ w)) / self.t
-            if self.target_lr is not None:
-                bar_lam_lr, U_k_lr, delta_k_lr = self.target_lr  # noqa: N806
-                tgt_w = bar_lam_lr * w + U_k_lr @ (delta_k_lr * (U_k_lr.T @ w))
-                grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * tgt_w)
-            elif self.target is not None:
-                grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * self.target @ w)
-            else:
-                grad = 2.0 * data_grad
-
-            if self.rho != 0.0 and self.mu is not None:
-                grad = grad - self.rho * self.mu
-
-            # === Lambda ===
-            g_a = grad[asset_active]
-            lambda_ = np.median(g_a) if g_a.size > 5 else g_a.mean()
-
-            # === Dual ===
-            nu = grad - lambda_
-
-            excluded = ~asset_active
-            if not excluded.any():
+            j = self._dual_add(self._compute_gradient(w), asset_active, tol)
+            if j < 0:
                 break
-
-            nu_ex = nu[excluded]
-            idx_ex = np.where(excluded)[0]
-
-            j = idx_ex[np.argmin(nu_ex)]
-            violate = nu[j]
-
-            # === DUAL STEP ===
-            if violate >= -tol:
-                break
-
             asset_active[j] = True
 
         return w, outer_steps, total_inner_iters
@@ -283,7 +281,6 @@ class _MinVarProblem(_BaseProblem):
                 break  # pragma: no cover - structurally unreachable safety guard
             prev_active = asset_active.copy()
 
-            # Build CG initial guess from the last feasible full solution
             x0 = None
             if last_w_full is not None:
                 sub = last_w_full[asset_active]
@@ -295,56 +292,16 @@ class _MinVarProblem(_BaseProblem):
             outer_steps += 1
             total_inner_iters += step_iters
 
-            # === PRIMAL STEP ===
-            neg = w_a < -tol
-            if np.any(neg):
-                idx = np.where(asset_active)[0]
-                strong = w_a < -10 * tol
-                if np.any(strong):
-                    asset_active[idx[strong]] = False
-                else:
-                    j = idx[np.argmin(w_a)]
-                    asset_active[j] = False
-                continue  # CRITICAL
+            if self._primal_drop(w_a, asset_active, tol):
+                continue
 
-            # === Assemble full vector ===
             w = np.zeros(n)
             w[asset_active] = w_a
-            last_w_full = w.copy()  # update warm state after each feasible step
+            last_w_full = w.copy()
 
-            # === Gradient ===
-            data_grad = (self.X.T @ (self.X @ w)) / self.t
-            if self.target_lr is not None:
-                bar_lam_lr, U_k_lr, delta_k_lr = self.target_lr  # noqa: N806
-                tgt_w = bar_lam_lr * w + U_k_lr @ (delta_k_lr * (U_k_lr.T @ w))
-                grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * tgt_w)
-            elif self.target is not None:
-                grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * self.target @ w)
-            else:
-                grad = 2.0 * data_grad
-
-            if self.rho != 0.0 and self.mu is not None:
-                grad = grad - self.rho * self.mu
-
-            # === Lambda ===
-            g_a = grad[asset_active]
-            lambda_ = np.median(g_a) if g_a.size > 5 else g_a.mean()
-
-            # === Dual ===
-            nu = grad - lambda_
-            excluded = ~asset_active
-            if not excluded.any():
+            j = self._dual_add(self._compute_gradient(w), asset_active, tol)
+            if j < 0:
                 break
-
-            nu_ex = nu[excluded]
-            idx_ex = np.where(excluded)[0]
-            j = idx_ex[np.argmin(nu_ex)]
-            violate = nu[j]
-
-            # === DUAL STEP ===
-            if violate >= -tol:
-                break
-
             asset_active[j] = True
 
         return w, outer_steps, total_inner_iters, asset_active.copy(), last_w_full
