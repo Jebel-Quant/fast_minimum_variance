@@ -104,6 +104,70 @@ def _lipschitz(
     return lip
 
 
+def fista_gradient(
+    mat: NDArray[np.floating],
+    vec: NDArray[np.floating],
+    *,
+    extra_grad=None,
+    eps_rel: float = 1e-6,
+    max_iter: int = 100000,
+) -> tuple[NDArray[np.floating], int]:
+    """FISTA (Nesterov-accelerated proximal gradient) on the probability simplex.
+
+    Same interface as ``prox_gradient`` but uses the Beck-Teboulle momentum
+    sequence $t_{k+1} = (1 + \\sqrt{1+4t_k^2})/2$ to achieve $O(1/k^2)$
+    convergence for convex objectives (versus $O(1/k)$ for plain gradient
+    descent).  For strongly convex $f$ with condition number $\\kappa$ the
+    linear convergence rate is $(1 - 1/\\sqrt{\\kappa})^k$, matching CG's
+    asymptotic iteration count.
+
+    The gradient is evaluated at the extrapolated point $y_k$; the simplex
+    projection is applied to obtain $x_k$; the momentum update then forms
+    $y_{k+1} = x_k + \\frac{t_k-1}{t_{k+1}}(x_k - x_{k-1})$.
+
+    References
+    ----------
+    Beck, A., & Teboulle, M. (2009). "A Fast Iterative Shrinkage-Thresholding
+    Algorithm for Linear Inverse Problems." SIAM Journal on Imaging Sciences.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> mat = np.array([[1.0, 0.5], [0.5, 1.0]])
+    >>> vec = np.ones(2)
+    >>> result, _ = fista_gradient(mat, vec)
+    >>> bool(np.isclose(result.sum(), 1.0))
+    True
+
+    """
+    rng = np.random.default_rng()
+    lip = _lipschitz(mat, extra_matvec=extra_grad, rng=rng)
+    step = 1.0 / lip if lip > 1e-15 else 1.0
+    out_prod = mat.T @ vec
+
+    x = proj_simplex(rng.standard_normal(mat.shape[1]))
+    y = x.copy()
+    t = 1.0
+
+    for ite in range(1, max_iter + 1):
+        grad = mat.T @ (mat @ y) - out_prod
+        if extra_grad is not None:
+            grad = grad + extra_grad(y)
+        x_new = proj_simplex(y - step * grad)
+
+        t_new = 0.5 * (1.0 + np.sqrt(1.0 + 4.0 * t * t))
+        y = x_new + ((t - 1.0) / t_new) * (x_new - x)
+
+        err = float(np.linalg.norm(x - x_new))
+        x = x_new
+        t = t_new
+
+        if err < eps_rel:
+            break
+
+    return x, ite
+
+
 def prox_gradient(
     mat: NDArray[np.floating],
     vec: NDArray[np.floating],
@@ -157,7 +221,7 @@ def prox_gradient(
     rng = np.random.default_rng()
     prim_var: NDArray[np.floating] = np.asarray(rng.standard_normal(size=mat.shape[1]))
     lip = _lipschitz(mat, extra_matvec=extra_grad, rng=rng)
-    step = 0.5 / lip if lip > 1e-15 else 1.0
+    step = 1.0 / lip if lip > 1e-15 else 1.0
 
     # Precompute mat.T @ vec once; zero for minimum-variance (vec = 0).
     out_prod = mat.T @ vec
