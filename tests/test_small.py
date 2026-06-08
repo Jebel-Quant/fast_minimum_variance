@@ -100,3 +100,107 @@ def test_dual_readd():
 
     assert call_no[0] == 3
     np.testing.assert_allclose(w, [1 / 3, 1 / 3, 1 / 3], atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# _constraint_active_set_warm — primal drop, dual re-add, gradient branches
+# ---------------------------------------------------------------------------
+
+
+def test_warm_default_solve_fn():
+    """Calling _constraint_active_set_warm with solve_fn=None defaults to _cg_step."""
+    p = MinVarProblem(X3)
+    w, *_ = p._constraint_active_set_warm()
+    assert abs(w.sum() - 1.0) < 1e-4
+
+
+def test_warm_primal_drop_strong():
+    """Strongly negative weights (< -10*tol) are all dropped at once."""
+    p = MinVarProblem(X3)
+    call_no = [0]
+
+    def solve_fn(active, x0=None):
+        """Return a solution with a strongly negative weight on the first call."""
+        call_no[0] += 1
+        n_a = int(active.sum())
+        if call_no[0] == 1:
+            w = np.ones(n_a) / n_a
+            w[0] = -0.5  # strongly negative → triggers bulk drop
+            return w, 1
+        return np.ones(n_a) / n_a, 1
+
+    w, *_ = p._constraint_active_set_warm(solve_fn=solve_fn)
+    assert np.all(w >= -1e-10)
+
+
+def test_warm_primal_drop_weak():
+    """A single mildly negative weight triggers the argmin-drop branch."""
+    p = MinVarProblem(X3)
+    call_no = [0]
+
+    def solve_fn(active, x0=None):
+        """Return a solution with a mildly negative weight on the first call."""
+        call_no[0] += 1
+        n_a = int(active.sum())
+        if call_no[0] == 1:
+            w = np.ones(n_a) / n_a
+            w[-1] = -3e-6  # between -1e-5 and -1e-6: negative but not "strong"
+            return w, 1
+        return np.ones(n_a) / n_a, 1
+
+    w, *_ = p._constraint_active_set_warm(solve_fn=solve_fn)
+    assert np.all(w >= -1e-10)
+
+
+def test_warm_dual_readd():
+    """Excluded asset with negative dual is re-added (dual step, lines 339-348)."""
+    p = MinVarProblem(X3)
+    # Analytic trace: same as test_dual_readd but via the warm interface.
+    call_no = [0]
+
+    def solve_fn(active, x0=None):
+        """Return preset solutions mimicking the primal-dual trace."""
+        call_no[0] += 1
+        if call_no[0] == 1:
+            return np.array([2 / 3, 2 / 3, -1 / 3]), 1  # drop asset 2
+        if call_no[0] == 2:
+            return np.array([0.5, 0.5]), 1  # nu[2]= 2-1=1 ≥ 0 → done
+        return np.ones(int(active.sum())) / int(active.sum()), 1
+
+    w, *_ = p._constraint_active_set_warm(solve_fn=solve_fn)
+    np.testing.assert_allclose(w[:2], [0.5, 0.5], atol=1e-10)
+
+
+def test_warm_gradient_with_target():
+    """Target (dense) gradient branch is exercised inside the warm loop."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((30, 4))  # noqa: N806
+    target = np.eye(4)
+    alpha = 0.3
+    p = MinVarProblem(X, alpha=alpha, target=target)
+    w, *_ = p._constraint_active_set_warm()
+    assert abs(w.sum() - 1.0) < 1e-4
+
+
+def test_warm_gradient_with_target_lr():
+    """target_lr gradient branch is exercised inside the warm loop."""
+    rng = np.random.default_rng(1)
+    n = 4
+    X = rng.standard_normal((30, n))  # noqa: N806
+    U_k = rng.standard_normal((n, 2))  # noqa: N806
+    delta_k = np.abs(rng.standard_normal(2)) + 0.1
+    target_lr = (0.5, U_k, delta_k)
+    alpha = 0.3
+    p = MinVarProblem(X, alpha=alpha, target_lr=target_lr)
+    w, *_ = p._constraint_active_set_warm()
+    assert abs(w.sum() - 1.0) < 1e-4
+
+
+def test_warm_gradient_with_rho():
+    """Rho != 0 gradient branch is exercised inside the warm loop."""
+    rng = np.random.default_rng(2)
+    X = rng.standard_normal((30, 4))  # noqa: N806
+    mu = rng.standard_normal(4)
+    p = MinVarProblem(X, rho=0.5, mu=mu)
+    w, *_ = p._constraint_active_set_warm()
+    assert abs(w.sum() - 1.0) < 1e-4

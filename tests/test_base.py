@@ -86,6 +86,13 @@ class TestAbstractInterface:
         with pytest.raises(ValueError, match="target must be"):
             _Stub(_X3, target=np.eye(4))
 
+    def test_wrong_target_lr_shape_raises(self):
+        """A target_lr with mismatched U_k / delta_k shapes raises ValueError."""
+        U_k = np.ones((4, 2))  # noqa: N806  # wrong: 4 rows but n=3
+        delta_k = np.ones(2)
+        with pytest.raises(ValueError, match="target_lr"):
+            _Stub(_X3, target_lr=(0.5, U_k, delta_k))
+
 
 # ---------------------------------------------------------------------------
 # Shared utilities
@@ -267,3 +274,50 @@ class TestSolveProximal:
         w, _ = _Stub(_X3).solve_proximal()
         assert w.sum() == pytest.approx(1.0)
         assert np.all(w >= 0)
+
+
+# ---------------------------------------------------------------------------
+# solve_fista
+# ---------------------------------------------------------------------------
+
+
+class TestSolveFista:
+    """Tests for _BaseProblem.solve_fista template."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        """Return a (100, 5) return matrix."""
+        return np.random.default_rng(0).standard_normal((100, 5))
+
+    def test_returns_tuple(self, X):  # noqa: N803
+        """solve_fista returns a (w, iters) tuple."""
+        from fast_minimum_variance import Problem
+
+        result = Problem(X).solve_fista()
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_weights_sum_to_one(self, X):  # noqa: N803
+        """Weights sum to 1."""
+        from fast_minimum_variance import Problem
+
+        w, _ = Problem(X).solve_fista()
+        assert w.sum() == pytest.approx(1.0, abs=1e-5)
+
+    def test_weights_non_negative(self, X):  # noqa: N803
+        """All weights are non-negative."""
+        from fast_minimum_variance import Problem
+
+        w, _ = Problem(X).solve_fista()
+        assert np.all(w >= -1e-8)
+
+    def test_with_shrinkage_and_target(self, X):  # noqa: N803
+        """Shrinkage branch (alpha > 0, target supplied) exercises the extra_grad path."""
+        from fast_minimum_variance import Problem
+
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w, iters = Problem(X, alpha=alpha, target=np.eye(N)).solve_fista()
+        assert w.sum() == pytest.approx(1.0, abs=1e-5)
+        assert np.all(w >= -1e-8)
+        assert iters >= 1

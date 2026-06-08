@@ -516,3 +516,109 @@ class TestCrossValidation:
         w_mvp, _ = MinVarProblem(X_small, alpha=alpha).solve_kkt()
         w_prob, _ = Problem(X_small, alpha=alpha).solve_kkt()
         np.testing.assert_allclose(w_mvp, w_prob, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# target_lr (low-rank shrinkage target)
+# ---------------------------------------------------------------------------
+
+
+def _make_target_lr(n, k=2, seed=0):
+    """Build a valid (bar_lam, U_k, delta_k) low-rank target triple."""
+    rng = np.random.default_rng(seed)
+    U_k = rng.standard_normal((n, k))  # noqa: N806
+    delta_k = np.abs(rng.standard_normal(k)) + 0.1
+    bar_lam = 0.5
+    return bar_lam, U_k, delta_k
+
+
+class TestTargetLr:
+    """target_lr (low-rank target) exercises distinct code branches in CG and KKT steps."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        """Return a (100, 8) return matrix."""
+        return np.random.default_rng(3).standard_normal((100, 8))
+
+    def test_cg_with_target_lr(self, X):  # noqa: N803
+        """solve_cg with target_lr returns a valid portfolio."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+    def test_kkt_with_target_lr(self, X):  # noqa: N803
+        """solve_kkt with target_lr returns a valid portfolio."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        w, _ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_kkt()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+    def test_cg_with_target_lr_and_return_tilt(self, X):  # noqa: N803
+        """target_lr + rho != 0 exercises the matvec2 c_lr branch."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        mu = np.random.default_rng(5).standard_normal(N)
+        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Warm-start solvers
+# ---------------------------------------------------------------------------
+
+
+class TestWarmStart:
+    """solve_cg_warm and solve_kkt_warm chain solves with warm-starting."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        """Return a (100, 8) return matrix."""
+        return np.random.default_rng(7).standard_normal((100, 8))
+
+    def test_solve_cg_warm_cold_start(self, X):  # noqa: N803
+        """Cold start returns a valid portfolio."""
+        from fast_minimum_variance import Problem
+
+        w, outer, inner, warm = Problem(X).solve_cg_warm()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+        assert outer >= 1
+        assert inner >= 1
+        assert warm is not None
+
+    def test_solve_kkt_warm_cold_start(self, X):  # noqa: N803
+        """Cold KKT start returns a valid portfolio."""
+        from fast_minimum_variance import Problem
+
+        w, outer, warm = Problem(X).solve_kkt_warm()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+        assert outer >= 1
+        assert warm is not None
+
+    def test_solve_cg_warm_chained(self, X):  # noqa: N803
+        """Chained warm-start produces same result as cold start."""
+        from fast_minimum_variance import Problem
+
+        w_cold, *_ = Problem(X).solve_cg()
+        w_warm, _, _, warm = Problem(X).solve_cg_warm()
+        w_warm2, *_ = Problem(X, rho=0.0).solve_cg_warm(warm_start=warm)
+        np.testing.assert_allclose(w_cold, w_warm, atol=1e-4)
+        assert abs(w_warm2.sum() - 1.0) < 1e-4
+
+    def test_solve_kkt_warm_chained(self, X):  # noqa: N803
+        """Chained KKT warm-start agrees with cold KKT."""
+        from fast_minimum_variance import Problem
+
+        w_cold, _ = Problem(X).solve_kkt()
+        w_warm, _, warm = Problem(X).solve_kkt_warm()
+        np.testing.assert_allclose(w_cold, w_warm, atol=1e-6)
+        w_warm2, _, _ = Problem(X).solve_kkt_warm(warm_start=warm)
+        assert abs(w_warm2.sum() - 1.0) < 1e-6

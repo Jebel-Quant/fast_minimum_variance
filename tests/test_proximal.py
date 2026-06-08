@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from fast_minimum_variance import Problem
-from fast_minimum_variance.proximal import proj_simplex, prox_gradient
+from fast_minimum_variance.proximal import _lipschitz, fista_gradient, proj_simplex, prox_gradient
 
 
 def make_returns(T, N, seed=0):  # noqa: N803
@@ -333,3 +333,63 @@ class TestSolveProximal:
         # Both should satisfy constraints (prox_gradient enforces simplex internally)
         np.testing.assert_allclose(w_raw.sum(), 1.0, rtol=1e-6)
         assert np.all(w_raw >= -1e-10)
+
+
+class TestLipschitz:
+    """Tests for the _lipschitz power-iteration helper."""
+
+    def test_returns_positive(self) -> None:
+        """Lipschitz estimate is strictly positive for a non-zero matrix."""
+        mat = np.eye(3)
+        assert _lipschitz(mat) > 0
+
+    def test_rng_none_branch(self) -> None:
+        """Passing rng=None triggers internal default_rng creation."""
+        mat = np.random.default_rng(0).standard_normal((5, 3))
+        lip = _lipschitz(mat, rng=None)
+        assert lip > 0
+
+
+class TestFistaGradient:
+    """Tests for fista_gradient (Nesterov-accelerated proximal gradient)."""
+
+    def test_output_on_simplex(self) -> None:
+        """Result lies on the probability simplex."""
+        rng = np.random.default_rng(42)
+        mat = rng.standard_normal((5, 3))
+        vec = rng.standard_normal(5)
+        result, _ = fista_gradient(mat, vec)
+        np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-5)
+        assert np.all(result >= -1e-10)
+
+    def test_iters_positive(self) -> None:
+        """Iteration count is at least 1."""
+        mat = np.eye(3)
+        _, iters = fista_gradient(mat, np.zeros(3))
+        assert iters >= 1
+
+    def test_extra_grad_branch(self) -> None:
+        """extra_grad callback is exercised and result still lies on simplex."""
+        rng = np.random.default_rng(7)
+        mat = rng.standard_normal((5, 3))
+        vec = rng.standard_normal(5)
+        alpha = 0.3
+        target = np.eye(3)
+
+        def extra_grad(v):
+            """Return alpha * target @ v."""
+            return alpha * (target @ v)
+
+        result, _ = fista_gradient(mat, vec, extra_grad=extra_grad)
+        np.testing.assert_allclose(result.sum(), 1.0, rtol=1e-5)
+        assert np.all(result >= -1e-10)
+
+    @pytest.mark.parametrize("N", [2, 5, 10])
+    def test_various_sizes(self, N: int) -> None:  # noqa: N803
+        """Agreement with prox_gradient for several problem sizes."""
+        rng = np.random.default_rng(N)
+        mat = rng.standard_normal((3 * N, N))
+        vec = rng.standard_normal(3 * N)
+        w_fista, _ = fista_gradient(mat, vec, eps_rel=1e-8)
+        w_prox, _ = prox_gradient(mat, vec, eps_rel=1e-8)
+        np.testing.assert_allclose(w_fista, w_prox, atol=1e-4)

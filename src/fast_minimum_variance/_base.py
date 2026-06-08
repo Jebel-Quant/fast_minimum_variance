@@ -389,6 +389,7 @@ class _BaseProblem(ABC):
             alpha, target = self.alpha, self.target
 
             def extra_grad(v, a=alpha, tgt=target):
+                """Return the shrinkage gradient contribution a * target @ v."""
                 return a * (tgt @ v)
         else:
             mat = self.X / np.sqrt(self.t)
@@ -435,6 +436,7 @@ class _BaseProblem(ABC):
             alpha, target = self.alpha, self.target
 
             def extra_grad(v, a=alpha, tgt=target):
+                """Return the shrinkage gradient contribution a * target @ v."""
                 return a * (tgt @ v)
         else:
             mat = self.X / np.sqrt(self.t)
