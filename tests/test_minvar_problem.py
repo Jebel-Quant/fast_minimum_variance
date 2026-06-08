@@ -94,7 +94,7 @@ class TestConstraintActiveSet:
                 return np.array([-5e-6, 0.6, 0.5 + 5e-6]), 1
             return p._kkt_step(mask)
 
-        w, _ = p._constraint_active_set(solve_fn)
+        w, *_ = p._constraint_active_set(solve_fn)
         assert w[0] == pytest.approx(0.0)
         assert w.shape == (3,)
 
@@ -148,7 +148,7 @@ class TestConstraintActiveSet:
                 return np.array([-0.1, 0.6, 0.5]), 3
             return np.array([0.5, 0.5], dtype=float), 2
 
-        _, total = p._constraint_active_set(solve_fn)
+        _, _, total = p._constraint_active_set(solve_fn)
         assert total == 5
 
     def test_negative_asset_removed(self):
@@ -182,7 +182,7 @@ class TestConstraintActiveSet:
                 return np.array([-0.1, 0.6, 0.5]), 1
             return np.array([0.5, 0.5], dtype=float), 1
 
-        w, _ = p._constraint_active_set(solve_fn)
+        w, *_ = p._constraint_active_set(solve_fn)
         assert w[0] == pytest.approx(0.0)
         assert w.shape == (3,)
 
@@ -193,7 +193,7 @@ class TestConstraintActiveSet:
         X = np.eye(3)  # noqa: N806
         p = MinVarProblem(X)
 
-        w, _ = p._constraint_active_set(p._kkt_step)
+        w, *_ = p._constraint_active_set(p._kkt_step)
         # All assets should be in the final portfolio (equal-weight is optimal).
         assert (w > 0).all()
 
@@ -301,30 +301,30 @@ class TestSolveCg:
 
     def test_shape(self, mvp):
         """Output weight vector has shape (N,)."""
-        w, _ = mvp.solve_cg()
+        w, *_ = mvp.solve_cg()
         assert w.shape == (mvp.n,)
 
     def test_weights_sum_to_one(self, mvp):
         """Weights sum to 1."""
-        w, _ = mvp.solve_cg()
+        w, *_ = mvp.solve_cg()
         assert w.sum() == pytest.approx(1.0, abs=1e-4)
 
     def test_weights_non_negative(self, mvp):
         """All weights are non-negative."""
-        w, _ = mvp.solve_cg()
+        w, *_ = mvp.solve_cg()
         assert np.all(w >= -1e-4)
 
     def test_close_to_kkt(self, mvp_small):
         """CG solution is close to the exact KKT solution."""
         w_kkt, _ = mvp_small.solve_kkt()
-        w_cg, _ = mvp_small.solve_cg()
+        w_cg, *_ = mvp_small.solve_cg()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
     def test_with_shrinkage(self, X_small):  # noqa: N803
         """Shrinkage branch (alpha > 0) agrees with KKT."""
         T, N = X_small.shape  # noqa: N806
         p = MinVarProblem(X_small, alpha=N / (N + T))
-        w_cg, _ = p.solve_cg()
+        w_cg, *_ = p.solve_cg()
         w_kkt, _ = p.solve_kkt()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
@@ -333,13 +333,13 @@ class TestSolveCg:
         _T, N = X_small.shape  # noqa: N806
         mu = np.random.default_rng(7).standard_normal(N)
         p = MinVarProblem(X_small, rho=0.5, mu=mu)
-        w_cg, _ = p.solve_cg()
+        w_cg, *_ = p.solve_cg()
         w_kkt, _ = p.solve_kkt()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
     def test_project_false(self, mvp):
         """project=False returns raw CG solution without clipping."""
-        w, _ = mvp.solve_cg(project=False)
+        w, *_ = mvp.solve_cg(project=False)
         assert w.shape == (mvp.n,)
 
 

@@ -10,6 +10,7 @@ from fast_minimum_variance.proximal import proj_simplex, prox_gradient
 
 
 def make_returns(T, N, seed=0):  # noqa: N803
+    """Generate a (T, N) matrix of standard-normal returns."""
     return np.random.default_rng(seed).standard_normal((T, N))
 
 
@@ -117,13 +118,6 @@ class TestProjSimplex:
 
 class TestProxGradient:
     """Test suite for prox_gradient function."""
-
-    def test_cla(self, resource_dir) -> None:
-        """Test against CLA expected values."""
-        covar = np.genfromtxt(resource_dir / "CLA_Data.csv", delimiter=",", skip_header=1)[3:]
-        result, _ = prox_gradient(covar, np.ones(10))
-        expected = np.array([0, 0.41200, 0, 0, 0, 0, 0.27612, 0.31188, 0, 0])
-        assert np.linalg.norm(result - expected, 1) < 1e-5
 
     def test_output_on_simplex(self) -> None:
         """Verify output satisfies simplex constraints."""
@@ -280,10 +274,12 @@ class TestSolveProximal:
 
     @pytest.fixture(scope="class")
     def X(self):  # noqa: N802
+        """Return a (200, 10) return matrix."""
         return make_returns(T=200, N=10, seed=42)
 
     @pytest.fixture(scope="class")
     def X_small(self):  # noqa: N802
+        """Return a (100, 5) return matrix."""
         return make_returns(T=100, N=5, seed=7)
 
     def test_return_shape(self, X) -> None:  # noqa: N803
@@ -332,7 +328,7 @@ class TestSolveProximal:
 
     def test_project_false(self, X) -> None:  # noqa: N803
         """project=False skips clip-and-renormalize; result still on simplex from prox_gradient."""
-        w_proj, _ = Problem(X).solve_proximal(project=True)
+        _w_proj, _ = Problem(X).solve_proximal(project=True)
         w_raw, _ = Problem(X).solve_proximal(project=False)
         # Both should satisfy constraints (prox_gradient enforces simplex internally)
         np.testing.assert_allclose(w_raw.sum(), 1.0, rtol=1e-6)

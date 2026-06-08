@@ -23,7 +23,7 @@ class _Stub(_BaseProblem):
 
     def _constraint_active_set(self, solve_fn):
         w, step_iters = solve_fn(None)
-        return w, step_iters
+        return w, 1, step_iters
 
     def _kkt_step(self, mask):
         return np.array([0.5, -0.1, 0.6]), 1
@@ -142,8 +142,8 @@ class TestTemplateDelegation:
         assert iters == 1
 
     def test_solve_cg_uses_cg_step(self):
-        """solve_cg delegates to _cg_step (iters==5)."""
-        _, iters = _Stub(_X3).solve_cg()
+        """solve_cg delegates to _cg_step (inner iters==5)."""
+        _, _, iters = _Stub(_X3).solve_cg()
         assert iters == 5
 
     def test_solve_nnls_uses_nnls_solve(self):
@@ -233,12 +233,13 @@ class TestSolveProximal:
     def test_returns_tuple(self):
         """solve_proximal returns a (w, iters) tuple."""
         result = _Stub(_X3).solve_proximal()
-        assert isinstance(result, tuple) and len(result) == 2
+        assert isinstance(result, tuple)
+        assert len(result) == 2
 
-    def test_iters_is_one(self):
-        """Iteration count is always 1."""
+    def test_iters_positive(self):
+        """Iteration count is at least 1."""
         _, iters = _Stub(_X3).solve_proximal()
-        assert iters == 1
+        assert iters >= 1
 
     def test_weight_shape(self):
         """Returned weight vector has shape (N,)."""

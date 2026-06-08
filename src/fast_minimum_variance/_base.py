@@ -43,7 +43,7 @@ class _BaseProblem(ABC):
         if self.target is not None and self.target.shape != (n, n):
             raise ValueError(f"target must be a square {n} x {n} matrix, got {self.target.shape}")  # noqa: TRY003
         if self.target_lr is not None:
-            bar_lam, U_k, delta_k = self.target_lr
+            _bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
             if U_k.shape[0] != n or U_k.shape[1] != delta_k.shape[0]:
                 raise ValueError(  # noqa: TRY003
                     f"target_lr: U_k must be ({n}, k) and delta_k (k,), got {U_k.shape}, {delta_k.shape}"
@@ -286,7 +286,11 @@ class _BaseProblem(ABC):
 
         solver = osqp.OSQP()
         solver.setup(
-            p_upper, q, a_mat, l_vec, u_vec,
+            p_upper,
+            q,
+            a_mat,
+            l_vec,
+            u_vec,
             warm_starting=True,
             verbose=False,
             eps_abs=1e-8,
@@ -355,9 +359,9 @@ class _BaseProblem(ABC):
         The gradient is computed in two separate terms so that the per-step
         cost remains ``O(nT)`` regardless of whether shrinkage is applied:
 
-            grad = (1-α)/T · X^T(Xw) + α · target @ w
+            grad = (1-alpha)/T * X^T(Xw) + alpha * target @ w
 
-        This avoids stacking a (T+n)×n matrix, which would inflate per-step
+        This avoids stacking a (T+n)xn matrix, which would inflate per-step
         cost by O(n) under shrinkage. Return tilt (``rho != 0``) is not supported.
 
         Args:
@@ -383,7 +387,9 @@ class _BaseProblem(ABC):
             c = 1.0 - self.alpha
             mat = np.sqrt(c) / np.sqrt(self.t) * self.X
             alpha, target = self.alpha, self.target
-            extra_grad = lambda v, a=alpha, tgt=target: a * (tgt @ v)
+
+            def extra_grad(v, a=alpha, tgt=target):
+                return a * (tgt @ v)
         else:
             mat = self.X / np.sqrt(self.t)
             extra_grad = None
@@ -395,7 +401,7 @@ class _BaseProblem(ABC):
         return w, n_iters
 
     def solve_fista(self, *, project: bool = True):
-        """Solve via Nesterov-accelerated proximal gradient (FISTA).
+        r"""Solve via Nesterov-accelerated proximal gradient (FISTA).
 
         Uses the Beck-Teboulle momentum sequence to achieve $O(1/k^2)$
         convergence for convex objectives; for strongly convex $f$ with
@@ -427,7 +433,9 @@ class _BaseProblem(ABC):
             c = 1.0 - self.alpha
             mat = np.sqrt(c) / np.sqrt(self.t) * self.X
             alpha, target = self.alpha, self.target
-            extra_grad = lambda v, a=alpha, tgt=target: a * (tgt @ v)
+
+            def extra_grad(v, a=alpha, tgt=target):
+                return a * (tgt @ v)
         else:
             mat = self.X / np.sqrt(self.t)
             extra_grad = None
@@ -437,4 +445,3 @@ class _BaseProblem(ABC):
         if project:
             w = self._clip_and_renormalize(w)
         return w, n_iters
-

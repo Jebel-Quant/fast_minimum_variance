@@ -92,17 +92,19 @@ class _Problem(_BaseProblem):
         assert self.d is not None  # noqa: S101
         p = self.d.size
         active = np.zeros(p, dtype=bool)
+        outer_steps = 0
         total_iters = 0
 
         while True:
             w, step_iters = solve_fn(active)
             violations = self.C[:, ~active].T @ w - self.d[~active]
+            outer_steps += 1
             total_iters += step_iters
             if np.all(violations <= 1e-10):
                 break
             active[~active] |= violations > 1e-10
 
-        return w, total_iters
+        return w, outer_steps, total_iters
 
     # ------------------------------------------------------------------
     # Inner steps (called by the template solve_* methods on the base)

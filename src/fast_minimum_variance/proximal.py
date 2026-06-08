@@ -10,7 +10,6 @@ iteration, also matrix-free.
 
 References:
 ----------
-
 Duchi, J., Shalev-Shwartz, S., Singer, Y., & Chandra, T. (2008).
 "Efficient Projections onto the l1-Ball for Learning in High Dimensions."
 Proceedings of the 25th International Conference on Machine Learning (ICML).
@@ -112,7 +111,7 @@ def fista_gradient(
     eps_rel: float = 1e-6,
     max_iter: int = 100000,
 ) -> tuple[NDArray[np.floating], int]:
-    """FISTA (Nesterov-accelerated proximal gradient) on the probability simplex.
+    r"""FISTA (Nesterov-accelerated proximal gradient) on the probability simplex.
 
     Same interface as ``prox_gradient`` but uses the Beck-Teboulle momentum
     sequence $t_{k+1} = (1 + \\sqrt{1+4t_k^2})/2$ to achieve $O(1/k^2)$
@@ -125,12 +124,12 @@ def fista_gradient(
     projection is applied to obtain $x_k$; the momentum update then forms
     $y_{k+1} = x_k + \\frac{t_k-1}{t_{k+1}}(x_k - x_{k-1})$.
 
-    References
+    References:
     ----------
     Beck, A., & Teboulle, M. (2009). "A Fast Iterative Shrinkage-Thresholding
     Algorithm for Linear Inverse Problems." SIAM Journal on Imaging Sciences.
 
-    Examples
+    Examples:
     --------
     >>> import numpy as np
     >>> mat = np.array([[1.0, 0.5], [0.5, 1.0]])
@@ -149,7 +148,7 @@ def fista_gradient(
     y = x.copy()
     t = 1.0
 
-    for ite in range(1, max_iter + 1):
+    for ite in range(1, max_iter + 1):  # noqa: B007
         grad = mat.T @ (mat @ y) - out_prod
         if extra_grad is not None:
             grad = grad + extra_grad(y)

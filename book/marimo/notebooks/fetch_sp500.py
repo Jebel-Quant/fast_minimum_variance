@@ -45,10 +45,11 @@ def _():
 
     raw = yf.download(
         tickers,
-        period="5y",
         auto_adjust=True,
         progress=True,
         threads=True,
+        start=pd.Timestamp("2021-06-01"),
+        end=pd.Timestamp("2026-06-01"),
     )["Close"]
 
     print(f"\nRaw download: {raw.shape[0]} trading days x {raw.shape[1]} tickers")

@@ -267,7 +267,7 @@ class TestProblemConstraintActiveSet:
                 return np.array([-0.1, 1.1]), 3
             return np.array([0.0, 1.0]), 2
 
-        _, total = p._constraint_active_set(solve_fn)
+        _, _, total = p._constraint_active_set(solve_fn)
         assert total == 5
 
     def test_active_mask_starts_empty(self):
@@ -318,10 +318,10 @@ class TestProblemConstraintActiveSet:
         assert first_active[0].shape == (3,)
 
     def test_returns_w_and_total_iters(self):
-        """Returns (w, total_iters) tuple."""
+        """Returns (w, outer_steps, total_iters) tuple."""
         p = Problem(np.eye(2), C=-np.eye(2), d=np.zeros(2))
         w_expected = np.array([0.6, 0.4])
-        result_w, result_iters = p._constraint_active_set(lambda _: (w_expected, 7))
+        result_w, _, result_iters = p._constraint_active_set(lambda _: (w_expected, 7))
         np.testing.assert_array_equal(result_w, w_expected)
         assert result_iters == 7
 
@@ -362,7 +362,7 @@ class TestProblemConstraintActiveSet:
         w1 = np.array([0.8, -0.2])
         w2 = np.array([0.6, 0.4])
         responses = iter([(w1, 10), (w2, 5)])
-        _, total_iters = p._constraint_active_set(lambda _: next(responses))
+        _, _, total_iters = p._constraint_active_set(lambda _: next(responses))
         assert total_iters == 15
 
     def test_multiple_violations_promoted_simultaneously(self):
@@ -399,7 +399,7 @@ class TestProblemConstraintActiveSet:
             call_count[0] += 1
             return next(responses)
 
-        result_w, _ = p._constraint_active_set(solve_fn)
+        result_w, *_ = p._constraint_active_set(solve_fn)
         np.testing.assert_array_equal(result_w, w2)
         assert call_count[0] == 2
 
@@ -593,30 +593,30 @@ class TestSolveCg:
 
     def test_shape(self, problem):
         """Output weight vector has shape (N,)."""
-        w, _ = problem.solve_cg()
+        w, *_ = problem.solve_cg()
         assert w.shape == (problem.n,)
 
     def test_weights_sum_to_one(self, problem):
         """Weights sum to 1."""
-        w, _ = problem.solve_cg()
+        w, *_ = problem.solve_cg()
         assert abs(w.sum() - 1.0) < 1e-4
 
     def test_weights_non_negative(self, problem):
         """All weights are non-negative."""
-        w, _ = problem.solve_cg()
+        w, *_ = problem.solve_cg()
         assert np.all(w >= -1e-4)
 
     def test_close_to_kkt(self, problem_small):
         """CG solution is close to the exact KKT solution."""
         w_kkt, _ = problem_small.solve_kkt()
-        w_cg, _ = problem_small.solve_cg()
+        w_cg, *_ = problem_small.solve_cg()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
     def test_with_explicit_target(self, X):  # noqa: N803
         """CG with explicit target exercises the target-aware _kkt_operator branch."""
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
-        w_cg, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_cg()
+        w_cg, *_ = Problem(X, alpha=alpha, target=np.eye(N)).solve_cg()
         w_kkt, _ = Problem(X, alpha=alpha, target=np.eye(N)).solve_kkt()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 

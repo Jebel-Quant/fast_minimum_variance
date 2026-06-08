@@ -96,7 +96,7 @@ def test_dual_readd():
             return np.array([0.5, 0.5]), 1  # nu_2 = 0-1 = -1 → re-add
         return np.ones(active.sum()) / active.sum(), 1
 
-    w, _ = p._constraint_active_set(solve_fn)
+    w, *_ = p._constraint_active_set(solve_fn)
 
     assert call_no[0] == 3
     np.testing.assert_allclose(w, [1 / 3, 1 / 3, 1 / 3], atol=1e-10)
