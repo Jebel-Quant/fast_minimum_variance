@@ -274,10 +274,13 @@ class _MinVarProblem(_BaseProblem):
                 result = result + c_lr * _apply_system(v)
             return result
 
-        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
         # Preconditioner P^{-1}: Woodbury inverse of T0^RMT restricted to active set
-        bar_lam_p, U_k_p, delta_k_p = self.pcg_lr  # type: ignore[misc]  # noqa: N806
+        pcg_lr = self.pcg_lr
+        if pcg_lr is None:
+            raise RuntimeError("_pcg_step called without pcg_lr")  # noqa: TRY003
+        bar_lam_p, U_k_p, delta_k_p = pcg_lr  # noqa: N806
         U_k_a_p = U_k_p[active, :]  # noqa: N806  # (n_a, k)
         inv_coeff = 1.0 / (bar_lam_p + delta_k_p) - 1.0 / bar_lam_p  # (k,) negative
 
@@ -285,7 +288,7 @@ class _MinVarProblem(_BaseProblem):
             """Apply P^{-1} to v via the Woodbury identity."""
             return (1.0 / bar_lam_p) * v + U_k_a_p @ (inv_coeff * (U_k_a_p.T @ v))
 
-        M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # type: ignore[call-arg]  # noqa: N806
+        M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]  # noqa: N806
 
         v, _ = cg(op, np.ones(n_a), x0=x0, M=M_op)
         return v / v.sum(), count[0]

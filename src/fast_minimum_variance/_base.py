@@ -95,6 +95,11 @@ class _BaseProblem(ABC):
         raise NotImplementedError  # pragma: no cover
 
     @abstractmethod
+    def _pcg_step(self, active, x0=None):  # pragma: no cover
+        """Solve one inner PCG step with RMT preconditioner; return ``(w, iters)``."""
+        raise NotImplementedError
+
+    @abstractmethod
     def _nnls_solve(self):  # pragma: no cover
         """Solve via NNLS directly (no outer loop); return ``(w, 1)``."""
         raise NotImplementedError
