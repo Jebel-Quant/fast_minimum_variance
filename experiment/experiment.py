@@ -38,7 +38,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from util.runner import print_table, run_timed, write_benchmark_rows
+from util.runner import print_table, run_timed, write_table_defs
 
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 from fast_minimum_variance.shrinkage.util import (
@@ -161,14 +161,67 @@ for dataset_name, data_file in DATASETS.items():
     print_table(f"Oracle LW + RMT precond (alpha={alpha_lw:.4f}, k={k_rmt})", results_pcg, ref_key="cvxpy (Clarabel)")
     print_table(f"Demonstrational LW (alpha={alpha_hard})", results_lw, ref_key="cvxpy (Clarabel)")
 
-    # Write LaTeX table rows for \input inclusion in paper/s7_results.tex.
     ref_key = "cvxpy (Clarabel)"
-    write_benchmark_rows(
-        TABLES / f"{dataset_name}_noshrink.tex", results_no_shrink, ref_key, _FOOTNOTE, _TABLE_METHODS_ALL
-    )
-    write_benchmark_rows(TABLES / f"{dataset_name}_lw05.tex", results_lw, ref_key, _FOOTNOTE, _TABLE_METHODS_ALL)
     if dataset_name == "sp500":
-        write_benchmark_rows(TABLES / "sp500_lw_oracle.tex", results_lw_oracle, ref_key, _FOOTNOTE, _TABLE_METHODS_KEY)
-        write_benchmark_rows(TABLES / "sp500_rmt.tex", results_rmt, ref_key, _FOOTNOTE, _TABLE_METHODS_KEY)
-        write_benchmark_rows(TABLES / "sp500_pcg.tex", results_pcg, ref_key)
-    print(f"  → wrote experiment/tables/{dataset_name}_*.tex")
+        write_table_defs(
+            TABLES / "sp500_defs.tex",
+            [
+                {
+                    "macro_name": "dataSpNoshrink",
+                    "results": results_no_shrink,
+                    "ref_key": ref_key,
+                    "footnote_methods": _FOOTNOTE,
+                    "method_order": _TABLE_METHODS_ALL,
+                },
+                {
+                    "macro_name": "dataSpLwHalf",
+                    "results": results_lw,
+                    "ref_key": ref_key,
+                    "footnote_methods": _FOOTNOTE,
+                    "method_order": _TABLE_METHODS_ALL,
+                },
+                {
+                    "macro_name": "dataSpLwOracle",
+                    "results": results_lw_oracle,
+                    "ref_key": ref_key,
+                    "footnote_methods": _FOOTNOTE,
+                    "method_order": _TABLE_METHODS_KEY,
+                },
+                {
+                    "macro_name": "dataSpRmt",
+                    "results": results_rmt,
+                    "ref_key": ref_key,
+                    "footnote_methods": _FOOTNOTE,
+                    "method_order": _TABLE_METHODS_KEY,
+                },
+                {
+                    "macro_name": "dataSpPcg",
+                    "results": results_pcg,
+                    "ref_key": ref_key,
+                    "footnote_methods": None,
+                    "method_order": None,
+                },
+            ],
+        )
+        print("  → wrote experiment/tables/sp500_defs.tex")
+    else:
+        write_table_defs(
+            TABLES / "ftse_defs.tex",
+            [
+                {
+                    "macro_name": "dataFtseNoshrink",
+                    "results": results_no_shrink,
+                    "ref_key": ref_key,
+                    "footnote_methods": _FOOTNOTE,
+                    "method_order": _TABLE_METHODS_ALL,
+                },
+                {
+                    "macro_name": "dataFtseLwHalf",
+                    "results": results_lw,
+                    "ref_key": ref_key,
+                    "footnote_methods": _FOOTNOTE,
+                    "method_order": _TABLE_METHODS_ALL,
+                },
+            ],
+        )
+        print("  → wrote experiment/tables/ftse_defs.tex")

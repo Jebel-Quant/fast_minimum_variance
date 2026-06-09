@@ -41,7 +41,7 @@ from pathlib import Path
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from util.runner import run_timed, write_frontier_rows
+from util.runner import run_timed, write_frontier_def
 
 from fast_minimum_variance.data import simulate_equity_returns
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
@@ -348,9 +348,9 @@ fig3.savefig(GRAPHS / "minvar_frontier.pdf", bbox_inches="tight")
 fig3.savefig(GRAPHS / "minvar_frontier.png", bbox_inches="tight", dpi=150)
 print(f"Saved {GRAPHS / 'minvar_frontier.pdf'}")
 
-# Write LaTeX frontier table rows for \input inclusion in paper/s7_results.tex.
-write_frontier_rows(
-    TABLES / "frontier.tex",
+write_frontier_def(
+    TABLES / "frontier_def.tex",
+    "dataFrontier",
     [
         {"label": "cvxpy (Clarabel)", "cold": sum(ef_times_cvxpy), "warm": None},
         {"label": "OSQP (direct API)", "cold": sum(ef_times_osqp), "warm": None},
@@ -360,4 +360,4 @@ write_frontier_rows(
     ],
     n_pts=N_PTS,
 )
-print("  → wrote experiment/tables/frontier.tex")
+print("  → wrote experiment/tables/frontier_def.tex")

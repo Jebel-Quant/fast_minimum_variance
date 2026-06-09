@@ -44,15 +44,8 @@ def _fmt_time(t):
     return f"{t:.4f}"
 
 
-def write_benchmark_rows(path, results, ref_key, footnote_methods=None, method_order=None):
-    r"""Write tabular data rows to a .tex file for \\input inclusion.
-
-    Each row: method & time_s & iterations & speedup \\\\
-    footnote_methods: set of method names that get a $^\\dagger$ appended.
-    method_order: list controlling which methods appear and in what order.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _format_benchmark_rows(results, ref_key, footnote_methods=None, method_order=None):
+    r"""Return formatted tabular row strings (no surrounding \\def)."""
     ref = results[ref_key]["time_s"]
     order = method_order if method_order is not None else list(results)
     lines = []
@@ -67,20 +60,11 @@ def write_benchmark_rows(path, results, ref_key, footnote_methods=None, method_o
         iters_str = str(iters) if iters is not None else "--"
         speedup = ref / v["time_s"]
         lines.append(f"{label:<35} & {_fmt_time(v['time_s']):>8} & {iters_str:>6} & {speedup:>6.1f}x \\\\\n")
-    path.write_text("".join(lines))
+    return "".join(lines)
 
 
-def write_frontier_rows(path, rows, n_pts):
-    r"""Write frontier sweep rows to a .tex file for \\input inclusion.
-
-    rows: list of dicts with keys:
-      label   str   display name (may contain LaTeX)
-      cold    float total cold-start time (s)
-      warm    float | None   total warm-start time (s); None if no warm-start API
-    n_pts: number of frontier points (used to compute ms/point).
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _format_frontier_rows(rows, n_pts):
+    r"""Return formatted frontier sweep row strings (no surrounding \\def)."""
     lines = []
     for row in rows:
         label = row["label"]
@@ -95,4 +79,45 @@ def write_frontier_rows(path, rows, n_pts):
             lines.append(
                 f"{label:<32} & {_fmt_time(row['cold']):>6} & {cold_ms:>5.1f} & \\multicolumn{{2}}{{c}}{{--}} \\\\\n"
             )
-    path.write_text("".join(lines))
+    return "".join(lines)
+
+
+def write_table_defs(path, panels):
+    r"""Write \\def macros (one per panel) to a .tex file for use inside tabular.
+
+    The generated file must be \\input-ted OUTSIDE any tabular environment so that
+    the macros are defined before the table is typeset.  Inside the tabular, call
+    each macro by name — it expands inline with no file boundary, which means
+    booktabs rules (\\midrule, \\bottomrule) and panel headers (\\multicolumn) can
+    safely live in the static .tex file right before and after each macro call.
+
+    panels: list of dicts with keys:
+      macro_name       str   LaTeX control sequence name (without leading \\)
+      results          dict  solver name -> {"time_s", "outer", "inner"}
+      ref_key          str
+      footnote_methods set | None
+      method_order     list | None
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    chunks = []
+    for panel in panels:
+        rows = _format_benchmark_rows(
+            panel["results"],
+            panel["ref_key"],
+            panel.get("footnote_methods"),
+            panel.get("method_order"),
+        )
+        chunks.append(f"\\def\\{panel['macro_name']}{{%\n{rows}}}\n")
+    path.write_text("".join(chunks))
+
+
+def write_frontier_def(path, macro_name, rows, n_pts):
+    r"""Write a single \\def macro for frontier sweep rows.
+
+    Same rationale as write_table_defs: \\input outside tabular, use macro inside.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = _format_frontier_rows(rows, n_pts)
+    path.write_text(f"\\def\\{macro_name}{{%\n{content}}}\n")
