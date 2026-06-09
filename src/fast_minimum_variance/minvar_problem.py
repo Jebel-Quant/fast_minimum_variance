@@ -235,6 +235,57 @@ class _MinVarProblem(_BaseProblem):
         half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
         return half_lambda * v1 + half_rho * v2, count1[0] + count2[0]
 
+    def _pcg_step(self, active, x0=None):
+        """Solve the reduced SPD system via PCG with RMT preconditioner; return (w_a, iters).
+
+        The system matrix is the oracle-LW covariance (using self.alpha and self.target).
+        The preconditioner P = T0^RMT is applied via the Woodbury identity:
+          P^{-1} v = (1/bar_lam) v + U_k diag(1/lambda_k - 1/bar_lam) U_k^T v
+        costing O(n_a * k) per application.  Requires self.pcg_lr to be set.
+        """
+        x_a = self.X[:, active]
+        n_a = int(active.sum())
+
+        # System matvec — identical path to _cg_step
+        if self.target_lr is not None:
+            bar_lam_lr, U_k_lr, delta_k_lr = self.target_lr  # noqa: N806
+            U_k_a_sys = U_k_lr[active, :]  # noqa: N806
+            c_data, c_lr = 1.0 - self.alpha, self.alpha
+
+            def _apply_system(v):
+                return bar_lam_lr * v + U_k_a_sys @ (delta_k_lr * (U_k_a_sys.T @ v))
+        else:
+            target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
+            c_data = 1.0 - self.alpha if target_sub is not None else 1.0
+            c_lr = self.alpha if target_sub is not None else 0.0
+
+            def _apply_system(v):
+                return target_sub @ v  # type: ignore[operator]
+
+        count = [0]
+
+        def matvec(v):
+            count[0] += 1
+            result = c_data * (x_a.T @ (x_a @ v)) / self.t
+            if c_lr:
+                result = result + c_lr * _apply_system(v)
+            return result
+
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg]
+
+        # Preconditioner P^{-1}: Woodbury inverse of T0^RMT restricted to active set
+        bar_lam_p, U_k_p, delta_k_p = self.pcg_lr  # type: ignore[misc]  # noqa: N806
+        U_k_a_p = U_k_p[active, :]  # noqa: N806  # (n_a, k)
+        inv_coeff = 1.0 / (bar_lam_p + delta_k_p) - 1.0 / bar_lam_p  # (k,) negative
+
+        def precond(v):
+            return (1.0 / bar_lam_p) * v + U_k_a_p @ (inv_coeff * (U_k_a_p.T @ v))
+
+        M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # type: ignore[call-arg]  # noqa: N806
+
+        v, _ = cg(op, np.ones(n_a), x0=x0, M=M_op)
+        return v / v.sum(), count[0]
+
     def _constraint_active_set_warm(self, solve_fn=None, tol=1e-6, max_iter=10_000, warm_start=None):
         """Active-set loop with warm-starting; returns ``(w, iters, active, w_full)``.
 
