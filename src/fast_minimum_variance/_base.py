@@ -94,9 +94,13 @@ class _BaseProblem(ABC):
         """Solve one inner CG step; return ``(w, iters)``."""
         raise NotImplementedError  # pragma: no cover
 
-    @abstractmethod
     def _pcg_step(self, active, x0=None):  # pragma: no cover
-        """Solve one inner PCG step with RMT preconditioner; return ``(w, iters)``."""
+        """Solve one inner PCG step with RMT preconditioner; return ``(w, iters)``.
+
+        Subclasses that support PCG (e.g. ``_MinVarProblem``) override this.
+        The base implementation raises so callers get a clear error if PCG is
+        invoked on a problem type that has not implemented it.
+        """
         raise NotImplementedError
 
     @abstractmethod
