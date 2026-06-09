@@ -4,3 +4,4 @@ load_data:
 
 experiment:
 	uv run experiment.py
+	uv run experiment_synthetic.py

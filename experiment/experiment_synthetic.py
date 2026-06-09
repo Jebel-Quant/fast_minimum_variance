@@ -41,7 +41,7 @@ from pathlib import Path
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from util.runner import run_timed
+from util.runner import run_timed, write_frontier_rows
 
 from fast_minimum_variance.data import simulate_equity_returns
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
@@ -53,6 +53,7 @@ from fast_minimum_variance.shrinkage.util import (
 
 HERE = Path(__file__).parent
 GRAPHS = HERE / "graphs"
+TABLES = HERE / "tables"
 GRAPHS.mkdir(exist_ok=True)
 
 mpl.rcParams.update(
@@ -346,3 +347,17 @@ fig3.tight_layout(pad=1.0)
 fig3.savefig(GRAPHS / "minvar_frontier.pdf", bbox_inches="tight")
 fig3.savefig(GRAPHS / "minvar_frontier.png", bbox_inches="tight", dpi=150)
 print(f"Saved {GRAPHS / 'minvar_frontier.pdf'}")
+
+# Write LaTeX frontier table rows for \input inclusion in paper/s7_results.tex.
+write_frontier_rows(
+    TABLES / "frontier.tex",
+    [
+        {"label": "cvxpy (Clarabel)", "cold": sum(ef_times_cvxpy), "warm": None},
+        {"label": "OSQP (direct API)", "cold": sum(ef_times_osqp), "warm": None},
+        {"label": "Proximal gradient", "cold": sum(ef_times_proximal), "warm": None},
+        {"label": r"CG (LW, $\alpha=0.5$)", "cold": sum(ef_times_cg_cold), "warm": sum(ef_times_cg_warm)},
+        {"label": rf"CG (RMT, $k={k_rmt_ef}$ factors)", "cold": sum(ef_times_rmt_cold), "warm": sum(ef_times_rmt_warm)},
+    ],
+    n_pts=N_PTS,
+)
+print("  → wrote experiment/tables/frontier.tex")

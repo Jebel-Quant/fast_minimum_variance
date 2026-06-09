@@ -38,7 +38,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from util.runner import print_table, run_timed
+from util.runner import print_table, run_timed, write_benchmark_rows
 
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 from fast_minimum_variance.shrinkage.util import (
@@ -48,6 +48,23 @@ from fast_minimum_variance.shrinkage.util import (
 )
 
 HERE = Path(__file__).parent
+TABLES = HERE / "tables"
+
+# Solver rows written to the paper tables (FISTA is benchmarked but not in the paper).
+_TABLE_METHODS_ALL = [
+    "cvxpy (Clarabel)",
+    "cvxpy (OSQP)",
+    "Clarabel (direct API)",
+    "OSQP (direct API)",
+    "CG (SPD)",
+    "Proximal gradient",
+]
+_TABLE_METHODS_KEY = [
+    "cvxpy (Clarabel)",
+    "CG (SPD)",
+    "Proximal gradient",
+]
+_FOOTNOTE = {"Proximal gradient"}
 
 DATASETS = {
     "sp500": HERE / "data/sp500_pct_returns.parquet",
@@ -143,3 +160,15 @@ for dataset_name, data_file in DATASETS.items():
     print_table(f"Oracle RMT (alpha={alpha_rmt:.4f}, k={k_rmt})", results_rmt, ref_key="cvxpy (Clarabel)")
     print_table(f"Oracle LW + RMT precond (alpha={alpha_lw:.4f}, k={k_rmt})", results_pcg, ref_key="cvxpy (Clarabel)")
     print_table(f"Demonstrational LW (alpha={alpha_hard})", results_lw, ref_key="cvxpy (Clarabel)")
+
+    # Write LaTeX table rows for \input inclusion in paper/s7_results.tex.
+    ref_key = "cvxpy (Clarabel)"
+    write_benchmark_rows(
+        TABLES / f"{dataset_name}_noshrink.tex", results_no_shrink, ref_key, _FOOTNOTE, _TABLE_METHODS_ALL
+    )
+    write_benchmark_rows(TABLES / f"{dataset_name}_lw05.tex", results_lw, ref_key, _FOOTNOTE, _TABLE_METHODS_ALL)
+    if dataset_name == "sp500":
+        write_benchmark_rows(TABLES / "sp500_lw_oracle.tex", results_lw_oracle, ref_key, _FOOTNOTE, _TABLE_METHODS_KEY)
+        write_benchmark_rows(TABLES / "sp500_rmt.tex", results_rmt, ref_key, _FOOTNOTE, _TABLE_METHODS_KEY)
+        write_benchmark_rows(TABLES / "sp500_pcg.tex", results_pcg, ref_key)
+    print(f"  → wrote experiment/tables/{dataset_name}_*.tex")
