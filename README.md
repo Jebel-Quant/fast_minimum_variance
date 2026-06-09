@@ -33,7 +33,7 @@ from fast_minimum_variance import Problem
 # 500 daily returns, 20 assets
 X = np.random.default_rng(42).standard_normal((500, 20))
 
-w, iters = Problem(X).solve_cg()   # matrix-free CG — recommended
+w, outer, inner = Problem(X).solve_cg()   # matrix-free CG — recommended
 w, iters = Problem(X).solve_kkt()  # direct dense solve — exact baseline
 
 assert abs(w.sum() - 1.0) < 1e-8
@@ -48,7 +48,7 @@ it compresses the eigenvalue spectrum and directly cuts CG iteration counts. Use
 
 ```python
 T, N = X.shape
-w, iters = Problem(X, alpha=N / (N + T)).solve_cg()
+w, outer, inner = Problem(X, alpha=N / (N + T)).solve_cg()
 ```
 
 On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations from 685 to
@@ -56,8 +56,9 @@ On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations fro
 
 ## Solvers
 
-All solvers are methods on `Problem` and return `(w, iters)` where
+All solvers are methods on `Problem` and return `(w, ...)` where
 $w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
+`solve_cg` returns `(w, outer_steps, inner_iters)`; all others return `(w, iters)`.
 
 | Method | Approach | When to use |
 |---|---|---|
@@ -151,12 +152,12 @@ The same solver handles a range of portfolio construction problems by choosing $
 ```python
 # Mean-variance
 mu = np.random.default_rng(0).standard_normal(N)  # expected returns, shape (N,)
-w, _ = Problem(X, rho=1.0, mu=mu).solve_cg()
+w, *_ = Problem(X, rho=1.0, mu=mu).solve_cg()
 
 # Minimum tracking error to benchmark b
 b = np.ones(N) / N  # equal-weight benchmark
 mu_te = X.T @ (X @ b)
-w, _ = Problem(X, rho=2.0, mu=mu_te).solve_cg()
+w, *_ = Problem(X, rho=2.0, mu=mu_te).solve_cg()
 ```
 
 When `rho != 0`, two SPD solves are performed per outer step: $\Sigma_a v_1 = \mathbf{1}$

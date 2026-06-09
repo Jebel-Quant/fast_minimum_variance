@@ -94,7 +94,7 @@ class TestConstraintActiveSet:
                 return np.array([-5e-6, 0.6, 0.5 + 5e-6]), 1
             return p._kkt_step(mask)
 
-        w, _ = p._constraint_active_set(solve_fn)
+        w, *_ = p._constraint_active_set(solve_fn)
         assert w[0] == pytest.approx(0.0)
         assert w.shape == (3,)
 
@@ -148,7 +148,7 @@ class TestConstraintActiveSet:
                 return np.array([-0.1, 0.6, 0.5]), 3
             return np.array([0.5, 0.5], dtype=float), 2
 
-        _, total = p._constraint_active_set(solve_fn)
+        _, _, total = p._constraint_active_set(solve_fn)
         assert total == 5
 
     def test_negative_asset_removed(self):
@@ -182,7 +182,7 @@ class TestConstraintActiveSet:
                 return np.array([-0.1, 0.6, 0.5]), 1
             return np.array([0.5, 0.5], dtype=float), 1
 
-        w, _ = p._constraint_active_set(solve_fn)
+        w, *_ = p._constraint_active_set(solve_fn)
         assert w[0] == pytest.approx(0.0)
         assert w.shape == (3,)
 
@@ -193,7 +193,7 @@ class TestConstraintActiveSet:
         X = np.eye(3)  # noqa: N806
         p = MinVarProblem(X)
 
-        w, _ = p._constraint_active_set(p._kkt_step)
+        w, *_ = p._constraint_active_set(p._kkt_step)
         # All assets should be in the final portfolio (equal-weight is optimal).
         assert (w > 0).all()
 
@@ -301,30 +301,30 @@ class TestSolveCg:
 
     def test_shape(self, mvp):
         """Output weight vector has shape (N,)."""
-        w, _ = mvp.solve_cg()
+        w, *_ = mvp.solve_cg()
         assert w.shape == (mvp.n,)
 
     def test_weights_sum_to_one(self, mvp):
         """Weights sum to 1."""
-        w, _ = mvp.solve_cg()
+        w, *_ = mvp.solve_cg()
         assert w.sum() == pytest.approx(1.0, abs=1e-4)
 
     def test_weights_non_negative(self, mvp):
         """All weights are non-negative."""
-        w, _ = mvp.solve_cg()
+        w, *_ = mvp.solve_cg()
         assert np.all(w >= -1e-4)
 
     def test_close_to_kkt(self, mvp_small):
         """CG solution is close to the exact KKT solution."""
         w_kkt, _ = mvp_small.solve_kkt()
-        w_cg, _ = mvp_small.solve_cg()
+        w_cg, *_ = mvp_small.solve_cg()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
     def test_with_shrinkage(self, X_small):  # noqa: N803
         """Shrinkage branch (alpha > 0) agrees with KKT."""
         T, N = X_small.shape  # noqa: N806
         p = MinVarProblem(X_small, alpha=N / (N + T))
-        w_cg, _ = p.solve_cg()
+        w_cg, *_ = p.solve_cg()
         w_kkt, _ = p.solve_kkt()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
@@ -333,13 +333,13 @@ class TestSolveCg:
         _T, N = X_small.shape  # noqa: N806
         mu = np.random.default_rng(7).standard_normal(N)
         p = MinVarProblem(X_small, rho=0.5, mu=mu)
-        w_cg, _ = p.solve_cg()
+        w_cg, *_ = p.solve_cg()
         w_kkt, _ = p.solve_kkt()
         np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
 
     def test_project_false(self, mvp):
         """project=False returns raw CG solution without clipping."""
-        w, _ = mvp.solve_cg(project=False)
+        w, *_ = mvp.solve_cg(project=False)
         assert w.shape == (mvp.n,)
 
 
@@ -516,3 +516,180 @@ class TestCrossValidation:
         w_mvp, _ = MinVarProblem(X_small, alpha=alpha).solve_kkt()
         w_prob, _ = Problem(X_small, alpha=alpha).solve_kkt()
         np.testing.assert_allclose(w_mvp, w_prob, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# target_lr (low-rank shrinkage target)
+# ---------------------------------------------------------------------------
+
+
+def _make_target_lr(n, k=2, seed=0):
+    """Build a valid (bar_lam, U_k, delta_k) low-rank target triple."""
+    rng = np.random.default_rng(seed)
+    U_k = rng.standard_normal((n, k))  # noqa: N806
+    delta_k = np.abs(rng.standard_normal(k)) + 0.1
+    bar_lam = 0.5
+    return bar_lam, U_k, delta_k
+
+
+class TestTargetLr:
+    """target_lr (low-rank target) exercises distinct code branches in CG and KKT steps."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        """Return a (100, 8) return matrix."""
+        return np.random.default_rng(3).standard_normal((100, 8))
+
+    def test_cg_with_target_lr(self, X):  # noqa: N803
+        """solve_cg with target_lr returns a valid portfolio."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+    def test_kkt_with_target_lr(self, X):  # noqa: N803
+        """solve_kkt with target_lr returns a valid portfolio."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        w, _ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_kkt()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+    def test_cg_with_target_lr_and_return_tilt(self, X):  # noqa: N803
+        """target_lr + rho != 0 exercises the matvec2 c_lr branch."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        mu = np.random.default_rng(5).standard_normal(N)
+        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Warm-start solvers
+# ---------------------------------------------------------------------------
+
+
+class TestWarmStart:
+    """solve_cg_warm and solve_kkt_warm chain solves with warm-starting."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        """Return a (100, 8) return matrix."""
+        return np.random.default_rng(7).standard_normal((100, 8))
+
+    def test_solve_cg_warm_cold_start(self, X):  # noqa: N803
+        """Cold start returns a valid portfolio."""
+        from fast_minimum_variance import Problem
+
+        w, outer, inner, warm = Problem(X).solve_cg_warm()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+        assert outer >= 1
+        assert inner >= 1
+        assert warm is not None
+
+    def test_solve_kkt_warm_cold_start(self, X):  # noqa: N803
+        """Cold KKT start returns a valid portfolio."""
+        from fast_minimum_variance import Problem
+
+        w, outer, warm = Problem(X).solve_kkt_warm()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+        assert outer >= 1
+        assert warm is not None
+
+    def test_solve_cg_warm_chained(self, X):  # noqa: N803
+        """Chained warm-start produces same result as cold start."""
+        from fast_minimum_variance import Problem
+
+        w_cold, *_ = Problem(X).solve_cg()
+        w_warm, _, _, warm = Problem(X).solve_cg_warm()
+        w_warm2, *_ = Problem(X, rho=0.0).solve_cg_warm(warm_start=warm)
+        np.testing.assert_allclose(w_cold, w_warm, atol=1e-4)
+        assert abs(w_warm2.sum() - 1.0) < 1e-4
+
+    def test_solve_kkt_warm_chained(self, X):  # noqa: N803
+        """Chained KKT warm-start agrees with cold KKT."""
+        from fast_minimum_variance import Problem
+
+        w_cold, _ = Problem(X).solve_kkt()
+        w_warm, _, warm = Problem(X).solve_kkt_warm()
+        np.testing.assert_allclose(w_cold, w_warm, atol=1e-6)
+        w_warm2, _, _ = Problem(X).solve_kkt_warm(warm_start=warm)
+        assert abs(w_warm2.sum() - 1.0) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# solve_pcg (PCG with RMT preconditioner)
+# ---------------------------------------------------------------------------
+
+
+def _make_pcg_lr(X, k=2, seed=1):  # noqa: N803
+    """Build a valid (bar_lam, U_k, delta_k) RMT preconditioner triple."""
+    rng = np.random.default_rng(seed)
+    T, N = X.shape  # noqa: N806
+    bar_lam = float(np.trace(X.T @ X / T) / N)
+    U_k, _ = np.linalg.qr(rng.standard_normal((N, k)))  # noqa: N806
+    U_k = U_k[:, :k]  # noqa: N806
+    delta_k = np.abs(rng.standard_normal(k)) + 0.1
+    return bar_lam, U_k, delta_k
+
+
+class TestSolvePcg:
+    """Tests for MinVarProblem.solve_pcg (PCG with RMT preconditioner)."""
+
+    @pytest.fixture(scope="class")
+    def X(self):  # noqa: N802
+        """Return a (100, 5) return matrix."""
+        return np.random.default_rng(5).standard_normal((100, 5))
+
+    @pytest.fixture(scope="class")
+    def pcg_lr(self, X):  # noqa: N803
+        """Valid (bar_lam, U_k, delta_k) preconditioner triple for X."""
+        return _make_pcg_lr(X)
+
+    def test_raises_without_pcg_lr(self, X):  # noqa: N803
+        """solve_pcg raises ValueError when pcg_lr is not set."""
+        with pytest.raises(ValueError, match="pcg_lr"):
+            MinVarProblem(X).solve_pcg()
+
+    def test_returns_valid_portfolio(self, X, pcg_lr):  # noqa: N803
+        """solve_pcg returns weights that sum to 1 and are non-negative."""
+        w, outer, inner = MinVarProblem(X, pcg_lr=pcg_lr).solve_pcg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+        assert outer >= 1
+        assert inner >= 1
+
+    def test_project_false(self, X, pcg_lr):  # noqa: N803
+        """project=False skips clip-and-renormalize."""
+        w, *_ = MinVarProblem(X, pcg_lr=pcg_lr).solve_pcg(project=False)
+        assert w.shape == (X.shape[1],)
+
+    def test_close_to_kkt(self, X, pcg_lr):  # noqa: N803
+        """PCG solution agrees with the direct KKT solution."""
+        w_pcg, *_ = MinVarProblem(X, pcg_lr=pcg_lr).solve_pcg()
+        w_kkt, _ = MinVarProblem(X).solve_kkt()
+        np.testing.assert_allclose(w_pcg, w_kkt, atol=1e-4)
+
+    def test_with_target_lr(self, X, pcg_lr):  # noqa: N803
+        """target_lr exercises the low-rank system-matvec branch in _pcg_step."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        target_lr = _make_target_lr(N)
+        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr, pcg_lr=pcg_lr).solve_pcg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)
+
+    def test_with_dense_target(self, X, pcg_lr):  # noqa: N803
+        """Dense target exercises the target_sub branch and _apply_system call in _pcg_step."""
+        T, N = X.shape  # noqa: N806
+        alpha = N / (N + T)
+        w, *_ = MinVarProblem(X, alpha=alpha, target=np.eye(N), pcg_lr=pcg_lr).solve_pcg()
+        assert abs(w.sum() - 1.0) < 1e-4
+        assert np.all(w >= -1e-4)

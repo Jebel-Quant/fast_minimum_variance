@@ -38,7 +38,7 @@ class TestCgVsCvxpy:
 
     def test_plain_minvar(self, X):  # noqa: N803
         """Plain minimum variance (alpha=0, rho=0)."""
-        w_cg, _ = Problem(X).solve_cg()
+        w_cg, *_ = Problem(X).solve_cg()
         w_cvx, _ = Problem(X).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
 
@@ -46,7 +46,7 @@ class TestCgVsCvxpy:
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
-        w_cg, _ = Problem(X, alpha=alpha).solve_cg()
+        w_cg, *_ = Problem(X, alpha=alpha).solve_cg()
         w_cvx, _ = Problem(X, alpha=alpha).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
 
@@ -54,13 +54,13 @@ class TestCgVsCvxpy:
         """Return tilt (rho != 0, mu given)."""
         rng = np.random.default_rng(1)
         mu = rng.standard_normal(X.shape[1])
-        w_cg, _ = Problem(X, rho=0.5, mu=mu).solve_cg()
+        w_cg, *_ = Problem(X, rho=0.5, mu=mu).solve_cg()
         w_cvx, _ = Problem(X, rho=0.5, mu=mu).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
 
     def test_small_problem(self, X_small):  # noqa: N803
         """Small problem (T=100, N=5)."""
-        w_cg, _ = Problem(X_small).solve_cg()
+        w_cg, *_ = Problem(X_small).solve_cg()
         w_cvx, _ = Problem(X_small).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
 
@@ -69,7 +69,7 @@ class TestCgVsCvxpy:
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
         mu = np.ones(N) / N
-        w_cg, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cg()
+        w_cg, *_ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cg()
         w_cvx, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
 
@@ -77,7 +77,7 @@ class TestCgVsCvxpy:
     def test_various_sizes(self, N):  # noqa: N803
         """Agreement holds for several problem sizes."""
         X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
-        w_cg, _ = Problem(X).solve_cg()
+        w_cg, *_ = Problem(X).solve_cg()
         w_cvx, _ = Problem(X).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
 
@@ -86,6 +86,6 @@ class TestCgVsCvxpy:
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
         target = np.eye(N)
-        w_cg, _ = Problem(X, alpha=alpha, target=target).solve_cg()
+        w_cg, *_ = Problem(X, alpha=alpha, target=target).solve_cg()
         w_cvx, _ = Problem(X, alpha=alpha, target=target).solve_cvxpy()
         np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)

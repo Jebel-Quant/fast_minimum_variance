@@ -35,12 +35,20 @@ class _BaseProblem(ABC):
     alpha: float = 0.0
     rho: float = 0.0
     mu: np.ndarray | None = None
+    target_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — low-rank + identity factors
+    pcg_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — RMT preconditioner (§5.3)
 
     def __post_init__(self):
-        """Validate target shape when supplied; shrinkage is only active when target is not None."""
+        """Validate target/target_lr shapes when supplied."""
         n = self.n
         if self.target is not None and self.target.shape != (n, n):
             raise ValueError(f"target must be a square {n} x {n} matrix, got {self.target.shape}")  # noqa: TRY003
+        if self.target_lr is not None:
+            _bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
+            if U_k.shape[0] != n or U_k.shape[1] != delta_k.shape[0]:
+                raise ValueError(  # noqa: TRY003
+                    f"target_lr: U_k must be ({n}, k) and delta_k (k,), got {U_k.shape}, {delta_k.shape}"
+                )
 
     # ------------------------------------------------------------------
     # Shared utilities
@@ -86,6 +94,15 @@ class _BaseProblem(ABC):
         """Solve one inner CG step; return ``(w, iters)``."""
         raise NotImplementedError  # pragma: no cover
 
+    def _pcg_step(self, active, x0=None):  # pragma: no cover
+        """Solve one inner PCG step with RMT preconditioner; return ``(w, iters)``.
+
+        Subclasses that support PCG (e.g. ``_MinVarProblem``) override this.
+        The base implementation raises so callers get a clear error if PCG is
+        invoked on a problem type that has not implemented it.
+        """
+        raise NotImplementedError
+
     @abstractmethod
     def _nnls_solve(self):  # pragma: no cover
         """Solve via NNLS directly (no outer loop); return ``(w, 1)``."""
@@ -126,13 +143,13 @@ class _BaseProblem(ABC):
             >>> bool((w >= 0).all())
             True
         """
-        w, iters = self._constraint_active_set(self._kkt_step)
+        w, outer, _inner = self._constraint_active_set(self._kkt_step)
         if project:
             w = self._clip_and_renormalize(w)
-        return w, iters
+        return w, outer
 
-    def solve_cvxpy(self, *, project: bool = True):
-        """Solve via CVXPY / Clarabel (reference interior-point solver).
+    def solve_cvxpy(self, *, project: bool = True, backend: str = "clarabel"):
+        """Solve via CVXPY with a configurable backend solver.
 
         Requires the ``convex`` extra::
 
@@ -140,9 +157,11 @@ class _BaseProblem(ABC):
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
+            backend: CVXPY solver name (default ``"clarabel"``; ``"osqp"`` is
+                also supported).
 
         Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and Clarabel
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and solver
             iteration count.
 
         Examples:
@@ -167,8 +186,9 @@ class _BaseProblem(ABC):
         if self.rho != 0.0 and self.mu is not None:
             objective = objective - self.rho * (self.mu @ w)
 
+        cvxpy_solver = cp.CLARABEL if backend.lower() == "clarabel" else cp.OSQP
         problem = cp.Problem(cp.Minimize(objective), self._cvxpy_constraints(w, cp))
-        problem.solve(solver=cp.CLARABEL)
+        problem.solve(solver=cvxpy_solver)
 
         result = w.value
         if result is None:
@@ -185,23 +205,56 @@ class _BaseProblem(ABC):
                      after solving.  Set to ``False`` for custom constraints.
 
         Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and total CG
-            iteration count across all outer active-set steps.
+            ``(w, outer_steps, inner_iters)`` — weight vector, number of outer
+            active-set steps, and total CG iterations summed across all steps.
 
         Examples:
             >>> import numpy as np
             >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_cg()
+            >>> w, outer, inner = Problem(X).solve_cg()
             >>> float(round(w.sum(), 10))
             1.0
             >>> bool((w >= 0).all())
             True
         """
-        w, iters = self._constraint_active_set(self._cg_step)
+        w, outer, inner = self._constraint_active_set(self._cg_step)
         if project:
             w = self._clip_and_renormalize(w)
-        return w, iters
+        return w, outer, inner
+
+    def solve_pcg(self, *, project: bool = True):
+        """Solve via matrix-free PCG with RMT preconditioner (Section 5.3).
+
+        Solves ``Sigma_LW_oracle x = 1`` using ``T0^RMT`` as preconditioner.
+        Requires ``pcg_lr = (bar_lam, U_k, delta_k)`` from RMT preprocessing.
+        The preconditioner is applied via the Woodbury identity at O(nk) per step;
+        the system matvec costs O(nT).  Returns the oracle-LW minimum-variance
+        portfolio — not the RMT portfolio — in O(sqrt(1/alpha_oracle)) iterations.
+
+        Returns:
+            ``(w, outer_steps, inner_iters)``
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> rng = np.random.default_rng(0)
+            >>> X = rng.standard_normal((100, 5))
+            >>> bar_lam = float(np.trace(X.T @ X / 100) / 5)
+            >>> U_k = np.eye(5, 2)
+            >>> delta_k = np.array([0.1, 0.05])
+            >>> w, outer, inner = Problem(X, alpha=0.1, pcg_lr=(bar_lam, U_k, delta_k)).solve_pcg()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        if self.pcg_lr is None:
+            raise ValueError("pcg_lr must be set; pass pcg_lr=(bar_lam, U_k, delta_k)")  # noqa: TRY003
+        w, outer, inner = self._constraint_active_set(self._pcg_step)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, outer, inner
 
     def solve_nnls(self, *, project: bool = True):
         """Solve via non-negative least squares (scipy.optimize.nnls).
@@ -234,6 +287,64 @@ class _BaseProblem(ABC):
         if project:
             w = self._clip_and_renormalize(w)
         return w, iters
+
+    def solve_osqp(self, *, project: bool = True):
+        """Solve via OSQP (operator-splitting QP solver).
+
+        Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and
+        calls OSQP directly. Returns ``(w, iters)`` where ``iters`` is the
+        OSQP iteration count.
+
+        Args:
+            project: Clip and renormalize after solving (see ``solve_kkt``).
+
+        Returns:
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
+            OSQP iterations.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_osqp()
+            >>> float(round(w.sum(), 6))
+            1.0
+            >>> bool((w >= -1e-6).all())
+            True
+        """
+        n = self.n
+
+        if self.target is None:
+            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
+        else:
+            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
+
+        p_upper = triu(csc_matrix(p_dense), format="csc")
+
+        q = np.zeros(n)
+        if self.rho != 0.0 and self.mu is not None:
+            q = -self.rho * self.mu
+
+        a_mat, l_vec, u_vec = self._osqp_constraints()
+
+        solver = osqp.OSQP()
+        solver.setup(
+            p_upper,
+            q,
+            a_mat,
+            l_vec,
+            u_vec,
+            warm_starting=True,
+            verbose=False,
+            eps_abs=1e-8,
+            eps_rel=1e-8,
+        )
+        result = solver.solve()
+
+        w = np.array(result.x)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, result.info.iter
 
     def solve_clarabel(self, *, project: bool = True):
         """Solve via Clarabel interior-point solver (direct API, no CVXPY overhead).
@@ -284,52 +395,98 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, sol.iterations
 
-    def solve_osqp(self, *, project: bool = True):
-        """Solve via OSQP (operator-splitting QP solver, direct API, no CVXPY overhead).
+    def solve_proximal(self, *, project: bool = True):
+        """Solve via proximal gradient descent projected onto the probability simplex.
 
-        Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and
-        calls OSQP directly.  The problem-specific constraint data is supplied
-        by ``_osqp_constraints``.  Returns ``(w, iters)`` where ``iters`` is
-        the number of ADMM iterations.
+        Minimises ``0.5 * w^T Σ_LW w`` subject to ``w >= 0, sum(w) = 1``.
+        The gradient is computed in two separate terms so that the per-step
+        cost remains ``O(nT)`` regardless of whether shrinkage is applied:
+
+            grad = (1-alpha)/T * X^T(Xw) + alpha * target @ w
+
+        This avoids stacking a (T+n)xn matrix, which would inflate per-step
+        cost by O(n) under shrinkage. Return tilt (``rho != 0``) is not supported.
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
 
         Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
-            ADMM iterations.
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and the number
+            of gradient steps taken.
 
         Examples:
             >>> import numpy as np
             >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_osqp()
-            >>> float(round(w.sum(), 6))
+            >>> w, iters = Problem(X).solve_proximal()
+            >>> float(round(w.sum(), 10))
             1.0
-            >>> bool((w >= -1e-6).all())
+            >>> bool((w >= 0).all())
             True
         """
-        n = self.n
+        from .proximal import prox_gradient
 
-        if self.target is None:
-            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
+        if self.target is not None and self.alpha > 0.0:
+            c = 1.0 - self.alpha
+            mat = np.sqrt(c) / np.sqrt(self.t) * self.X
+            alpha, target = self.alpha, self.target
+
+            def extra_grad(v, a=alpha, tgt=target):
+                """Return the shrinkage gradient contribution a * target @ v."""
+                return a * (tgt @ v)
         else:
-            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
+            mat = self.X / np.sqrt(self.t)
+            extra_grad = None
 
-        # p_dense = 2.0 * ((1-self.alpha) * (self.X.T @ self.X)/self.t + self.alpha * self.target)
-        p_upper = triu(p_dense, format="csc")
-
-        q = np.zeros(n)
-        if self.rho != 0.0 and self.mu is not None:
-            q = -self.rho * self.mu
-
-        a_mat, l_vec, u_vec = self._osqp_constraints()
-
-        prob = osqp.OSQP()
-        prob.setup(p_upper, q, a_mat, l_vec, u_vec, verbose=False)
-        res = prob.solve()
-
-        w = np.array(res.x)
+        vec = np.zeros(self.t)
+        w, n_iters = prox_gradient(mat, vec, extra_grad=extra_grad)
         if project:
             w = self._clip_and_renormalize(w)
-        return w, res.info.iter
+        return w, n_iters
+
+    def solve_fista(self, *, project: bool = True):
+        r"""Solve via Nesterov-accelerated proximal gradient (FISTA).
+
+        Uses the Beck-Teboulle momentum sequence to achieve $O(1/k^2)$
+        convergence for convex objectives; for strongly convex $f$ with
+        condition number $\\kappa$ the linear rate is $(1-1/\\sqrt{\\kappa})^k$,
+        matching CG's asymptotic iteration count.  Same per-step cost
+        $O(nT)$ as ``solve_proximal``, typically 2--10$\\times$ fewer
+        iterations.
+
+        Args:
+            project: Clip and renormalize after solving (see ``solve_proximal``).
+
+        Returns:
+            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and the number
+            of gradient steps taken.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, iters = Problem(X).solve_fista()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        from .proximal import fista_gradient
+
+        if self.target is not None and self.alpha > 0.0:
+            c = 1.0 - self.alpha
+            mat = np.sqrt(c) / np.sqrt(self.t) * self.X
+            alpha, target = self.alpha, self.target
+
+            def extra_grad(v, a=alpha, tgt=target):
+                """Return the shrinkage gradient contribution a * target @ v."""
+                return a * (tgt @ v)
+        else:
+            mat = self.X / np.sqrt(self.t)
+            extra_grad = None
+
+        vec = np.zeros(self.t)
+        w, n_iters = fista_gradient(mat, vec, extra_grad=extra_grad)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, n_iters

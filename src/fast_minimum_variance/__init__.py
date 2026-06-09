@@ -16,6 +16,8 @@ def Problem(  # noqa: N802
     alpha: float = 0.0,
     rho: float = 0.0,
     mu: np.ndarray | None = None,
+    target_lr: tuple | None = None,
+    pcg_lr: tuple | None = None,
 ):
     """Create a portfolio optimisation problem.
 
@@ -32,9 +34,13 @@ def Problem(  # noqa: N802
         b:      Equality RHS ``(m,)``.
         C:      Inequality constraint matrix ``(N, p)``: ``C^T w <= d``.
         d:      Inequality RHS ``(p,)``.
-        alpha:  Shrinkage intensity; only active when ``target`` is provided.
-        rho:    Return tilt strength (Markowitz mean-variance).
-        mu:     Expected returns vector ``(N,)``; required when ``rho != 0``.
+        alpha:     Shrinkage intensity; only active when ``target`` is provided.
+        rho:       Return tilt strength (Markowitz mean-variance).
+        mu:        Expected returns vector ``(N,)``; required when ``rho != 0``.
+        target_lr: Low-rank factored target ``(bar_lam, U_k, delta_k)`` for
+                   RMT eigenvalue-cleaning; replaces ``target`` in the CG matvec.
+        pcg_lr:    RMT preconditioner ``(bar_lam, U_k, delta_k)`` for
+                   ``solve_pcg``; ignored unless PCG is invoked.
 
     Returns:
         A solver instance with ``solve_kkt()``, ``solve_minres()``,
@@ -51,7 +57,7 @@ def Problem(  # noqa: N802
         True
     """
     if A is None and b is None and C is None and d is None:
-        return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu)
+        return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu, target_lr=target_lr, pcg_lr=pcg_lr)
 
     # number of assets
     n = X.shape[1]
@@ -64,4 +70,6 @@ def Problem(  # noqa: N802
     return _Problem(X, target=target, A=A, b=b, C=C, d=d, alpha=alpha, rho=rho, mu=mu)
 
 
-__all__ = ["Problem"]
+from .data import simulate_equity_returns  # noqa: E402
+
+__all__ = ["Problem", "simulate_equity_returns"]

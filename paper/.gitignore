@@ -1,0 +1,11 @@
+markowitz
+*.tex
+minvar_paper.tex
+s0_abstract.tex
+s1_introduction.tex
+s2s3_problem.tex
+s4_nonneg.tex
+s5_shrinkage.tex
+s6_methods.tex
+s7_results.tex
+s8_conclusions.tex
