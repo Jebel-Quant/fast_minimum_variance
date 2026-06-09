@@ -441,6 +441,7 @@ dependencies = [
     { name = "cvxpy" },
     { name = "numpy" },
     { name = "osqp" },
+    { name = "scikit-learn" },
     { name = "scipy" },
 ]
 
@@ -451,7 +452,6 @@ dev = [
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "requests" },
-    { name = "scikit-learn" },
     { name = "yfinance" },
 ]
 test = [
@@ -465,6 +465,7 @@ requires-dist = [
     { name = "cvxpy", specifier = ">=1.8" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "osqp", specifier = ">=1.1.1" },
+    { name = "scikit-learn", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.14" },
 ]
 
@@ -475,7 +476,6 @@ dev = [
     { name = "pandas", specifier = ">=3.0" },
     { name = "pyarrow", specifier = ">=24.0.0" },
     { name = "requests", specifier = ">=2.0" },
-    { name = "scikit-learn", specifier = ">=1.5" },
     { name = "yfinance", specifier = ">=0.2" },
 ]
 lint = []

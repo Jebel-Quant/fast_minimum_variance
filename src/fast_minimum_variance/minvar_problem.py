@@ -253,6 +253,7 @@ class _MinVarProblem(_BaseProblem):
             c_data, c_lr = 1.0 - self.alpha, self.alpha
 
             def _apply_system(v):
+                """Apply the LR target submatrix to v (RMT low-rank path)."""
                 return bar_lam_lr * v + U_k_a_sys @ (delta_k_lr * (U_k_a_sys.T @ v))
         else:
             target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
@@ -260,11 +261,13 @@ class _MinVarProblem(_BaseProblem):
             c_lr = self.alpha if target_sub is not None else 0.0
 
             def _apply_system(v):
+                """Apply the dense target submatrix to v (full-matrix path)."""
                 return target_sub @ v  # type: ignore[operator]
 
         count = [0]
 
         def matvec(v):
+            """Apply the active-set system matrix Sigma_a to v."""
             count[0] += 1
             result = c_data * (x_a.T @ (x_a @ v)) / self.t
             if c_lr:
@@ -279,6 +282,7 @@ class _MinVarProblem(_BaseProblem):
         inv_coeff = 1.0 / (bar_lam_p + delta_k_p) - 1.0 / bar_lam_p  # (k,) negative
 
         def precond(v):
+            """Apply P^{-1} to v via the Woodbury identity."""
             return (1.0 / bar_lam_p) * v + U_k_a_p @ (inv_coeff * (U_k_a_p.T @ v))
 
         M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # type: ignore[call-arg]  # noqa: N806

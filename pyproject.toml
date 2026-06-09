@@ -21,6 +21,7 @@ authors = [
 dependencies = [
     "numpy>=2.0.0",
     "scipy>=1.14",
+    "scikit-learn>=1.5",
     "cvxpy>=1.8",
     "clarabel>=0.11.0",
     "osqp>=1.1.1",
@@ -49,7 +50,6 @@ dev = [
     "pandas>=3.0",
     "pyarrow>=24.0.0",
     "requests>=2.0",
-    "scikit-learn>=1.5",
     "yfinance>=0.2"
 ]
 
@@ -63,6 +63,7 @@ optional_dependencies_dev_groups = ["dev"]
 numpy = "numpy"
 polars = "polars"
 scipy = "scipy"
+"scikit-learn" = "sklearn"
 marimo = "marimo"
 cvxpy = "cvxpy"
 pandas = "pandas"
