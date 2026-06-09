@@ -36,6 +36,7 @@ class _BaseProblem(ABC):
     rho: float = 0.0
     mu: np.ndarray | None = None
     target_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — low-rank + identity factors
+    pcg_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — RMT preconditioner (§5.3)
 
     def __post_init__(self):
         """Validate target/target_lr shapes when supplied."""
@@ -209,6 +210,39 @@ class _BaseProblem(ABC):
             True
         """
         w, outer, inner = self._constraint_active_set(self._cg_step)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, outer, inner
+
+    def solve_pcg(self, *, project: bool = True):
+        """Solve via matrix-free PCG with RMT preconditioner (Section 5.3).
+
+        Solves ``Sigma_LW_oracle x = 1`` using ``T0^RMT`` as preconditioner.
+        Requires ``pcg_lr = (bar_lam, U_k, delta_k)`` from RMT preprocessing.
+        The preconditioner is applied via the Woodbury identity at O(nk) per step;
+        the system matvec costs O(nT).  Returns the oracle-LW minimum-variance
+        portfolio — not the RMT portfolio — in O(sqrt(1/alpha_oracle)) iterations.
+
+        Returns:
+            ``(w, outer_steps, inner_iters)``
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> rng = np.random.default_rng(0)
+            >>> X = rng.standard_normal((100, 5))
+            >>> bar_lam = float(np.trace(X.T @ X / 100) / 5)
+            >>> U_k = np.eye(5, 2)
+            >>> delta_k = np.array([0.1, 0.05])
+            >>> w, outer, inner = Problem(X, alpha=0.1, pcg_lr=(bar_lam, U_k, delta_k)).solve_pcg()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        if self.pcg_lr is None:
+            raise ValueError("pcg_lr must be set; pass pcg_lr=(bar_lam, U_k, delta_k)")  # noqa: TRY003
+        w, outer, inner = self._constraint_active_set(self._pcg_step)
         if project:
             w = self._clip_and_renormalize(w)
         return w, outer, inner
