@@ -2,9 +2,9 @@ PAPER = minvar_paper
 LATEX = pdflatex
 BIBTEX = bibtex
 
-.PHONY: all pdf clean experiment
+.PHONY: compile pdf clean experiment
 
-all: pdf
+compile: pdf
 
 pdf: $(PAPER).pdf
 
@@ -15,7 +15,7 @@ $(PAPER).pdf: $(PAPER).tex $(wildcard s*.tex) bib/refs.bib $(wildcard tables/*.t
 	$(LATEX) $(PAPER)
 
 experiment:
-	cd ../experiment && uv run experiment.py && uv run experiment_synthetic.py
+	cd ../experiment && uv run experiment.py && uv run experiment_synthetic.py && uv run experiment_oos.py
 
 clean:
 	rm -f *.aux *.bbl *.blg *.log *.out *.thm *.fls *.fdb_latexmk

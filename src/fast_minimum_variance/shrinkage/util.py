@@ -95,7 +95,7 @@ def lw_alpha_for_target(X, target):  # noqa: N803
 
 
 def rmt_target_and_alpha(X):  # noqa: N803
-    """RMT-clipped shrinkage target and its LW oracle alpha.
+    """RMT-clipped shrinkage target with alpha=1.
 
     Eigenvalues of the sample covariance above the Marchenko-Pastur bulk edge
     are kept as-is (signal); all others are clipped to bar_lambda (noise floor).
@@ -108,9 +108,8 @@ def rmt_target_and_alpha(X):  # noqa: N803
     where (U_k, lambda_k) are the k eigenpairs of S = X^T X / T whose eigenvalues
     exceed the MP upper edge bar_lambda * (1 + sqrt(n/T))^2.
 
-    Returns (target, k, alpha) where k is the number of signal factors and
-    alpha is the LW oracle intensity for this target (often 1.0 for equity data,
-    meaning the RMT-cleaned covariance is a better estimator than the sample cov).
+    Returns (target, lr_factors, k, 1.0).  alpha=1 means the system matrix is
+    T0^RMT directly; the _kkt_step Woodbury path applies this in O(n_a k + k^3).
     """
     T, n = X.shape  # noqa: N806
     cov = (X.T @ X) / T
@@ -126,5 +125,4 @@ def rmt_target_and_alpha(X):  # noqa: N803
     delta_k = eigs_k - bar_lam  # (k,) eigenvalue excesses
     target = bar_lam * np.eye(n) + vecs_k @ np.diag(delta_k) @ vecs_k.T
     lr_factors = (float(bar_lam), vecs_k, delta_k)  # for O(nk) matvec
-    alpha = lw_alpha_for_target(X, target)
-    return target, lr_factors, k, float(alpha)
+    return target, lr_factors, k, 1.0

@@ -145,9 +145,34 @@ class _MinVarProblem(_BaseProblem):
         solve with two RHS columns yields ``v1 = Sigma_a^{-1} 1`` and
         ``v2 = Sigma_a^{-1} mu_a``; the budget constraint then pins ``lambda``
         analytically as ``lambda = 2*(1 - rho/2 * sum(v2)) / sum(v1)``.
+
+        When ``alpha=1`` and ``target_lr`` is set the system is purely the RMT
+        target ``T0 = bar_lam*I + U_k diag(delta_k) U_k^T``.  The Woodbury
+        identity gives the exact inverse in O(n_a*k + k^3) without CG iterations:
+        ``T0^{-1} b = b/bar_lam - U_k_a W^{-1}(U_k_a^T b)/bar_lam^2``
+        where ``W = diag(1/delta_k) + U_k_a^T U_k_a / bar_lam``.
         """
-        x_a = self.X[:, active]
         n_a = int(active.sum())
+
+        # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target
+        if self.alpha == 1.0 and self.target_lr is not None:
+            bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
+            U_k_a = U_k[active, :]  # noqa: N806  # (n_a, k)
+            W = np.diag(1.0 / delta_k) + (U_k_a.T @ U_k_a) / bar_lam  # noqa: N806
+
+            def _woodbury(b):
+                return b / bar_lam - U_k_a @ (np.linalg.solve(W, U_k_a.T @ b) / bar_lam**2)
+
+            if self.rho == 0.0 or self.mu is None:
+                v = _woodbury(np.ones(n_a))
+                return v / v.sum(), 1
+            v1 = _woodbury(np.ones(n_a))
+            v2 = _woodbury(self.mu[active])
+            half_rho = 0.5 * self.rho
+            half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
+            return half_lambda * v1 + half_rho * v2, 1
+
+        x_a = self.X[:, active]
         if self.target is None:
             sigma = (x_a.T @ x_a) / self.t
         else:

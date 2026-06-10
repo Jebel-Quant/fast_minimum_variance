@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from fast_minimum_variance import Problem
+from fast_minimum_variance.shrinkage.util import rmt_target_and_alpha
 
 
 def make_returns(T, N, seed=0):  # noqa: N803
@@ -80,3 +81,59 @@ class TestKktVsCvxpy:
         w_kkt, _ = Problem(X).solve_kkt()
         w_cvx, _ = Problem(X).solve_cvxpy()
         np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Woodbury path (alpha=1, RMT target)
+# ---------------------------------------------------------------------------
+
+
+def _build_rmt_problem(T=300, N=50, seed=99, rho=0.0, mu=None):  # noqa: N803
+    """Return (X, Problem) with alpha=1 and RMT low-rank target."""
+    X = make_returns(T=T, N=N, seed=seed)  # noqa: N806
+    target, lr_factors, _k, alpha = rmt_target_and_alpha(X)
+    assert alpha == 1.0
+    return X, Problem(X, alpha=alpha, target=target, target_lr=lr_factors, rho=rho, mu=mu)
+
+
+class TestWoodbury:
+    """Woodbury path must agree with CVXPY and with the CG path."""
+
+    def test_minvar_agrees_with_cvxpy(self):
+        """alpha=1, RMT target: KKT (Woodbury) matches CVXPY."""
+        _, prob = _build_rmt_problem()
+        w_kkt, _ = prob.solve_kkt()
+        w_cvx, _ = prob.solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+
+    def test_minvar_agrees_with_cg(self):
+        """alpha=1, RMT target: KKT (Woodbury) matches CG."""
+        _, prob = _build_rmt_problem()
+        w_kkt, _ = prob.solve_kkt()
+        w_cg, _, _ = prob.solve_cg()
+        np.testing.assert_allclose(w_kkt, w_cg, atol=1e-4)
+
+    def test_return_tilt_agrees_with_cvxpy(self):
+        """alpha=1, RMT target, return tilt: KKT (Woodbury) matches CVXPY."""
+        rng = np.random.default_rng(5)
+        N = 50  # noqa: N806
+        mu = rng.standard_normal(N)
+        _, prob = _build_rmt_problem(rho=0.5, mu=mu)
+        w_kkt, _ = prob.solve_kkt()
+        w_cvx, _ = prob.solve_cvxpy()
+        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+
+    def test_weights_are_valid(self):
+        """Woodbury solution sums to 1 and is non-negative."""
+        _, prob = _build_rmt_problem()
+        w, _ = prob.solve_kkt()
+        assert abs(w.sum() - 1.0) < 1e-8
+        assert (w >= -1e-8).all()
+
+    def test_woodbury_not_triggered_without_target_lr(self):
+        """alpha=1 without target_lr falls back to dense solve (no crash)."""
+        X = make_returns(T=300, N=20, seed=7)  # noqa: N806
+        target, _, _k, _ = rmt_target_and_alpha(X)
+        prob = Problem(X, alpha=1.0, target=target)  # no target_lr
+        w, _ = prob.solve_kkt()
+        assert abs(w.sum() - 1.0) < 1e-8

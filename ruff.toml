@@ -124,6 +124,11 @@ line-ending = "auto"
     "RUF001",  # Allow ambiguous unicode in notebooks
     "RUF002",  # Allow ambiguous unicode in notebooks
 ]
+# Experiment scripts - allow mathematical notation (X return matrix, T periods, U_k eigenvectors)
+"experiment/**/*.py" = [
+    "N803",    # Allow non-lowercase argument names (e.g. X, R)
+    "N806",    # Allow non-lowercase local variable names (e.g. T, Vt, U_k)
+]
 # Internal utility scripts - specific exceptions for internal tooling
 ".rhiza/utils/*.py" = [
     "PLW2901",  # Allow loop variable overwriting in utility scripts
