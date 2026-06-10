@@ -1,31 +1,23 @@
 \def\dataSpNoshrink{%
-cvxpy (Clarabel)                    &    2.208 &     11 &    1.0x \\
-cvxpy (OSQP)                        &    0.681 &    100 &    3.2x \\
-Clarabel (direct API)               &   0.0766 &     11 &   28.8x \\
-OSQP (direct API)                   &   0.0765 &    225 &   28.9x \\
-CG (SPD)                            &   0.0127 &    684 &  174.3x \\
-Proximal gradient$^\dagger$         &    0.209 &   5740 &   10.6x \\
+cvxpy (Clarabel)                    &    1.848 &     11 &    1.0x \\
+cvxpy (OSQP)                        &    0.610 &    100 &    3.0x \\
+Clarabel (direct API)               &   0.0678 &     11 &   27.3x \\
+OSQP (direct API)                   &   0.0705 &    225 &   26.2x \\
+CG (SPD)                            &   0.0119 &    684 &  155.5x \\
+Proximal gradient$^\dagger$         &    0.229 &   6040 &    8.1x \\
 }
 \def\dataSpLwHalf{%
-cvxpy (Clarabel)                    &    2.938 &     16 &    1.0x \\
-cvxpy (OSQP)                        &    0.658 &     75 &    4.5x \\
-Clarabel (direct API)               &   0.0944 &     16 &   31.1x \\
-OSQP (direct API)                   &   0.0429 &    100 &   68.5x \\
-CG (SPD)                            &   0.0055 &     82 &  538.2x \\
-Proximal gradient$^\dagger$         &   0.0373 &    760 &   78.7x \\
+cvxpy (Clarabel)                    &    2.602 &     16 &    1.0x \\
+cvxpy (OSQP)                        &    0.579 &     75 &    4.5x \\
+Clarabel (direct API)               &   0.0879 &     16 &   29.6x \\
+OSQP (direct API)                   &   0.0380 &    100 &   68.4x \\
+KKT (Cholesky)                      &   0.0073 &      6 &  358.1x \\
+CG (SPD)                            &   0.0039 &     82 &  660.8x \\
+Proximal gradient$^\dagger$         &   0.0367 &    769 &   71.0x \\
 }
 \def\dataSpLwOracle{%
-cvxpy (Clarabel)                    &    1.979 &     11 &    1.0x \\
-CG (SPD)                            &   0.0142 &    516 &  139.0x \\
-Proximal gradient$^\dagger$         &    0.236 &   5078 &    8.4x \\
-}
-\def\dataSpRmt{%
-cvxpy (Clarabel)                    &    1.623 &      7 &    1.0x \\
-CG (SPD)                            &   0.0063 &     67 &  258.1x \\
-Proximal gradient$^\dagger$         &   0.0461 &    902 &   35.2x \\
-}
-\def\dataSpPcg{%
-cvxpy (Clarabel)                    &    2.010 &     11 &    1.0x \\
-CG (SPD)                            &   0.0164 &    516 &  122.7x \\
-PCG (RMT precond)                   &   0.0138 &    439 &  145.7x \\
+cvxpy (Clarabel)                    &    1.875 &     11 &    1.0x \\
+KKT (Cholesky)                      &   0.0081 &     15 &  231.2x \\
+CG (SPD)                            &   0.0114 &    516 &  164.9x \\
+Proximal gradient$^\dagger$         &    0.229 &   6049 &    8.2x \\
 }
