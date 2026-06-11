@@ -95,34 +95,36 @@ def lw_alpha_for_target(X, target):  # noqa: N803
 
 
 def rmt_target_and_alpha(X):  # noqa: N803
-    """RMT-clipped shrinkage target with alpha=1.
+    """RMT-clipped (CRE) shrinkage target with alpha=1.
 
     Eigenvalues of the sample covariance above the Marchenko-Pastur bulk edge
-    are kept as-is (signal); all others are clipped to bar_lambda (noise floor).
-    The resulting target has lambda_min = bar_lambda (same as the scaled-identity
-    target) so it provides equally effective lambda_min lifting at any alpha, while
-    being 9x closer to the sample covariance in Frobenius norm than bar_lambda * I.
+    are kept as-is (signal); all others are replaced by their average, the bulk
+    mean bar_lambda = (tr(S) - sum of signal eigenvalues) / (n - k).  This is
+    the standard trace-preserving "constant residual eigenvalue" (CRE) cleaning
+    of Laloux et al. (1999) and Bun, Bouchaud & Potters (2017):
+    tr(T0) = tr(S), so total variance is conserved.
 
     T0 = bar_lambda * I + U_k @ diag(lambda_k - bar_lambda) @ U_k^T
 
     where (U_k, lambda_k) are the k eigenpairs of S = X^T X / T whose eigenvalues
-    exceed the MP upper edge bar_lambda * (1 + sqrt(n/T))^2.
+    exceed the MP upper edge sigma2 * (1 + sqrt(n/T))^2 with sigma2 = tr(S)/n.
 
     Returns (target, lr_factors, k, 1.0).  alpha=1 means the system matrix is
     T0^RMT directly; the _kkt_step Woodbury path applies this in O(n_a k + k^3).
     """
     T, n = X.shape  # noqa: N806
     cov = (X.T @ X) / T
-    bar_lam = np.trace(cov) / n
-    mp_upper = bar_lam * (1.0 + np.sqrt(n / T)) ** 2
+    sigma2 = np.trace(cov) / n  # MP variance estimate (grand mean eigenvalue)
+    mp_upper = sigma2 * (1.0 + np.sqrt(n / T)) ** 2
 
     eigs, vecs = np.linalg.eigh(cov)  # ascending order
     signal = eigs > mp_upper
     k = int(signal.sum())
     eigs_k = eigs[signal]
     vecs_k = vecs[:, signal]
+    bar_lam = float(eigs[~signal].mean())  # trace-preserving bulk mean
 
     delta_k = eigs_k - bar_lam  # (k,) eigenvalue excesses
     target = bar_lam * np.eye(n) + vecs_k @ np.diag(delta_k) @ vecs_k.T
-    lr_factors = (float(bar_lam), vecs_k, delta_k)  # for O(nk) matvec
+    lr_factors = (bar_lam, vecs_k, delta_k)  # for O(nk) matvec
     return target, lr_factors, k, 1.0

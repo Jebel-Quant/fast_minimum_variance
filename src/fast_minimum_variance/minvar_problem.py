@@ -54,16 +54,27 @@ class _MinVarProblem(_BaseProblem):
     # ------------------------------------------------------------------
 
     def _compute_gradient(self, w):
-        """Return the full objective gradient at w, including rho*mu adjustment."""
-        data_grad = (self.X.T @ (self.X @ w)) / self.t
+        """Return the full objective gradient at w, including rho*mu adjustment.
+
+        At alpha=1 the data term vanishes and the gradient is evaluated through
+        the target alone -- O(n*k) via the low-rank factors when available --
+        so the return matrix X never enters the solve.
+        """
         if self.target_lr is not None:
             bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
-            tgt_w = bar_lam * w + U_k @ (delta_k * (U_k.T @ w))
-            grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * tgt_w)
+            tgt_grad = bar_lam * w + U_k @ (delta_k * (U_k.T @ w))
         elif self.target is not None:
-            grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * self.target @ w)
+            tgt_grad = self.target @ w
         else:
-            grad = 2.0 * data_grad
+            tgt_grad = None
+
+        if self.alpha == 1.0 and tgt_grad is not None:
+            grad = 2.0 * tgt_grad
+        elif tgt_grad is None:
+            grad = 2.0 * (self.X.T @ (self.X @ w)) / self.t
+        else:
+            data_grad = (self.X.T @ (self.X @ w)) / self.t
+            grad = 2.0 * ((1 - self.alpha) * data_grad + self.alpha * tgt_grad)
         if self.rho != 0.0 and self.mu is not None:
             grad = grad - self.rho * self.mu
         return grad
