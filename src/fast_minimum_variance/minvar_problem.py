@@ -161,6 +161,7 @@ class _MinVarProblem(_BaseProblem):
             W = np.diag(1.0 / delta_k) + (U_k_a.T @ U_k_a) / bar_lam  # noqa: N806
 
             def _woodbury(b):
+                """Apply ``T0^{-1}`` to ``b`` via the Woodbury identity."""
                 return b / bar_lam - U_k_a @ (np.linalg.solve(W, U_k_a.T @ b) / bar_lam**2)
 
             if self.rho == 0.0 or self.mu is None:
