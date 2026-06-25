@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.covariance import ledoit_wolf, oas
 
 
-def lw_alpha_and_target(X):  # noqa: N803
+def lw_alpha_and_target(X: np.ndarray) -> tuple[float, np.ndarray]:  # noqa: N803
     """Return (alpha_lw, target) for LW scaled-identity shrinkage via sklearn.
 
     X must be column-demeaned.  The shrinkage target is bar_lambda * I where
@@ -28,7 +28,7 @@ def lw_alpha_and_target(X):  # noqa: N803
     return float(alpha), bar_lam * np.eye(n)
 
 
-def lw_alpha_and_target_hard(X, alpha=0.5):  # noqa: N803
+def lw_alpha_and_target_hard(X: np.ndarray, alpha: float = 0.5) -> tuple[float, np.ndarray]:  # noqa: N803
     """Return (alpha, target) for scaled-identity shrinkage with a fixed alpha.
 
     X must be column-demeaned.  The shrinkage target is bar_lambda * I where
@@ -43,7 +43,7 @@ def lw_alpha_and_target_hard(X, alpha=0.5):  # noqa: N803
     return alpha, bar_lam * np.eye(n)
 
 
-def oas_alpha_and_target(X):  # noqa: N803
+def oas_alpha_and_target(X: np.ndarray) -> tuple[float, np.ndarray]:  # noqa: N803
     """Return (alpha_oas, target) for OAS scaled-identity shrinkage via sklearn.
 
     Uses the same bar_lambda * I target as LW but the Oracle Approximating
@@ -56,7 +56,7 @@ def oas_alpha_and_target(X):  # noqa: N803
     return float(alpha), bar_lam * np.eye(n)
 
 
-def cc_target(X):  # noqa: N803
+def cc_target(X: np.ndarray) -> tuple[np.ndarray, float]:  # noqa: N803
     """Constant-correlation shrinkage target (Ledoit-Wolf 2004 JoPM).
 
     T0_ij = rho_bar * sigma_i * sigma_j  (i != j)
@@ -79,7 +79,7 @@ def cc_target(X):  # noqa: N803
     return target, rho_bar
 
 
-def lw_alpha_for_target(X, target):  # noqa: N803
+def lw_alpha_for_target(X: np.ndarray, target: np.ndarray) -> float:  # noqa: N803
     """LW oracle alpha for an arbitrary SPD shrinkage target T0.
 
     alpha* = min(1, beta2 / delta2) where
@@ -94,7 +94,9 @@ def lw_alpha_for_target(X, target):  # noqa: N803
     return min(1.0, beta2 / delta2)
 
 
-def rmt_target_and_alpha(X):  # noqa: N803
+def rmt_target_and_alpha(
+    X: np.ndarray,  # noqa: N803
+) -> tuple[np.ndarray, tuple[float, np.ndarray, np.ndarray], int, float]:
     """RMT-clipped shrinkage target with alpha=1.
 
     Eigenvalues of the sample covariance above the Marchenko-Pastur bulk edge

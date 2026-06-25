@@ -74,6 +74,6 @@ def simulate_equity_returns(
     idio_vols = rng.uniform(0.005, 0.015, size=n)
     E = rng.standard_normal((T, n)) * idio_vols  # noqa: N806
 
-    X = F @ B.T + E  # noqa: N806
+    X: np.ndarray = F @ B.T + E  # noqa: N806
     X -= X.mean(axis=0)  # noqa: N806
     return X

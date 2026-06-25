@@ -149,8 +149,11 @@ line-ending = "auto"
     "RUF001",  # Allow ambiguous unicode in notebooks
     "RUF002",  # Allow ambiguous unicode in notebooks
 ]
-# Experiment scripts - allow mathematical notation (X return matrix, T periods, U_k eigenvectors)
+# Experiment scripts - paper-reproduction research code, not shipped library.
+# Allow mathematical notation (X return matrix, T periods, U_k eigenvectors) and,
+# like notebooks, prioritize exploratory readability over strict annotation coverage.
 "experiment/**/*.py" = [
+    "ANN",     # experiments prioritize exploratory readability over strict annotation coverage
     "N803",    # Allow non-lowercase argument names (e.g. X, R)
     "N806",    # Allow non-lowercase local variable names (e.g. T, Vt, U_k)
 ]

@@ -16,9 +16,9 @@ def Problem(  # noqa: N802
     alpha: float = 0.0,
     rho: float = 0.0,
     mu: np.ndarray | None = None,
-    target_lr: tuple | None = None,
-    pcg_lr: tuple | None = None,
-):
+    target_lr: tuple[float, np.ndarray, np.ndarray] | None = None,
+    pcg_lr: tuple[float, np.ndarray, np.ndarray] | None = None,
+) -> _MinVarProblem | _Problem:
     """Create a portfolio optimisation problem.
 
     Returns a :class:`_MinVarProblem` (shrinking active-set) when no custom

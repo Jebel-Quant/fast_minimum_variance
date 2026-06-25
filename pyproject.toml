@@ -56,6 +56,30 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/fast_minimum_variance"]
 
+[tool.mypy]
+# Strict mode is supplied on the CLI by the Rhiza `typecheck` target
+# (`mypy --strict`). These overrides only relax checks for third-party
+# scientific libraries that ship no type stubs / py.typed marker, so their
+# imports don't drown out real type errors in our own code.
+[[tool.mypy.overrides]]
+module = [
+    "clarabel",
+    "clarabel.*",
+    "osqp",
+    "osqp.*",
+    "scipy.*",
+    "sklearn.*",
+    "cvx.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# cvxpy ships a py.typed marker but with incomplete annotations; skip following
+# it so partial stubs don't produce spurious attr-defined / untyped-call errors.
+module = ["cvxpy", "cvxpy.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [tool.deptry]
 optional_dependencies_dev_groups = ["dev"]
 

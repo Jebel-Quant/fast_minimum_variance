@@ -1,8 +1,11 @@
 """General mean-variance portfolio problem with growing-constraint active-set."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import clarabel
+import cvxpy as cp
 import numpy as np
 from cvx.linalg import cholesky
 from scipy.optimize import nnls
@@ -46,12 +49,12 @@ class _Problem(_BaseProblem):
         w, iters = Problem(X, A=A, b=b).solve_cvxpy()   # requires [convex] extra
     """
 
-    def _cg_step(self, active):
+    def _cg_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:
         """Solve the KKT saddle-point system via MINRES; return ``(w, iters)``."""
         op, rhs = self._kkt_operator(active=active)
         iters = [0]
 
-        def _count(_):
+        def _count(_: np.ndarray) -> None:
             """Increment iteration counter on each MINRES callback."""
             iters[0] += 1
 
@@ -63,7 +66,7 @@ class _Problem(_BaseProblem):
     C: np.ndarray | None = None
     d: np.ndarray | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Fill in default constraint matrices when not supplied."""
         super().__post_init__()
         n = self.n
@@ -80,13 +83,18 @@ class _Problem(_BaseProblem):
     def _m(self) -> int:
         """Number of equality constraints."""
         assert self.A is not None  # noqa: S101
-        return self.A.shape[1]
+        return int(self.A.shape[1])
 
     # ------------------------------------------------------------------
     # Active-set loop (growing: add violated inequality constraints)
     # ------------------------------------------------------------------
 
-    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):
+    def _constraint_active_set(
+        self,
+        solve_fn: Callable[[np.ndarray], tuple[np.ndarray, int]],
+        tol: float = 1e-6,  # noqa: ARG002
+        max_iter: int = 10_000,  # noqa: ARG002
+    ) -> tuple[np.ndarray, int, int]:
         """Run the active-set loop, promoting violated inequalities to equalities."""
         assert self.C is not None  # noqa: S101
         assert self.d is not None  # noqa: S101
@@ -110,12 +118,12 @@ class _Problem(_BaseProblem):
     # Inner steps (called by the template solve_* methods on the base)
     # ------------------------------------------------------------------
 
-    def _kkt_step(self, active):
+    def _kkt_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:
         """Solve the full KKT system directly; return ``(w, 1)``."""
         K, rhs = self._kkt(active=active)  # noqa: N806
         return np.linalg.solve(K, rhs)[: self.n], 1
 
-    def _cvxpy_constraints(self, w, cp):
+    def _cvxpy_constraints(self, w: cp.Variable, cp: object) -> list[Any]:  # noqa: ARG002
         """Return equality and inequality constraints for CVXPY."""
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
@@ -127,7 +135,7 @@ class _Problem(_BaseProblem):
     # Operator builders (also accessed directly by tests)
     # ------------------------------------------------------------------
 
-    def _kkt(self, active=None):
+    def _kkt(self, active: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """Build the (N+m) x (N+m) KKT saddle-point system."""
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
@@ -156,7 +164,7 @@ class _Problem(_BaseProblem):
 
         return K, rhs
 
-    def _kkt_operator(self, active=None):
+    def _kkt_operator(self, active: np.ndarray | None = None) -> tuple[LinearOperator, np.ndarray]:
         """Build the matrix-free KKT saddle-point operator and RHS for MINRES."""
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
@@ -167,7 +175,13 @@ class _Problem(_BaseProblem):
         aa = np.hstack([self.A, self.C[:, active]])
         na, ma = self.n, aa.shape[1]
 
-        def _matvec(x, xx=self.X, a=aa, n_=na, m_=ma):
+        def _matvec(
+            x: np.ndarray,
+            xx: np.ndarray = self.X,
+            a: np.ndarray = aa,
+            n_: int = na,
+            m_: int = ma,
+        ) -> np.ndarray:
             """Apply the KKT saddle-point matrix to vector ``x``."""
             out = np.empty(n_ + m_)
             if self.target is None:
@@ -185,9 +199,10 @@ class _Problem(_BaseProblem):
             rhs[:na] = self.rho * self.mu
         rhs[na:] = np.concatenate([self.b, self.d[active]])
 
-        return LinearOperator(shape=(na + ma, na + ma), matvec=_matvec), rhs  # type: ignore[call-arg, missing-argument, unknown-argument]  # ty:ignore[missing-argument, unknown-argument]
+        op = LinearOperator(shape=(na + ma, na + ma), matvec=_matvec)  # ty:ignore[missing-argument, unknown-argument]
+        return op, rhs
 
-    def _clarabel_constraints(self):
+    def _clarabel_constraints(self) -> tuple[csc_matrix, np.ndarray, list[Any]]:
         """Return equality and inequality constraints for Clarabel."""
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
@@ -195,10 +210,10 @@ class _Problem(_BaseProblem):
         assert self.d is not None  # noqa: S101
         a_mat = vstack([csc_matrix(self.A.T), csc_matrix(self.C.T)], format="csc")
         b_vec = np.concatenate([self.b, self.d])
-        cones = [clarabel.ZeroConeT(self._m), clarabel.NonnegativeConeT(len(self.d))]  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
+        cones = [clarabel.ZeroConeT(self._m), clarabel.NonnegativeConeT(len(self.d))]  # ty:ignore[unresolved-attribute]
         return a_mat, b_vec, cones
 
-    def _osqp_constraints(self):
+    def _osqp_constraints(self) -> tuple[csc_matrix, np.ndarray, np.ndarray]:
         """Return equality and inequality constraints for OSQP."""
         assert self.A is not None  # noqa: S101
         assert self.b is not None  # noqa: S101
@@ -209,7 +224,7 @@ class _Problem(_BaseProblem):
         u_vec = np.concatenate([self.b, self.d])
         return a_mat, l_vec, u_vec
 
-    def _nnls_solve(self):
+    def _nnls_solve(self) -> tuple[np.ndarray, int]:
         """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
 
         Augments ``X`` with rows for the LW ridge term and all equality
