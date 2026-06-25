@@ -62,6 +62,7 @@ def test_two_outer_iterations():
     calls = []
 
     def counting_kkt(active):
+        """Record each active-set mask, then delegate to the real _kkt_step."""
         calls.append(active.copy())
         return p._kkt_step(active)
 
@@ -89,6 +90,7 @@ def test_dual_readd():
     call_no = [0]
 
     def solve_fn(active):
+        """Force a primal drop of asset 2, then a dual re-add, per the trace."""
         call_no[0] += 1
         if call_no[0] == 1:
             return np.array([0.45, 0.45, -0.1]), 1  # w[2] < 0 → primal drop

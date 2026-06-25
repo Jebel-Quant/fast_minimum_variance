@@ -273,12 +273,14 @@ class TestSolveProximal:
     """Cross-validation: solve_proximal vs CVXPY reference."""
 
     @pytest.fixture(scope="class")
-    def X(self):  # noqa: N802
+    @staticmethod
+    def X():  # noqa: N802
         """Return a (200, 10) return matrix."""
         return make_returns(T=200, N=10, seed=42)
 
     @pytest.fixture(scope="class")
-    def X_small(self):  # noqa: N802
+    @staticmethod
+    def X_small():  # noqa: N802
         """Return a (100, 5) return matrix."""
         return make_returns(T=100, N=5, seed=7)
 

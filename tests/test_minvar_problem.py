@@ -22,6 +22,7 @@ def _sigma(p, active):
 
 
 def _make_returns(T, N, seed=42):  # noqa: N803
+    """Build a (T, N) standard-normal returns matrix from a seeded RNG."""
     return np.random.default_rng(seed).standard_normal((T, N))
 
 
@@ -89,6 +90,7 @@ class TestConstraintActiveSet:
         call_count = [0]
 
         def solve_fn(mask):
+            """Return a weakly negative weight first, then defer to _kkt_step."""
             call_count[0] += 1
             if call_count[0] == 1:
                 return np.array([-5e-6, 0.6, 0.5 + 5e-6]), 1
@@ -113,6 +115,7 @@ class TestConstraintActiveSet:
         first_mask = []
 
         def solve_fn(mask):
+            """Record the first mask seen and always return equal weights."""
             if not first_mask:
                 first_mask.append(mask.copy())
             return np.array([1 / 3, 1 / 3, 1 / 3]), 1
@@ -128,6 +131,7 @@ class TestConstraintActiveSet:
         calls = []
 
         def solve_fn(mask):
+            """Record each mask seen and always return a feasible solution."""
             calls.append(mask.copy())
             return np.array([0.5, 0.3, 0.2]), 1
 
@@ -143,6 +147,7 @@ class TestConstraintActiveSet:
         call_count = [0]
 
         def solve_fn(mask):
+            """Return 3 iters then 2 iters across the primal and dual steps."""
             call_count[0] += 1
             if call_count[0] == 1:
                 return np.array([-0.1, 0.6, 0.5]), 3
@@ -159,6 +164,7 @@ class TestConstraintActiveSet:
         masks = []
 
         def solve_fn(mask):
+            """Record each mask, returning a negative-weight solution first."""
             masks.append(mask.copy())
             if len(masks) == 1:
                 return np.array([-0.1, 0.6, 0.5]), 1
@@ -177,6 +183,7 @@ class TestConstraintActiveSet:
         call_count = [0]
 
         def solve_fn(mask):
+            """Return a negative-weight solution first, then a feasible pair."""
             call_count[0] += 1
             if call_count[0] == 1:
                 return np.array([-0.1, 0.6, 0.5]), 1
@@ -536,7 +543,8 @@ class TestTargetLr:
     """target_lr (low-rank target) exercises distinct code branches in CG and KKT steps."""
 
     @pytest.fixture(scope="class")
-    def X(self):  # noqa: N802
+    @staticmethod
+    def X():  # noqa: N802
         """Return a (100, 8) return matrix."""
         return np.random.default_rng(3).standard_normal((100, 8))
 
@@ -578,7 +586,8 @@ class TestWarmStart:
     """solve_cg_warm and solve_kkt_warm chain solves with warm-starting."""
 
     @pytest.fixture(scope="class")
-    def X(self):  # noqa: N802
+    @staticmethod
+    def X():  # noqa: N802
         """Return a (100, 8) return matrix."""
         return np.random.default_rng(7).standard_normal((100, 8))
 
@@ -644,12 +653,14 @@ class TestSolvePcg:
     """Tests for MinVarProblem.solve_pcg (PCG with RMT preconditioner)."""
 
     @pytest.fixture(scope="class")
-    def X(self):  # noqa: N802
+    @staticmethod
+    def X():  # noqa: N802
         """Return a (100, 5) return matrix."""
         return np.random.default_rng(5).standard_normal((100, 5))
 
     @pytest.fixture(scope="class")
-    def pcg_lr(self, X):  # noqa: N803
+    @staticmethod
+    def pcg_lr(X):  # noqa: N803
         """Valid (bar_lam, U_k, delta_k) preconditioner triple for X."""
         return _make_pcg_lr(X)
 
