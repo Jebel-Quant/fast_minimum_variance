@@ -8,6 +8,7 @@ from fast_minimum_variance.problem import _Problem as Problem
 
 
 def _make_returns(T, N, seed=42):  # noqa: N803
+    """Build a (T, N) standard-normal returns matrix from a seeded RNG."""
     return np.random.default_rng(seed).standard_normal((T, N))
 
 

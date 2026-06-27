@@ -17,7 +17,7 @@ def run_timed(fn, repeats=3):
     return result, best
 
 
-def print_table(label, results, ref_key="cvxpy"):
+def print_table(label, results, ref_key="cvxpy") -> None:
     """Print a benchmark table with speedup relative to ref_key.
 
     Each entry in results maps to a dict with keys:
@@ -35,7 +35,7 @@ def print_table(label, results, ref_key="cvxpy"):
         print(f"{key:<30} {v['time_s']:>10.4f} {outer_str:>7} {inner_str:>8} {ref / v['time_s']:>9.1f}x")
 
 
-def _fmt_time(t):
+def _fmt_time(t) -> str:
     """Format a wall-clock time in seconds for a LaTeX table."""
     if t >= 10:
         return f"{t:.1f}"
@@ -82,7 +82,7 @@ def _format_frontier_rows(rows, n_pts):
     return "".join(lines)
 
 
-def write_table_defs(path, panels):
+def write_table_defs(path, panels) -> None:
     r"""Write \\def macros (one per panel) to a .tex file for use inside tabular.
 
     The generated file must be \\input-ted OUTSIDE any tabular environment so that
@@ -112,7 +112,7 @@ def write_table_defs(path, panels):
     path.write_text("".join(chunks))
 
 
-def write_frontier_def(path, macro_name, rows, n_pts):
+def write_frontier_def(path, macro_name, rows, n_pts) -> None:
     r"""Write a single \\def macro for frontier sweep rows.
 
     Same rationale as write_table_defs: \\input outside tabular, use macro inside.

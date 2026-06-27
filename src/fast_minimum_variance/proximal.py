@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
 
 
@@ -77,7 +79,7 @@ def proj_simplex(
 
 def _lipschitz(
     mat: NDArray[np.floating],
-    extra_matvec=None,
+    extra_matvec: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None,
     n_iter: int = 30,
     rng: np.random.Generator | None = None,
 ) -> float:
@@ -89,9 +91,9 @@ def _lipschitz(
     """
     if rng is None:
         rng = np.random.default_rng()
-    v = rng.standard_normal(mat.shape[1])
+    v: NDArray[np.floating] = np.asarray(rng.standard_normal(mat.shape[1]))
     v /= np.linalg.norm(v)
-    lip = 1.0
+    lip: float = 1.0
     for _ in range(n_iter):
         w = mat.T @ (mat @ v)
         if extra_matvec is not None:
@@ -107,7 +109,7 @@ def fista_gradient(
     mat: NDArray[np.floating],
     vec: NDArray[np.floating],
     *,
-    extra_grad=None,
+    extra_grad: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None,
     eps_rel: float = 1e-6,
     max_iter: int = 100000,
 ) -> tuple[NDArray[np.floating], int]:
@@ -144,7 +146,7 @@ def fista_gradient(
     step = 1.0 / lip if lip > 1e-15 else 1.0
     out_prod = mat.T @ vec
 
-    x = proj_simplex(rng.standard_normal(mat.shape[1]))
+    x = proj_simplex(np.asarray(rng.standard_normal(mat.shape[1])))
     y = x.copy()
     t = 1.0
 
@@ -171,7 +173,7 @@ def prox_gradient(
     mat: NDArray[np.floating],
     vec: NDArray[np.floating],
     *,
-    extra_grad=None,
+    extra_grad: Callable[[NDArray[np.floating]], NDArray[np.floating]] | None = None,
     eps_rel: float = 1e-6,
     max_iter: int = 100000,
 ) -> tuple[NDArray[np.floating], int]:

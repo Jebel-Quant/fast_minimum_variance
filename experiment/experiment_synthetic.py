@@ -259,7 +259,7 @@ N_PTS = len(rhos_ef)
 ref = sum(ef_times_cvxpy)
 
 
-def _row(label, cold_times, warm_times=None):
+def _row(label, cold_times, warm_times=None) -> None:
     """Print one row of the frontier timing table."""
     total = sum(cold_times)
     per_ms = total / N_PTS * 1000

@@ -22,25 +22,32 @@ class _Stub(_BaseProblem):
     """
 
     def _constraint_active_set(self, solve_fn):
+        """Call solve_fn once and report a fixed outer-iteration count of 1."""
         w, step_iters = solve_fn(None)
         return w, 1, step_iters
 
     def _kkt_step(self, mask):
+        """Return canned weights and iter count 1 for the KKT step."""
         return np.array([0.5, -0.1, 0.6]), 1
 
     def _cg_step(self, mask):
+        """Return canned weights and inner iter count 5 for the CG step."""
         return np.array([0.5, -0.1, 0.6]), 5
 
     def _nnls_solve(self):
+        """Return canned weights and iter count 1 for the NNLS solve."""
         return np.array([0.5, -0.1, 0.6]), 1
 
     def _cvxpy_constraints(self, w, cp):
+        """Return the long-only, sum-to-one CVXPY constraints for the stub."""
         return [cp.sum(w) == 1, w >= 0]
 
     def _clarabel_constraints(self):
+        """Return empty Clarabel constraint data for the stub."""
         return None, None, []
 
     def _osqp_constraints(self):
+        """Return empty OSQP constraint data for the stub."""
         return None, None, None
 
 
@@ -65,10 +72,14 @@ class TestAbstractInterface:
 
         @dataclass(frozen=True)
         class _Partial(_BaseProblem):
+            """_BaseProblem subclass missing _cvxpy_constraints (still abstract)."""
+
             def _constraint_active_set(self, fn):
+                """Call fn once and return its result."""
                 return fn(None)
 
             def _kkt_step(self, mask):
+                """Return zero weights and iter count 1."""
                 return np.zeros(3), 1
 
             # _cvxpy_constraints intentionally omitted
@@ -219,7 +230,10 @@ class TestSolveCvxpy:
 
         @dataclass(frozen=True)
         class _SpyStub(_Stub):
+            """Stub that records the arguments passed to _cvxpy_constraints."""
+
             def _cvxpy_constraints(self, w, cp_module):
+                """Record the (w, cp) arguments, then return long-only constraints."""
                 received["w_type"] = type(w).__name__
                 received["cp"] = cp_module
                 return [cp_module.sum(w) == 1, w >= 0]
@@ -285,7 +299,8 @@ class TestSolveFista:
     """Tests for _BaseProblem.solve_fista template."""
 
     @pytest.fixture(scope="class")
-    def X(self):  # noqa: N802
+    @staticmethod
+    def X():  # noqa: N802
         """Return a (100, 5) return matrix."""
         return np.random.default_rng(0).standard_normal((100, 5))
 

@@ -1,7 +1,9 @@
 """Common base for portfolio-optimisation problem classes."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import clarabel
 import cvxpy as cp
@@ -35,10 +37,10 @@ class _BaseProblem(ABC):
     alpha: float = 0.0
     rho: float = 0.0
     mu: np.ndarray | None = None
-    target_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — low-rank + identity factors
-    pcg_lr: tuple | None = None  # (bar_lam, U_k, delta_k) — RMT preconditioner (§5.3)
+    target_lr: tuple[float, np.ndarray, np.ndarray] | None = None  # (bar_lam, U_k, delta_k) — low-rank + identity
+    pcg_lr: tuple[float, np.ndarray, np.ndarray] | None = None  # (bar_lam, U_k, delta_k) — RMT preconditioner (§5.3)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate target/target_lr shapes when supplied."""
         n = self.n
         if self.target is not None and self.target.shape != (n, n):
@@ -57,12 +59,12 @@ class _BaseProblem(ABC):
     @property
     def t(self) -> int:
         """Return the number of rows in X."""
-        return self.X.shape[0]
+        return int(self.X.shape[0])
 
     @property
     def n(self) -> int:
         """Number of assets (columns of X)."""
-        return self.X.shape[1]
+        return int(self.X.shape[1])
 
     @staticmethod
     def _clip_and_renormalize(w: np.ndarray) -> np.ndarray:
@@ -75,26 +77,31 @@ class _BaseProblem(ABC):
     # Abstract hooks (raise NotImplementedError — subclasses must override)
     # ------------------------------------------------------------------
     @abstractmethod
-    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):  # pragma: no cover
+    def _constraint_active_set(
+        self,
+        solve_fn: Callable[[np.ndarray], tuple[np.ndarray, int]],
+        tol: float = 1e-6,
+        max_iter: int = 10_000,
+    ) -> tuple[np.ndarray, int, int]:  # pragma: no cover
         """Run the outer constraint-handling loop, calling ``solve_fn`` each iteration."""
         raise NotImplementedError
 
     @abstractmethod
-    def _kkt_step(self, active):  # pragma: no cover
+    def _kkt_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:  # pragma: no cover
         """Solve one inner direct-KKT step; return ``(w, iters)``."""
         raise NotImplementedError
 
     @abstractmethod
-    def _cvxpy_constraints(self, w, cp):  # pragma: no cover
+    def _cvxpy_constraints(self, w: cp.Variable, cp: object) -> list[Any]:  # pragma: no cover
         """Return the list of CVXPY constraints for ``solve_cvxpy``."""
         raise NotImplementedError
 
     @abstractmethod
-    def _cg_step(self, active):
+    def _cg_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:
         """Solve one inner CG step; return ``(w, iters)``."""
         raise NotImplementedError  # pragma: no cover
 
-    def _pcg_step(self, active, x0=None):  # pragma: no cover
+    def _pcg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:  # pragma: no cover
         """Solve one inner PCG step with RMT preconditioner; return ``(w, iters)``.
 
         Subclasses that support PCG (e.g. ``_MinVarProblem``) override this.
@@ -104,17 +111,17 @@ class _BaseProblem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _nnls_solve(self):  # pragma: no cover
+    def _nnls_solve(self) -> tuple[np.ndarray, int]:  # pragma: no cover
         """Solve via NNLS directly (no outer loop); return ``(w, 1)``."""
         raise NotImplementedError
 
     @abstractmethod
-    def _clarabel_constraints(self):  # pragma: no cover
+    def _clarabel_constraints(self) -> tuple[csc_matrix, np.ndarray, list[Any]]:  # pragma: no cover
         """Return ``(A_mat, b_vec, cones)`` for the Clarabel QP solver."""
         raise NotImplementedError
 
     @abstractmethod
-    def _osqp_constraints(self):  # pragma: no cover
+    def _osqp_constraints(self) -> tuple[csc_matrix, np.ndarray, np.ndarray]:  # pragma: no cover
         """Return ``(A_mat, l_vec, u_vec)`` for the OSQP solver."""
         raise NotImplementedError
 
@@ -122,7 +129,7 @@ class _BaseProblem(ABC):
     # Template solvers
     # ------------------------------------------------------------------
 
-    def solve_kkt(self, *, project: bool = True):
+    def solve_kkt(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         """Solve via the direct KKT system.
 
         Args:
@@ -148,7 +155,7 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, outer
 
-    def solve_cvxpy(self, *, project: bool = True, backend: str = "clarabel"):
+    def solve_cvxpy(self, *, project: bool = True, backend: str = "clarabel") -> tuple[np.ndarray, int]:
         """Solve via CVXPY with a configurable backend solver.
 
         Requires the ``convex`` extra::
@@ -195,9 +202,9 @@ class _BaseProblem(ABC):
             raise RuntimeError("CVXPY solver failed to find a solution")  # noqa: TRY003
         if project:
             result = self._clip_and_renormalize(result)
-        return result, problem.solver_stats.num_iters
+        return result, int(problem.solver_stats.num_iters or 0)
 
-    def solve_cg(self, *, project: bool = True):
+    def solve_cg(self, *, project: bool = True) -> tuple[np.ndarray, int, int]:
         """Solve via matrix-free conjugate gradients.
 
         Args:
@@ -223,7 +230,7 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, outer, inner
 
-    def solve_pcg(self, *, project: bool = True):
+    def solve_pcg(self, *, project: bool = True) -> tuple[np.ndarray, int, int]:
         """Solve via matrix-free PCG with RMT preconditioner (Section 5.3).
 
         Solves ``Sigma_LW_oracle x = 1`` using ``T0^RMT`` as preconditioner.
@@ -256,7 +263,7 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, outer, inner
 
-    def solve_nnls(self, *, project: bool = True):
+    def solve_nnls(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         """Solve via non-negative least squares (scipy.optimize.nnls).
 
         The budget constraint is enforced by augmenting the return matrix
@@ -288,7 +295,7 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, iters
 
-    def solve_osqp(self, *, project: bool = True):
+    def solve_osqp(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         """Solve via OSQP (operator-splitting QP solver).
 
         Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and
@@ -346,7 +353,7 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, result.info.iter
 
-    def solve_clarabel(self, *, project: bool = True):
+    def solve_clarabel(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         """Solve via Clarabel interior-point solver (direct API, no CVXPY overhead).
 
         Assembles ``P = 2·Σ_LW`` as a sparse CSC matrix and calls Clarabel
@@ -386,16 +393,16 @@ class _BaseProblem(ABC):
 
         a_mat, b_vec, cones = self._clarabel_constraints()
 
-        settings = clarabel.DefaultSettings()  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
+        settings = clarabel.DefaultSettings()  # ty:ignore[unresolved-attribute]
         settings.verbose = False
-        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
+        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # ty:ignore[unresolved-attribute]
 
         w = np.array(sol.x)
         if project:
             w = self._clip_and_renormalize(w)
         return w, sol.iterations
 
-    def solve_proximal(self, *, project: bool = True):
+    def solve_proximal(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         """Solve via proximal gradient descent projected onto the probability simplex.
 
         Minimises ``0.5 * w^T Σ_LW w`` subject to ``w >= 0, sum(w) = 1``.
@@ -426,14 +433,16 @@ class _BaseProblem(ABC):
         """
         from .proximal import prox_gradient
 
+        extra_grad: Callable[[np.ndarray], np.ndarray] | None
         if self.target is not None and self.alpha > 0.0:
             c = 1.0 - self.alpha
             mat = np.sqrt(c) / np.sqrt(self.t) * self.X
             alpha, target = self.alpha, self.target
 
-            def extra_grad(v, a=alpha, tgt=target):
+            def extra_grad(v: np.ndarray, a: float = alpha, tgt: np.ndarray = target) -> np.ndarray:
                 """Return the shrinkage gradient contribution a * target @ v."""
-                return a * (tgt @ v)
+                result: np.ndarray = a * (tgt @ v)
+                return result
         else:
             mat = self.X / np.sqrt(self.t)
             extra_grad = None
@@ -444,7 +453,7 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, n_iters
 
-    def solve_fista(self, *, project: bool = True):
+    def solve_fista(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         r"""Solve via Nesterov-accelerated proximal gradient (FISTA).
 
         Uses the Beck-Teboulle momentum sequence to achieve $O(1/k^2)$
@@ -473,14 +482,16 @@ class _BaseProblem(ABC):
         """
         from .proximal import fista_gradient
 
+        extra_grad: Callable[[np.ndarray], np.ndarray] | None
         if self.target is not None and self.alpha > 0.0:
             c = 1.0 - self.alpha
             mat = np.sqrt(c) / np.sqrt(self.t) * self.X
             alpha, target = self.alpha, self.target
 
-            def extra_grad(v, a=alpha, tgt=target):
+            def extra_grad(v: np.ndarray, a: float = alpha, tgt: np.ndarray = target) -> np.ndarray:
                 """Return the shrinkage gradient contribution a * target @ v."""
-                return a * (tgt @ v)
+                result: np.ndarray = a * (tgt @ v)
+                return result
         else:
             mat = self.X / np.sqrt(self.t)
             extra_grad = None

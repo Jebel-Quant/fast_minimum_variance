@@ -1,6 +1,8 @@
 """Minimum-variance solver: primal asset elimination with dual-feasibility check."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import clarabel
 import numpy as np
@@ -53,7 +55,7 @@ class _MinVarProblem(_BaseProblem):
     # Shared helpers used by both active-set loop variants
     # ------------------------------------------------------------------
 
-    def _compute_gradient(self, w):
+    def _compute_gradient(self, w: np.ndarray) -> np.ndarray:
         """Return the full objective gradient at w, including rho*mu adjustment."""
         data_grad = (self.X.T @ (self.X @ w)) / self.t
         if self.target_lr is not None:
@@ -66,10 +68,11 @@ class _MinVarProblem(_BaseProblem):
             grad = 2.0 * data_grad
         if self.rho != 0.0 and self.mu is not None:
             grad = grad - self.rho * self.mu
-        return grad
+        result: np.ndarray = grad
+        return result
 
     @staticmethod
-    def _primal_drop(w_a, asset_active, tol):
+    def _primal_drop(w_a: np.ndarray, asset_active: np.ndarray, tol: float) -> bool:
         """Drop negative-weight assets from active set in-place; return True if any dropped."""
         if not np.any(w_a < -tol):
             return False
@@ -81,7 +84,7 @@ class _MinVarProblem(_BaseProblem):
             asset_active[idx[np.argmin(w_a)]] = False
         return True
 
-    def _dual_add(self, grad, asset_active, tol):
+    def _dual_add(self, grad: np.ndarray, asset_active: np.ndarray, tol: float) -> int:
         """Return index of excluded asset that violates KKT dual condition, or -1 if none."""
         excluded = ~asset_active
         if not excluded.any():
@@ -96,7 +99,12 @@ class _MinVarProblem(_BaseProblem):
     # ------------------------------------------------------------------
     # Outer loop: primal elimination + dual feasibility check
     # ------------------------------------------------------------------
-    def _constraint_active_set(self, solve_fn, tol=1e-6, max_iter=10_000):
+    def _constraint_active_set(
+        self,
+        solve_fn: Callable[[np.ndarray], tuple[np.ndarray, int]],
+        tol: float = 1e-6,
+        max_iter: int = 10_000,
+    ) -> tuple[np.ndarray, int, int]:
         """Run the primal-dual active-set loop enforcing ``w >= 0``.
 
         Calls ``solve_fn(active_mask)`` repeatedly.  The *primal step* drops assets
@@ -138,7 +146,7 @@ class _MinVarProblem(_BaseProblem):
     # Inner steps
     # ------------------------------------------------------------------
 
-    def _kkt_step(self, active, x0=None):
+    def _kkt_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:  # noqa: ARG002
         """Solve the reduced SPD system directly; return ``(w_a, 1)``.
 
         Stationarity gives ``2*Sigma_a*w_a = lambda*1 + rho*mu_a``.  A single
@@ -160,9 +168,10 @@ class _MinVarProblem(_BaseProblem):
             U_k_a = U_k[active, :]  # noqa: N806  # (n_a, k)
             W = np.diag(1.0 / delta_k) + (U_k_a.T @ U_k_a) / bar_lam  # noqa: N806
 
-            def _woodbury(b):
+            def _woodbury(b: np.ndarray) -> np.ndarray:
                 """Apply ``T0^{-1}`` to ``b`` via the Woodbury identity."""
-                return b / bar_lam - U_k_a @ (np.linalg.solve(W, U_k_a.T @ b) / bar_lam**2)
+                result: np.ndarray = b / bar_lam - U_k_a @ (np.linalg.solve(W, U_k_a.T @ b) / bar_lam**2)
+                return result
 
             if self.rho == 0.0 or self.mu is None:
                 v = _woodbury(np.ones(n_a))
@@ -188,11 +197,11 @@ class _MinVarProblem(_BaseProblem):
         half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
         return half_lambda * v1 + half_rho * v2, 1
 
-    def _cvxpy_constraints(self, w, cp):
+    def _cvxpy_constraints(self, w: Any, cp: Any) -> list[Any]:
         """Return budget-equality and long-only inequality constraints for CVXPY."""
         return [cp.sum(w) == 1, w >= 0]
 
-    def _cg_step(self, active, x0=None):
+    def _cg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
 
         Builds a ``LinearOperator`` for ``v -> (1-alpha)*X_a'*(X_a*v) + alpha*T0_a*v``
@@ -216,29 +225,31 @@ class _MinVarProblem(_BaseProblem):
             c_data = 1.0 - self.alpha
             c_lr = self.alpha
 
-            def _apply_target(v):
+            def _apply_target(v: np.ndarray) -> np.ndarray:
                 """Apply low-rank target: bar_lam * v + U (delta * (U^T v))."""
-                return bar_lam_lr * v + U_k_a @ (delta_k_lr * (U_k_a.T @ v))
+                result: np.ndarray = bar_lam_lr * v + U_k_a @ (delta_k_lr * (U_k_a.T @ v))
+                return result
         else:
             target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
             c_data = 1.0 - self.alpha if target_sub is not None else 1.0
             c_lr = self.alpha if target_sub is not None else 0.0
 
-            def _apply_target(v):
+            def _apply_target(v: np.ndarray) -> np.ndarray:
                 """Apply dense target submatrix to v."""
-                return target_sub @ v  # type: ignore[operator]
+                result: np.ndarray = target_sub @ v
+                return result
 
         count1 = [0]
 
-        def matvec(v):
+        def matvec(v: np.ndarray) -> np.ndarray:
             """Apply Sigma_a to v for the budget-constraint CG solve."""
             count1[0] += 1
-            result = c_data * (x_a.T @ (x_a @ v)) / self.t
+            result: np.ndarray = c_data * (x_a.T @ (x_a @ v)) / self.t
             if c_lr:
                 result = result + c_lr * _apply_target(v)
             return result
 
-        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
         if self.rho == 0.0 or self.mu is None:
             v, _ = cg(op, np.ones(n_a), x0=x0)
@@ -246,22 +257,22 @@ class _MinVarProblem(_BaseProblem):
 
         count2 = [0]
 
-        def matvec2(v):
+        def matvec2(v: np.ndarray) -> np.ndarray:
             """Apply Sigma_a to v for the return-tilt CG solve."""
             count2[0] += 1
-            result = c_data * (x_a.T @ (x_a @ v)) / self.t
+            result: np.ndarray = c_data * (x_a.T @ (x_a @ v)) / self.t
             if c_lr:
                 result = result + c_lr * _apply_target(v)
             return result
 
-        op2 = LinearOperator((n_a, n_a), matvec=matvec2, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
+        op2 = LinearOperator((n_a, n_a), matvec=matvec2, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
         v1, _ = cg(op, np.ones(n_a), x0=x0)
         v2, _ = cg(op2, self.mu[active], x0=x0)
         half_rho = 0.5 * self.rho
         half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
         return half_lambda * v1 + half_rho * v2, count1[0] + count2[0]
 
-    def _pcg_step(self, active, x0=None):
+    def _pcg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via PCG with RMT preconditioner; return (w_a, iters).
 
         The system matrix is the oracle-LW covariance (using self.alpha and self.target).
@@ -278,29 +289,31 @@ class _MinVarProblem(_BaseProblem):
             U_k_a_sys = U_k_lr[active, :]  # noqa: N806
             c_data, c_lr = 1.0 - self.alpha, self.alpha
 
-            def _apply_system(v):
+            def _apply_system(v: np.ndarray) -> np.ndarray:
                 """Apply the LR target submatrix to v (RMT low-rank path)."""
-                return bar_lam_lr * v + U_k_a_sys @ (delta_k_lr * (U_k_a_sys.T @ v))
+                result: np.ndarray = bar_lam_lr * v + U_k_a_sys @ (delta_k_lr * (U_k_a_sys.T @ v))
+                return result
         else:
             target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
             c_data = 1.0 - self.alpha if target_sub is not None else 1.0
             c_lr = self.alpha if target_sub is not None else 0.0
 
-            def _apply_system(v):
+            def _apply_system(v: np.ndarray) -> np.ndarray:
                 """Apply the dense target submatrix to v (full-matrix path)."""
-                return target_sub @ v  # type: ignore[operator]
+                result: np.ndarray = target_sub @ v
+                return result
 
         count = [0]
 
-        def matvec(v):
+        def matvec(v: np.ndarray) -> np.ndarray:
             """Apply the active-set system matrix Sigma_a to v."""
             count[0] += 1
-            result = c_data * (x_a.T @ (x_a @ v)) / self.t
+            result: np.ndarray = c_data * (x_a.T @ (x_a @ v)) / self.t
             if c_lr:
                 result = result + c_lr * _apply_system(v)
             return result
 
-        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
+        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
         # Preconditioner P^{-1}: Woodbury inverse of T0^RMT restricted to active set
         pcg_lr = self.pcg_lr
@@ -310,16 +323,23 @@ class _MinVarProblem(_BaseProblem):
         U_k_a_p = U_k_p[active, :]  # noqa: N806  # (n_a, k)
         inv_coeff = 1.0 / (bar_lam_p + delta_k_p) - 1.0 / bar_lam_p  # (k,) negative
 
-        def precond(v):
+        def precond(v: np.ndarray) -> np.ndarray:
             """Apply P^{-1} to v via the Woodbury identity."""
-            return (1.0 / bar_lam_p) * v + U_k_a_p @ (inv_coeff * (U_k_a_p.T @ v))
+            result: np.ndarray = (1.0 / bar_lam_p) * v + U_k_a_p @ (inv_coeff * (U_k_a_p.T @ v))
+            return result
 
-        M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # type: ignore[call-arg, missing-argument, unknown-argument, parameter-already-assigned]  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]  # noqa: N806
+        M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]  # noqa: N806
 
         v, _ = cg(op, np.ones(n_a), x0=x0, M=M_op)
         return v / v.sum(), count[0]
 
-    def _constraint_active_set_warm(self, solve_fn=None, tol=1e-6, max_iter=10_000, warm_start=None):
+    def _constraint_active_set_warm(
+        self,
+        solve_fn: Callable[..., tuple[np.ndarray, int]] | None = None,
+        tol: float = 1e-6,
+        max_iter: int = 10_000,
+        warm_start: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> tuple[np.ndarray, int, int, np.ndarray, np.ndarray | None]:
         """Active-set loop with warm-starting; returns ``(w, iters, active, w_full)``.
 
         Generalises ``_constraint_active_set``: accepts an initial active set
@@ -390,7 +410,12 @@ class _MinVarProblem(_BaseProblem):
 
         return w, outer_steps, total_inner_iters, asset_active.copy(), last_w_full
 
-    def solve_cg_warm(self, *, project=True, warm_start=None):
+    def solve_cg_warm(
+        self,
+        *,
+        project: bool = True,
+        warm_start: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> tuple[np.ndarray, int, int, tuple[np.ndarray, np.ndarray | None]]:
         """Solve via matrix-free CG with warm-starting.
 
         Like ``solve_cg`` but accepts and returns warm-start state so that a
@@ -430,7 +455,12 @@ class _MinVarProblem(_BaseProblem):
             w = self._clip_and_renormalize(w)
         return w, outer, inner, (final_active, final_w)
 
-    def solve_kkt_warm(self, *, project=True, warm_start=None):
+    def solve_kkt_warm(
+        self,
+        *,
+        project: bool = True,
+        warm_start: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> tuple[np.ndarray, int, tuple[np.ndarray, np.ndarray | None]]:
         """Solve via direct KKT factorisation with active-set warm-starting.
 
         Like ``solve_kkt`` but accepts and returns warm-start state for chaining
@@ -469,7 +499,7 @@ class _MinVarProblem(_BaseProblem):
             w = self._clip_and_renormalize(w)
         return w, outer, (final_active, final_w)
 
-    def _clarabel_constraints(self):
+    def _clarabel_constraints(self) -> tuple[csc_matrix, np.ndarray, list[Any]]:
         """Return budget-equality and long-only inequality constraints for Clarabel."""
         n = self.n
         a_mat = vstack(
@@ -478,10 +508,10 @@ class _MinVarProblem(_BaseProblem):
         )
 
         b_vec = np.concatenate([[1.0], np.zeros(n)])
-        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # type: ignore[attr-defined, unresolved-attribute]  # ty:ignore[unresolved-attribute]
+        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # ty:ignore[unresolved-attribute]
         return a_mat, b_vec, cones
 
-    def _osqp_constraints(self):
+    def _osqp_constraints(self) -> tuple[csc_matrix, np.ndarray, np.ndarray]:
         """Return budget-equality and long-only inequality constraints for OSQP."""
         n = self.n
         a_mat = vstack(
@@ -492,7 +522,7 @@ class _MinVarProblem(_BaseProblem):
         u_vec = np.concatenate([[1.0], np.full(n, np.inf)])
         return a_mat, l_vec, u_vec
 
-    def _nnls_solve(self):
+    def _nnls_solve(self) -> tuple[np.ndarray, int]:
         """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
 
         Builds ``A = [sqrt(1-alpha)*X ; sqrt(gamma)*I ; M*ones^T]`` and

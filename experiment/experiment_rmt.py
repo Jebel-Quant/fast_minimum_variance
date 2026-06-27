@@ -329,7 +329,7 @@ print(f"    Woodbury vs KKT-Chol (cold): {kkt_sp_c / wb_sp_c:.1f}x")
 
 
 # Write combined two-panel solver comparison table
-def _fmt(t):
+def _fmt(t) -> str:
     """Format seconds as e.g. 88.1 or 0.042."""
     if t >= 10:
         return f"{t:.1f}"
@@ -340,7 +340,7 @@ def _fmt(t):
     return f"{t:.4f}"
 
 
-def _ms(t):
+def _ms(t) -> str:
     return f"{t * 1000:.1f}"
 
 
