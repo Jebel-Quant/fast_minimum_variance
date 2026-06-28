@@ -317,7 +317,7 @@ class _MinVarProblem(_BaseProblem):
 
         # Preconditioner P^{-1}: Woodbury inverse of T0^RMT restricted to active set
         pcg_lr = self.pcg_lr
-        if pcg_lr is None:
+        if pcg_lr is None:  # pragma: no cover - defensive; solve_pcg validates pcg_lr upfront (see _base.py)
             raise RuntimeError("_pcg_step called without pcg_lr")  # noqa: TRY003
         bar_lam_p, U_k_p, delta_k_p = pcg_lr  # noqa: N806
         U_k_a_p = U_k_p[active, :]  # noqa: N806  # (n_a, k)
