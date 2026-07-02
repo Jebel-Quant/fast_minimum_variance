@@ -6,7 +6,7 @@ from typing import Any
 
 import clarabel
 import numpy as np
-from cvx.linalg import cholesky
+from cvx.linalg import FactorOperator, cholesky
 from scipy.linalg import solve as spd_solve
 from scipy.optimize import nnls
 from scipy.sparse import csc_matrix, eye, vstack
@@ -162,22 +162,18 @@ class _MinVarProblem(_BaseProblem):
         """
         n_a = int(active.sum())
 
-        # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target
+        # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target. The target
+        # T0 = bar_lam*I + U_k diag(delta_k) U_k^T is a diagonal-plus-low-rank operator,
+        # so its active-block inverse is exactly cvx-linalg's FactorOperator.solve_free.
         if self.alpha == 1.0 and self.target_lr is not None:
             bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
-            U_k_a = U_k[active, :]  # noqa: N806  # (n_a, k)
-            W = np.diag(1.0 / delta_k) + (U_k_a.T @ U_k_a) / bar_lam  # noqa: N806
-
-            def _woodbury(b: np.ndarray) -> np.ndarray:
-                """Apply ``T0^{-1}`` to ``b`` via the Woodbury identity."""
-                result: np.ndarray = b / bar_lam - U_k_a @ (np.linalg.solve(W, U_k_a.T @ b) / bar_lam**2)
-                return result
+            t0 = FactorOperator(np.full(U_k.shape[0], bar_lam), U_k, np.diag(delta_k))
+            idx = np.flatnonzero(active)
 
             if self.rho == 0.0 or self.mu is None:
-                v = _woodbury(np.ones(n_a))
+                v = t0.solve_free(idx, np.ones(n_a))
                 return v / v.sum(), 1
-            v1 = _woodbury(np.ones(n_a))
-            v2 = _woodbury(self.mu[active])
+            v1, v2 = t0.solve_free(idx, np.column_stack([np.ones(n_a), self.mu[active]])).T
             half_rho = 0.5 * self.rho
             half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
             return half_lambda * v1 + half_rho * v2, 1
