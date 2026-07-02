@@ -17,9 +17,10 @@ Proceedings of the 25th International Conference on Machine Learning (ICML).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
+from cvx.linalg import power_iteration
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -87,22 +88,22 @@ def _lipschitz(
 
     extra_matvec: optional callable v -> extra @ v for a second SPD contribution.
     Each iteration costs O(rows * cols) — two matrix-vector products with mat —
-    and never forms the cols x cols normal matrix.
+    and never forms the cols x cols normal matrix. The iteration is delegated to
+    cvx-linalg's operator-aware power_iteration, applied matrix-free to the normal
+    operator v -> mat.T @ (mat @ v) (+ extra).
     """
-    if rng is None:
-        rng = np.random.default_rng()
-    v: NDArray[np.floating] = np.asarray(rng.standard_normal(mat.shape[1]))
-    v /= np.linalg.norm(v)
-    lip: float = 1.0
-    for _ in range(n_iter):
+    seed = None if rng is None else int(rng.integers(np.iinfo(np.int64).max))
+
+    def normal_matvec(v: NDArray[np.floating]) -> NDArray[np.floating]:
+        """Apply the normal operator mat.T @ mat (+ extra) to v, matrix-free."""
         w = mat.T @ (mat @ v)
         if extra_matvec is not None:
             w = w + extra_matvec(v)
-        lip = float(np.linalg.norm(w))
-        if lip < 1e-15:
-            return lip
-        v = w / lip
-    return lip
+        return w
+
+    matvec = cast("Callable[[NDArray[np.float64]], NDArray[np.float64]]", normal_matvec)
+    eigenvalue, _ = power_iteration(matvec, n=mat.shape[1], n_iter=n_iter, seed=seed)
+    return max(float(eigenvalue), 0.0)
 
 
 def fista_gradient(

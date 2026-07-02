@@ -6,7 +6,7 @@ from typing import Any
 
 import clarabel
 import numpy as np
-from cvx.linalg import cholesky
+from cvx.linalg import DenseOperator, FactorOperator, GramOperator, SumOperator, cholesky
 from scipy.linalg import solve as spd_solve
 from scipy.optimize import nnls
 from scipy.sparse import csc_matrix, eye, vstack
@@ -162,22 +162,18 @@ class _MinVarProblem(_BaseProblem):
         """
         n_a = int(active.sum())
 
-        # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target
+        # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target. The target
+        # T0 = bar_lam*I + U_k diag(delta_k) U_k^T is a diagonal-plus-low-rank operator,
+        # so its active-block inverse is exactly cvx-linalg's FactorOperator.solve_free.
         if self.alpha == 1.0 and self.target_lr is not None:
             bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
-            U_k_a = U_k[active, :]  # noqa: N806  # (n_a, k)
-            W = np.diag(1.0 / delta_k) + (U_k_a.T @ U_k_a) / bar_lam  # noqa: N806
-
-            def _woodbury(b: np.ndarray) -> np.ndarray:
-                """Apply ``T0^{-1}`` to ``b`` via the Woodbury identity."""
-                result: np.ndarray = b / bar_lam - U_k_a @ (np.linalg.solve(W, U_k_a.T @ b) / bar_lam**2)
-                return result
+            t0 = FactorOperator(np.full(U_k.shape[0], bar_lam), U_k, np.diag(delta_k))
+            idx = np.flatnonzero(active)
 
             if self.rho == 0.0 or self.mu is None:
-                v = _woodbury(np.ones(n_a))
+                v = t0.solve_free(idx, np.ones(n_a))
                 return v / v.sum(), 1
-            v1 = _woodbury(np.ones(n_a))
-            v2 = _woodbury(self.mu[active])
+            v1, v2 = t0.solve_free(idx, np.column_stack([np.ones(n_a), self.mu[active]])).T
             half_rho = 0.5 * self.rho
             half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
             return half_lambda * v1 + half_rho * v2, 1
@@ -201,76 +197,58 @@ class _MinVarProblem(_BaseProblem):
         """Return budget-equality and long-only inequality constraints for CVXPY."""
         return [cp.sum(w) == 1, w >= 0]
 
+    def _system_operator(self) -> SumOperator:
+        """Build ``Sigma = (1-alpha)/T * X^T X + alpha * T0`` as a cvx-linalg operator.
+
+        A :class:`~cvx.linalg.SumOperator` of the data Gram term and, when present,
+        the target term (a :class:`~cvx.linalg.FactorOperator` for a low-rank RMT
+        target, else a :class:`~cvx.linalg.DenseOperator`). The full-universe
+        operators are sliced to the active set via ``apply_free``; nothing is
+        formed at ``n x n``. Without a target the data term carries the full weight.
+        """
+        has_target = self.target_lr is not None or self.target is not None
+        c_data = (1.0 - self.alpha) if has_target else 1.0
+        terms: list[tuple[float, Any]] = [(c_data / self.t, GramOperator(self.X))]
+        if self.target_lr is not None:
+            bar_lam, u_k, delta_k = self.target_lr
+            terms.append((self.alpha, FactorOperator(np.full(u_k.shape[0], bar_lam), u_k, np.diag(delta_k))))
+        elif self.target is not None:
+            terms.append((self.alpha, DenseOperator(self.target)))
+        return SumOperator(terms)
+
     def _cg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
 
-        Builds a ``LinearOperator`` for ``v -> (1-alpha)*X_a'*(X_a*v) + alpha*T0_a*v``
-        and runs conjugate gradients without ever forming ``Sigma_a`` explicitly.
-        When ``target_lr = (bar_lam, U_k, delta_k)`` is supplied the target term is
-        applied as ``bar_lam*v + U_k_a @ (delta_k * (U_k_a.T @ v))`` at O(n_a*k)
-        per call instead of O(n_a^2) for a dense submatrix.
+        Runs conjugate gradients over the active-set system operator
+        (:meth:`_system_operator`, applied through ``apply_free``) without ever
+        forming ``Sigma_a`` explicitly. Low-rank and dense targets share one path.
 
         Args:
             active: Boolean mask selecting the active asset subset.
             x0: Optional initial guess for the first CG solve (warm start).
                 When provided it must have shape ``(active.sum(),)``.
         """
-        x_a = self.X[:, active]
         n_a = int(active.sum())
-
-        # Build the target application — prefer low-rank factors over dense matrix.
-        if self.target_lr is not None:
-            bar_lam_lr, U_k_lr, delta_k_lr = self.target_lr  # noqa: N806
-            U_k_a = U_k_lr[active, :]  # noqa: N806  # (n_a, k)
-            c_data = 1.0 - self.alpha
-            c_lr = self.alpha
-
-            def _apply_target(v: np.ndarray) -> np.ndarray:
-                """Apply low-rank target: bar_lam * v + U (delta * (U^T v))."""
-                result: np.ndarray = bar_lam_lr * v + U_k_a @ (delta_k_lr * (U_k_a.T @ v))
-                return result
-        else:
-            target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
-            c_data = 1.0 - self.alpha if target_sub is not None else 1.0
-            c_lr = self.alpha if target_sub is not None else 0.0
-
-            def _apply_target(v: np.ndarray) -> np.ndarray:
-                """Apply dense target submatrix to v."""
-                result: np.ndarray = target_sub @ v
-                return result
-
-        count1 = [0]
+        sigma = self._system_operator()
+        active_idx = np.flatnonzero(active)
+        count = [0]
 
         def matvec(v: np.ndarray) -> np.ndarray:
-            """Apply Sigma_a to v for the budget-constraint CG solve."""
-            count1[0] += 1
-            result: np.ndarray = c_data * (x_a.T @ (x_a @ v)) / self.t
-            if c_lr:
-                result = result + c_lr * _apply_target(v)
-            return result
+            """Apply Sigma_a to v via the operator's free-block product."""
+            count[0] += 1
+            return sigma.apply_free(active_idx, v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
         if self.rho == 0.0 or self.mu is None:
             v, _ = cg(op, np.ones(n_a), x0=x0)
-            return v / v.sum(), count1[0]
+            return v / v.sum(), count[0]
 
-        count2 = [0]
-
-        def matvec2(v: np.ndarray) -> np.ndarray:
-            """Apply Sigma_a to v for the return-tilt CG solve."""
-            count2[0] += 1
-            result: np.ndarray = c_data * (x_a.T @ (x_a @ v)) / self.t
-            if c_lr:
-                result = result + c_lr * _apply_target(v)
-            return result
-
-        op2 = LinearOperator((n_a, n_a), matvec=matvec2, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
         v1, _ = cg(op, np.ones(n_a), x0=x0)
-        v2, _ = cg(op2, self.mu[active], x0=x0)
+        v2, _ = cg(op, self.mu[active], x0=x0)
         half_rho = 0.5 * self.rho
         half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
-        return half_lambda * v1 + half_rho * v2, count1[0] + count2[0]
+        return half_lambda * v1 + half_rho * v2, count[0]
 
     def _pcg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via PCG with RMT preconditioner; return (w_a, iters).
@@ -280,38 +258,17 @@ class _MinVarProblem(_BaseProblem):
           P^{-1} v = (1/bar_lam) v + U_k diag(1/lambda_k - 1/bar_lam) U_k^T v
         costing O(n_a * k) per application.  Requires self.pcg_lr to be set.
         """
-        x_a = self.X[:, active]
         n_a = int(active.sum())
 
-        # System matvec — identical path to _cg_step
-        if self.target_lr is not None:
-            bar_lam_lr, U_k_lr, delta_k_lr = self.target_lr  # noqa: N806
-            U_k_a_sys = U_k_lr[active, :]  # noqa: N806
-            c_data, c_lr = 1.0 - self.alpha, self.alpha
-
-            def _apply_system(v: np.ndarray) -> np.ndarray:
-                """Apply the LR target submatrix to v (RMT low-rank path)."""
-                result: np.ndarray = bar_lam_lr * v + U_k_a_sys @ (delta_k_lr * (U_k_a_sys.T @ v))
-                return result
-        else:
-            target_sub = self.target[np.ix_(active, active)] if self.target is not None else None
-            c_data = 1.0 - self.alpha if target_sub is not None else 1.0
-            c_lr = self.alpha if target_sub is not None else 0.0
-
-            def _apply_system(v: np.ndarray) -> np.ndarray:
-                """Apply the dense target submatrix to v (full-matrix path)."""
-                result: np.ndarray = target_sub @ v
-                return result
-
+        # System matvec — the same active-set operator as _cg_step.
+        sigma = self._system_operator()
+        active_idx = np.flatnonzero(active)
         count = [0]
 
         def matvec(v: np.ndarray) -> np.ndarray:
             """Apply the active-set system matrix Sigma_a to v."""
             count[0] += 1
-            result: np.ndarray = c_data * (x_a.T @ (x_a @ v)) / self.t
-            if c_lr:
-                result = result + c_lr * _apply_system(v)
-            return result
+            return sigma.apply_free(active_idx, v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
