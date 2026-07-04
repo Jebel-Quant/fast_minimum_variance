@@ -31,6 +31,7 @@ def reference_weights() -> Callable[[object], np.ndarray]:
     """
 
     def _reference(prob: object) -> np.ndarray:
+        """Return the SLSQP-optimal long-only weights for ``prob``."""
         x = prob.X  # ty:ignore[unresolved-attribute]
         t, n = x.shape
         alpha = prob.alpha  # ty:ignore[unresolved-attribute]
@@ -39,6 +40,7 @@ def reference_weights() -> Callable[[object], np.ndarray]:
             bar_lam, u_k, delta_k = prob.target_lr  # ty:ignore[unresolved-attribute]
 
             def target_quad(w: np.ndarray) -> float:
+                """Quadratic form ``w^T T0 w`` for the low-rank RMT target."""
                 return float(w @ (bar_lam * w + u_k @ (delta_k * (u_k.T @ w))))
 
             has_target = True
@@ -46,6 +48,7 @@ def reference_weights() -> Callable[[object], np.ndarray]:
             target = prob.target  # ty:ignore[unresolved-attribute]
 
             def target_quad(w: np.ndarray) -> float:
+                """Quadratic form ``w^T target w`` for the dense target."""
                 return float(w @ (target @ w))
 
             has_target = True
@@ -56,6 +59,7 @@ def reference_weights() -> Callable[[object], np.ndarray]:
         mu = prob.mu  # ty:ignore[unresolved-attribute]
 
         def objective(w: np.ndarray) -> float:
+            """Portfolio objective: variance (+ shrinkage) minus the return tilt."""
             data = float((x @ w) @ (x @ w)) / t
             value = (1.0 - alpha) * data + alpha * target_quad(w) if has_target else data
             if rho != 0.0 and mu is not None:
