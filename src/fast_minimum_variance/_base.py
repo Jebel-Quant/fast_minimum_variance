@@ -137,9 +137,7 @@ class _BaseProblem(ABC):
     def solve_cvxpy(self, *, project: bool = True) -> tuple[np.ndarray, int]:
         """Solve via CVXPY with the Clarabel backend (reference solver).
 
-        Requires the ``convex`` extra::
-
-            pip install fast-minimum-variance[convex]
+        Requires ``cvxpy`` (installed with ``fast-minimum-variance``).
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
