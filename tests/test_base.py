@@ -211,6 +211,15 @@ class TestSolveCvxpy:
         w, _ = _Stub(_X3).solve_cvxpy(project=False)
         assert w.shape == (3,)
 
+    def test_raises_runtime_error_when_no_solution(self, monkeypatch):
+        """solve_cvxpy raises RuntimeError when the solver leaves w.value unset."""
+        import cvxpy as cp
+
+        # No-op solve leaves the Variable's value as None (never populated).
+        monkeypatch.setattr(cp.Problem, "solve", lambda self, *args, **kwargs: None)
+        with pytest.raises(RuntimeError, match="failed to find a solution"):
+            _Stub(_X3).solve_cvxpy()
+
     def test_cvxpy_constraints_called_with_correct_args(self):
         """_cvxpy_constraints receives (w: cp.Variable, cp: module)."""
         import cvxpy as cp
