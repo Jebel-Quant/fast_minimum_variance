@@ -53,9 +53,6 @@ TABLES = HERE / "tables"
 # nncg companion paper and excluded here).
 _TABLE_METHODS_ALL = [
     "cvxpy (Clarabel)",
-    "cvxpy (OSQP)",
-    "Clarabel (direct API)",
-    "OSQP (direct API)",
     "KKT (Cholesky)",
     "CG (SPD)",
 ]
@@ -73,9 +70,6 @@ DATASETS = {
 
 SOLVERS_ALL = [
     ("cvxpy (Clarabel)", lambda p: p.solve_cvxpy(), False),
-    ("cvxpy (OSQP)", lambda p: p.solve_cvxpy(backend="osqp"), False),
-    ("Clarabel (direct API)", lambda p: p.solve_clarabel(), False),
-    ("OSQP (direct API)", lambda p: p.solve_osqp(), False),
     ("KKT (Cholesky)", lambda p: p.solve_kkt(), True),
     ("CG (SPD)", lambda p: p.solve_cg(), False),
 ]
@@ -94,7 +88,7 @@ def _make_entry(prob, fn, is_kkt=False):
     elif is_kkt:  # solve_kkt -> (w, outer_steps)
         _, outer = raw
         inner = None
-    else:  # cvxpy / clarabel / osqp -> (w, iters)
+    else:  # cvxpy -> (w, iters)
         _, inner = raw
         outer = None
     return {"time_s": t, "outer": outer, "inner": inner}

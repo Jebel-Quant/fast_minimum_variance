@@ -217,7 +217,6 @@ def _sweep_cold(solve_fn, repeats=3, ef_alpha=None, ef_target=None):
 
 print("Running cold sweeps...")
 ef_times_cvxpy = _sweep_cold(lambda p: p.solve_cvxpy(), repeats=1)
-ef_times_osqp = _sweep_cold(lambda p: p.solve_osqp(), repeats=3)
 ef_times_cg_cold = _sweep_cold(lambda p: p.solve_cg(), repeats=3)
 print("Running CG warm-start sweep...")
 ef_warm_runs = []
@@ -263,7 +262,6 @@ def _row(label, cold_times, warm_times=None) -> None:
 print(f"\n{'Solver':<30}  {'Cold total':>12}  {'Warm total':>12}")
 print("-" * 70)
 _row("cvxpy (Clarabel)", ef_times_cvxpy)
-_row("OSQP (direct API)", ef_times_osqp)
 _row("CG (alpha=0.5, LW)", ef_times_cg_cold, ef_times_cg_warm)
 
 total_ef_cold = sum(ef_times_cg_cold)
@@ -300,7 +298,6 @@ write_frontier_def(
     "dataFrontier",
     [
         {"label": "cvxpy (Clarabel)", "cold": sum(ef_times_cvxpy), "warm": None},
-        {"label": "OSQP (direct API)", "cold": sum(ef_times_osqp), "warm": None},
         {"label": r"CG (LW, $\alpha=0.5$)", "cold": sum(ef_times_cg_cold), "warm": sum(ef_times_cg_warm)},
     ],
     n_pts=N_PTS,

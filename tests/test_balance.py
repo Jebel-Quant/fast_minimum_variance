@@ -172,33 +172,6 @@ class TestSleeves:
         assert (w > 1e-8).sum() < X.shape[1]
         assert np.abs(b_eq @ w - c_eq).max() < 1e-12
 
-    def test_clarabel_and_osqp_reach_optimum(self, X, sleeves, lw):  # noqa: N803
-        """Direct Clarabel and OSQP reach the active-set objective and stay feasible.
-
-        Interior-point/ADMM iterates keep tiny positive weights where the
-        active-set solver gives exact zeros, so the meaningful comparison is on
-        objective value and feasibility, not pointwise weights.
-        """
-        b_eq, c_eq = sleeves
-        alpha, target = lw
-        prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w_kkt, _ = prob.solve_kkt()
-        opt = _objective(prob, w_kkt)
-        for solver in (prob.solve_clarabel, prob.solve_osqp):
-            w, _ = solver(project=False)
-            assert _objective(prob, w) == pytest.approx(opt, rel=1e-3)
-            assert np.abs(b_eq @ w - c_eq).max() < 1e-6
-
-    def test_nnls_reaches_optimum(self, X, sleeves, lw):  # noqa: N803
-        """NNLS with weighted balance rows reaches the optimum and stays feasible."""
-        b_eq, c_eq = sleeves
-        alpha, target = lw
-        prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w_nn, _ = prob.solve_nnls()
-        w_kkt, _ = prob.solve_kkt()
-        assert _objective(prob, w_nn) == pytest.approx(_objective(prob, w_kkt), rel=1e-4)
-        assert np.abs(b_eq @ w_nn - c_eq).max() < 1e-8
-
     def test_projection_is_identity_for_balance(self, X, sleeves, lw):  # noqa: N803
         """project=True must not renormalise a balance-system solution."""
         b_eq, c_eq = sleeves

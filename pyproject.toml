@@ -23,8 +23,6 @@ dependencies = [
     "scipy>=1.14",
     "scikit-learn>=1.5",
     "cvxpy>=1.8",
-    "clarabel>=0.11.0",
-    "osqp>=1.1.1",
     "cvx-linalg>=0.9.6",
 ]
 
@@ -35,8 +33,6 @@ Repository = "https://github.com/Jebel-Quant/fast_minimum_variance"
 #[project.optional-dependencies]
 #convex = [
 #    "cvxpy>=1.0",
-#    "clarabel>=0.11.0",
-#    "osqp>=1.1.1",
 #]
 
 [dependency-groups]
@@ -63,10 +59,6 @@ packages = ["src/fast_minimum_variance"]
 # imports don't drown out real type errors in our own code.
 [[tool.mypy.overrides]]
 module = [
-    "clarabel",
-    "clarabel.*",
-    "osqp",
-    "osqp.*",
     "scipy.*",
     "sklearn.*",
     "cvx.*",
@@ -92,6 +84,4 @@ marimo = "marimo"
 cvxpy = "cvxpy"
 pandas = "pandas"
 pyarrow = "pyarrow"
-clarabel = "clarabel"
-osqp = "osqp"
 "cvx-linalg" = "cvx"

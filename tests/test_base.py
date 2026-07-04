@@ -34,21 +34,9 @@ class _Stub(_BaseProblem):
         """Return canned weights and inner iter count 5 for the CG step."""
         return np.array([0.5, -0.1, 0.6]), 5
 
-    def _nnls_solve(self):
-        """Return canned weights and iter count 1 for the NNLS solve."""
-        return np.array([0.5, -0.1, 0.6]), 1
-
     def _cvxpy_constraints(self, w, cp):
         """Return the long-only, sum-to-one CVXPY constraints for the stub."""
         return [cp.sum(w) == 1, w >= 0]
-
-    def _clarabel_constraints(self):
-        """Return empty Clarabel constraint data for the stub."""
-        return None, None, []
-
-    def _osqp_constraints(self):
-        """Return empty OSQP constraint data for the stub."""
-        return None, None, None
 
 
 _X3 = np.eye(3)  # minimal 3x3 return matrix for most tests
@@ -163,11 +151,6 @@ class TestTemplateDelegation:
         """solve_cg delegates to _cg_step (inner iters==5)."""
         _, _, iters = _Stub(_X3).solve_cg()
         assert iters == 5
-
-    def test_solve_nnls_uses_nnls_solve(self):
-        """solve_nnls calls _nnls_solve directly (iters==1)."""
-        _, iters = _Stub(_X3).solve_nnls()
-        assert iters == 1
 
 
 class TestProjectParameter:
