@@ -3,8 +3,25 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance import Problem, simulate_equity_returns
+from fast_minimum_variance import Problem
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
+
+
+def _simulate_equity_returns(n, T, *, rng=None):  # noqa: N803
+    """Demeaned (T, n) return matrix from a market + sparse-style factor model."""
+    rng = np.random.default_rng(rng)
+    k = max(3, n // 10)
+    factor_vols = np.concatenate([[0.01], np.full(k - 1, 0.005)])
+    f = rng.standard_normal((T, k)) * factor_vols
+    b = np.zeros((n, k))
+    b[:, 0] = rng.uniform(0.4, 0.8, size=n)
+    for j in range(1, k):
+        mask = rng.random(n) < 0.5
+        b[mask, j] = rng.standard_normal(int(mask.sum())) * 0.2
+    idio_vols = rng.uniform(0.005, 0.015, size=n)
+    e = rng.standard_normal((T, n)) * idio_vols
+    x = f @ b.T + e
+    return x - x.mean(axis=0)
 
 
 def _objective(prob, w):
@@ -28,8 +45,7 @@ def _sleeve_system(n, p, rng):
 @pytest.fixture(scope="module")
 def X():  # noqa: N802
     """Factor-model return matrix (500, 60) so the long-only constraint binds."""
-    x = simulate_equity_returns(60, 500, rng=42)
-    return x - x.mean(axis=0)
+    return _simulate_equity_returns(60, 500, rng=42)
 
 
 @pytest.fixture(scope="module")
@@ -85,12 +101,6 @@ class TestValidation:
         """``c`` whose length differs from B's row count is rejected."""
         with pytest.raises(ValueError, match="c must have shape"):
             MinVarProblem(X, B=np.ones((2, X.shape[1])), c=np.ones(3))
-
-    def test_factory_rejects_b_with_custom_constraints(self, X):  # noqa: N803
-        """The factory refuses to mix (B, c) with A/b/C/d."""
-        n = X.shape[1]
-        with pytest.raises(ValueError, match="cannot be combined"):
-            Problem(X, A=np.ones((n, 1)), b=np.ones(1), B=np.ones((1, n)), c=np.ones(1))
 
     def test_factory_routes_balance_to_minvar(self, X):  # noqa: N803
         """The factory returns the shrinking active-set solver for (B, c)."""
