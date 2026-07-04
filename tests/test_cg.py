@@ -1,4 +1,4 @@
-"""Cross-validation: CG solver vs CVXPY reference for _MinVarProblem."""
+"""Cross-validation: CG solver vs an independent SLSQP reference for _MinVarProblem."""
 
 import numpy as np
 import pytest
@@ -29,63 +29,58 @@ def X_small():  # noqa: N802
 
 
 # ---------------------------------------------------------------------------
-# CG vs CVXPY
+# CG vs reference oracle
 # ---------------------------------------------------------------------------
 
 
-class TestCgVsCvxpy:
-    """CG and CVXPY must return the same portfolio up to solver tolerance."""
+class TestCgVsReference:
+    """CG and the independent SLSQP oracle must return the same portfolio."""
 
-    def test_plain_minvar(self, X):  # noqa: N803
+    def test_plain_minvar(self, X, reference_weights):  # noqa: N803
         """Plain minimum variance (alpha=0, rho=0)."""
-        w_cg, *_ = Problem(X).solve_cg()
-        w_cvx, _ = Problem(X).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        prob = Problem(X)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
-    def test_with_shrinkage(self, X):  # noqa: N803
+    def test_with_shrinkage(self, X, reference_weights):  # noqa: N803
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
-        w_cg, *_ = Problem(X, alpha=alpha).solve_cg()
-        w_cvx, _ = Problem(X, alpha=alpha).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        prob = Problem(X, alpha=N / (N + T))
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
-    def test_with_return_tilt(self, X):  # noqa: N803
+    def test_with_return_tilt(self, X, reference_weights):  # noqa: N803
         """Return tilt (rho != 0, mu given)."""
-        rng = np.random.default_rng(1)
-        mu = rng.standard_normal(X.shape[1])
-        w_cg, *_ = Problem(X, rho=0.5, mu=mu).solve_cg()
-        w_cvx, _ = Problem(X, rho=0.5, mu=mu).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        mu = np.random.default_rng(1).standard_normal(X.shape[1])
+        prob = Problem(X, rho=0.5, mu=mu)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
-    def test_small_problem(self, X_small):  # noqa: N803
+    def test_small_problem(self, X_small, reference_weights):  # noqa: N803
         """Small problem (T=100, N=5)."""
-        w_cg, *_ = Problem(X_small).solve_cg()
-        w_cvx, _ = Problem(X_small).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        prob = Problem(X_small)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
-    def test_shrinkage_and_tilt(self, X):  # noqa: N803
+    def test_shrinkage_and_tilt(self, X, reference_weights):  # noqa: N803
         """Shrinkage and return tilt combined."""
         T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
         mu = np.ones(N) / N
-        w_cg, *_ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cg()
-        w_cvx, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        prob = Problem(X, alpha=N / (N + T), rho=0.3, mu=mu)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     @pytest.mark.parametrize("N", [2, 5, 20])
-    def test_various_sizes(self, N):  # noqa: N803
+    def test_various_sizes(self, N, reference_weights):  # noqa: N803
         """Agreement holds for several problem sizes."""
         X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
-        w_cg, *_ = Problem(X).solve_cg()
-        w_cvx, _ = Problem(X).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        prob = Problem(X)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
-    def test_with_explicit_target(self, X):  # noqa: N803
-        """CG with an explicit target matrix agrees with CVXPY (exercises target matvec branch)."""
+    def test_with_explicit_target(self, X, reference_weights):  # noqa: N803
+        """CG with an explicit target matrix agrees with the oracle (target matvec branch)."""
         T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
-        target = np.eye(N)
-        w_cg, *_ = Problem(X, alpha=alpha, target=target).solve_cg()
-        w_cvx, _ = Problem(X, alpha=alpha, target=target).solve_cvxpy()
-        np.testing.assert_allclose(w_cg, w_cvx, atol=1e-4)
+        prob = Problem(X, alpha=N / (N + T), target=np.eye(N))
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)

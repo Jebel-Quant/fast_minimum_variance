@@ -1,4 +1,4 @@
-"""Cross-validation: KKT solver vs CVXPY reference for _MinVarProblem."""
+"""Cross-validation: KKT solver vs an independent SLSQP reference for _MinVarProblem."""
 
 import numpy as np
 import pytest
@@ -30,57 +30,54 @@ def X_small():  # noqa: N802
 
 
 # ---------------------------------------------------------------------------
-# KKT vs CVXPY
+# KKT vs reference oracle
 # ---------------------------------------------------------------------------
 
 
-class TestKktVsCvxpy:
-    """KKT and CVXPY must return the same portfolio up to solver tolerance."""
+class TestKktVsReference:
+    """KKT and the independent SLSQP oracle must return the same portfolio."""
 
-    def test_plain_minvar(self, X):  # noqa: N803
+    def test_plain_minvar(self, X, reference_weights):  # noqa: N803
         """Plain minimum variance (alpha=0, rho=0)."""
-        w_kkt, _ = Problem(X).solve_kkt()
-        w_cvx, _ = Problem(X).solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        prob = Problem(X)
+        w_kkt, _ = prob.solve_kkt()
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
-    def test_with_shrinkage(self, X):  # noqa: N803
+    def test_with_shrinkage(self, X, reference_weights):  # noqa: N803
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
-        w_kkt, _ = Problem(X, alpha=alpha).solve_kkt()
-        w_cvx, _ = Problem(X, alpha=alpha).solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        prob = Problem(X, alpha=N / (N + T))
+        w_kkt, _ = prob.solve_kkt()
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
-    def test_with_return_tilt(self, X):  # noqa: N803
+    def test_with_return_tilt(self, X, reference_weights):  # noqa: N803
         """Return tilt (rho != 0, mu given)."""
-        rng = np.random.default_rng(1)
-        mu = rng.standard_normal(X.shape[1])
-        w_kkt, _ = Problem(X, rho=0.5, mu=mu).solve_kkt()
-        w_cvx, _ = Problem(X, rho=0.5, mu=mu).solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        mu = np.random.default_rng(1).standard_normal(X.shape[1])
+        prob = Problem(X, rho=0.5, mu=mu)
+        w_kkt, _ = prob.solve_kkt()
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
-    def test_small_problem(self, X_small):  # noqa: N803
+    def test_small_problem(self, X_small, reference_weights):  # noqa: N803
         """Small problem (T=100, N=5)."""
-        w_kkt, _ = Problem(X_small).solve_kkt()
-        w_cvx, _ = Problem(X_small).solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        prob = Problem(X_small)
+        w_kkt, _ = prob.solve_kkt()
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
-    def test_shrinkage_and_tilt(self, X):  # noqa: N803
+    def test_shrinkage_and_tilt(self, X, reference_weights):  # noqa: N803
         """Shrinkage and return tilt combined."""
         T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
         mu = np.ones(N) / N
-        w_kkt, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_kkt()
-        w_cvx, _ = Problem(X, alpha=alpha, rho=0.3, mu=mu).solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        prob = Problem(X, alpha=N / (N + T), rho=0.3, mu=mu)
+        w_kkt, _ = prob.solve_kkt()
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
     @pytest.mark.parametrize("N", [2, 5, 20])
-    def test_various_sizes(self, N):  # noqa: N803
+    def test_various_sizes(self, N, reference_weights):  # noqa: N803
         """Agreement holds for several problem sizes."""
         X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
-        w_kkt, _ = Problem(X).solve_kkt()
-        w_cvx, _ = Problem(X).solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        prob = Problem(X)
+        w_kkt, _ = prob.solve_kkt()
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -97,14 +94,13 @@ def _build_rmt_problem(T=300, N=50, seed=99, rho=0.0, mu=None):  # noqa: N803
 
 
 class TestWoodbury:
-    """Woodbury path must agree with CVXPY and with the CG path."""
+    """Woodbury path must agree with the reference oracle and with the CG path."""
 
-    def test_minvar_agrees_with_cvxpy(self):
-        """alpha=1, RMT target: KKT (Woodbury) matches CVXPY."""
+    def test_minvar_agrees_with_reference(self, reference_weights):
+        """alpha=1, RMT target: KKT (Woodbury) matches the oracle."""
         _, prob = _build_rmt_problem()
         w_kkt, _ = prob.solve_kkt()
-        w_cvx, _ = prob.solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
     def test_minvar_agrees_with_cg(self):
         """alpha=1, RMT target: KKT (Woodbury) matches CG."""
@@ -113,15 +109,12 @@ class TestWoodbury:
         w_cg, _, _ = prob.solve_cg()
         np.testing.assert_allclose(w_kkt, w_cg, atol=1e-4)
 
-    def test_return_tilt_agrees_with_cvxpy(self):
-        """alpha=1, RMT target, return tilt: KKT (Woodbury) matches CVXPY."""
-        rng = np.random.default_rng(5)
-        N = 50  # noqa: N806
-        mu = rng.standard_normal(N)
+    def test_return_tilt_agrees_with_reference(self, reference_weights):
+        """alpha=1, RMT target, return tilt: KKT (Woodbury) matches the oracle."""
+        mu = np.random.default_rng(5).standard_normal(50)
         _, prob = _build_rmt_problem(rho=0.5, mu=mu)
         w_kkt, _ = prob.solve_kkt()
-        w_cvx, _ = prob.solve_cvxpy()
-        np.testing.assert_allclose(w_kkt, w_cvx, atol=1e-4)
+        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
 
     def test_weights_are_valid(self):
         """Woodbury solution sums to 1 and is non-negative."""

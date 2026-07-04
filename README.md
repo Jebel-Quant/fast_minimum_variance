@@ -58,13 +58,13 @@ On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations fro
 
 All solvers are methods on `Problem` and return `(w, ...)` where
 $w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
-`solve_cg` returns `(w, outer_steps, inner_iters)`; all others return `(w, iters)`.
+`solve_cg` and `solve_pcg` return `(w, outer_steps, inner_iters)`; `solve_kkt` returns `(w, iters)`.
 
 | Method | Approach | When to use |
 |---|---|---|
 | `solve_cg()` | Matrix-free conjugate gradients on the SPD reduced system | Default — fastest for large $N$, especially with shrinkage |
 | `solve_kkt()` | Direct dense factorisation via `numpy.linalg.solve` | Small problems or when an exact solve is needed |
-| `solve_cvxpy()` | CVXPY + Clarabel | Ground-truth reference |
+| `solve_pcg()` | Matrix-free PCG with an RMT (low-rank) preconditioner | Eigenvalue-cleaned shrinkage targets (requires `pcg_lr`) |
 
 ### `solve_cg` — matrix-free conjugate gradients
 
@@ -86,11 +86,13 @@ portfolio size, so it becomes expensive for $N \gtrsim 500$ without shrinkage (w
 reduces the number of active assets). With shrinkage, the active-set outer loop converges
 in 2–4 steps and the inner systems are small, making the direct solve competitive.
 
-### `solve_cvxpy` — CVXPY reference
+### `solve_pcg` — preconditioned CG
 
-Builds the problem with CVXPY and solves it with the Clarabel backend. This is the
-ground-truth reference used to validate the fast solvers; it carries substantial
-Python problem-construction overhead and is not intended for production use.
+Runs the same matrix-free active-set iteration as `solve_cg`, but preconditions the
+inner CG solve with the RMT low-rank target `T0` (applied via the Woodbury identity at
+$O(n_a k)$ per step). Requires `pcg_lr = (bar_lam, U_k, delta_k)` from RMT preprocessing
+and returns the oracle-LW minimum-variance portfolio in far fewer iterations when the
+shrinkage target has been eigenvalue-cleaned.
 
 ## The Primal-Dual Active-Set Loop
 
@@ -158,21 +160,19 @@ All timings on Apple M4 Pro, Python 3.12, NumPy 2.4, SciPy 1.17.
 
 ### Synthetic: $N=1000$, $T=2000$, i.i.d. Gaussian returns
 
-| Method | Time (s) | Speedup vs CVXPY |
+| Method | Time (s) | Speedup vs KKT |
 |---|---|---|
-| `solve_cvxpy` | 8.16 | 1× |
-| `solve_kkt` | 0.063 | 129× |
-| **`solve_cg`** | **0.019** | **430×** |
+| `solve_kkt` | 0.063 | 1× |
+| **`solve_cg`** | **0.019** | **3.3×** |
 
 *With Ledoit-Wolf shrinkage ($\alpha = 0.333$), 56 CG iterations.*
 
 ### S&P 500: $N=495$, $T=1192$ (Jul 2021–Apr 2026)
 
-| Method | Time (s) | Speedup vs CVXPY |
+| Method | Time (s) | Speedup vs KKT |
 |---|---|---|
-| `solve_cvxpy` | 1.48 | 1× |
-| `solve_kkt` | 0.018 | 84× |
-| **`solve_cg`** | **0.0091** | **162×** |
+| `solve_kkt` | 0.018 | 1× |
+| **`solve_cg`** | **0.0091** | **2.0×** |
 
 *With Ledoit-Wolf shrinkage ($\alpha = 0.293$), 205 CG iterations.*
 
@@ -195,7 +195,8 @@ make install
 - Python 3.11+
 - numpy
 - scipy
-- cvxpy
+- scikit-learn
+- cvx-linalg
 
 ## Citing
 

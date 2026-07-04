@@ -40,9 +40,8 @@ def Problem(  # noqa: N802
                    ``solve_pcg``; ignored unless PCG is invoked.
 
     Returns:
-        A solver instance with ``solve_kkt()``, ``solve_minres()``,
-        ``solve_cg()``, and ``solve_cvxpy()`` methods, each returning
-        ``(w, n_iters)``.
+        A solver instance with ``solve_kkt()``, ``solve_cg()``, and
+        ``solve_pcg()`` methods, each returning ``(w, n_iters)``.
 
     Examples:
         >>> import numpy as np
