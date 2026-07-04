@@ -1,10 +1,9 @@
-"""Tests for solve_clarabel across _MinVarProblem and _Problem."""
+"""Tests for solve_clarabel on _MinVarProblem."""
 
 import numpy as np
 import pytest
 
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
-from fast_minimum_variance.problem import _Problem as Problem
 
 
 def _make_returns(T, N, seed=42):  # noqa: N803
@@ -28,12 +27,6 @@ def X_small():  # noqa: N802
 def mvp(X):  # noqa: N803
     """MinVarProblem wrapping the session-scoped (200, 10) return matrix."""
     return MinVarProblem(X, target=np.eye(X.shape[1]))
-
-
-@pytest.fixture(scope="module")
-def prob(X):  # noqa: N803
-    """Problem wrapping the session-scoped (200, 10) return matrix."""
-    return Problem(X)
 
 
 # ---------------------------------------------------------------------------
@@ -86,63 +79,4 @@ class TestMinVarSolveClarabel:
         """project=False returns raw Clarabel solution without clipping."""
         w, iters = mvp.solve_clarabel(project=False)
         assert w.shape == (mvp.n,)
-        assert iters >= 1
-
-
-# ---------------------------------------------------------------------------
-# Problem
-# ---------------------------------------------------------------------------
-
-
-class TestProblemSolveClarabel:
-    """solve_clarabel on _Problem (arbitrary linear constraints)."""
-
-    def test_shape(self, prob):
-        """Output weight vector has shape (N,)."""
-        w, _ = prob.solve_clarabel()
-        assert w.shape == (prob.n,)
-
-    def test_weights_sum_to_one(self, prob):
-        """Weights sum to 1."""
-        w, _ = prob.solve_clarabel()
-        assert w.sum() == pytest.approx(1.0, abs=1e-5)
-
-    def test_weights_non_negative(self, prob):
-        """All weights are non-negative."""
-        w, _ = prob.solve_clarabel()
-        assert np.all(w >= -1e-6)
-
-    def test_close_to_kkt(self, X_small):  # noqa: N803
-        """Clarabel solution agrees with KKT to solver tolerance."""
-        w_clar, _ = Problem(X_small).solve_clarabel()
-        w_kkt, _ = Problem(X_small).solve_kkt()
-        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
-
-    def test_agrees_with_minvar(self, X_small):  # noqa: N803
-        """_Problem and _MinVarProblem should give the same clarabel solution."""
-        w_prob, _ = Problem(X_small).solve_clarabel()
-        w_mvp, _ = MinVarProblem(X_small).solve_clarabel()
-        np.testing.assert_allclose(w_prob, w_mvp, atol=1e-5)
-
-    def test_with_shrinkage(self, X_small):  # noqa: N803
-        """Shrinkage branch (alpha > 0) agrees with KKT."""
-        T, N = X_small.shape  # noqa: N806
-        p = Problem(X_small, alpha=N / (N + T))
-        w_clar, _ = p.solve_clarabel()
-        w_kkt, _ = p.solve_kkt()
-        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
-
-    def test_return_tilt_branch(self, X_small):  # noqa: N803
-        """Return-tilt (rho != 0) sets q = -rho*mu."""
-        _T, N = X_small.shape  # noqa: N806
-        mu = np.random.default_rng(7).standard_normal(N)
-        p = Problem(X_small, rho=0.5, mu=mu)
-        w_clar, _ = p.solve_clarabel()
-        w_kkt, _ = p.solve_kkt()
-        np.testing.assert_allclose(w_clar, w_kkt, atol=1e-4)
-
-    def test_project_false(self, prob):
-        """project=False returns raw Clarabel solution without clipping."""
-        w, iters = prob.solve_clarabel(project=False)
-        assert w.shape == (prob.n,)
         assert iters >= 1

@@ -164,22 +164,21 @@ When `rho != 0`, two SPD solves are performed per outer step: $\Sigma_a v_1 = \m
 and $\Sigma_a v_2 = \mu_a$. The budget multiplier $\lambda$ is recovered analytically
 from the budget constraint, avoiding the full saddle-point system.
 
-## Custom Constraints
+## Balance Systems
 
-For problems beyond budget + long-only (sector limits, turnover bounds, factor-exposure
-constraints), pass explicit constraint matrices:
+To replace the default budget constraint $\mathbf{1}^\top w = 1$ with a general set of
+linear equality constraints $B w = c$ (e.g. sleeve budgets, factor-exposure targets),
+pass a balance system `(B, c)`:
 
 ```python
-A = np.ones((N, 1))   # budget: 1'w = 1
-b = np.ones(1)
-C = -np.eye(N)        # long-only: w >= 0
-d = np.zeros(N)
-w, _ = Problem(X, A=A, b=b, C=C, d=d).solve_kkt()
+B = np.zeros((2, N)); B[0, :N // 2] = 1.0; B[1, N // 2:] = 1.0  # each half holds...
+c = np.array([0.5, 0.5])                                        # ...half of the budget
+w, _ = Problem(X, B=B, c=c).solve_kkt()
 ```
 
-This routes to a general active-set solver that handles arbitrary linear equality and
-inequality constraints. Use this path sparingly — the default path (no `A`, `b`, `C`, `d`)
-is significantly faster for the standard long-only problem.
+Long-only ($w \ge 0$) is still enforced. `B` must have full row rank on every active set
+the shrinking loop visits. Use this path only when you need it — the default path (no `B`,
+`c`) is faster for the standard budget + long-only problem.
 
 ## Benchmarks
 

@@ -1,4 +1,6 @@
-"""Simulate equity returns from a latent factor model."""
+"""Simulate equity returns from a latent factor model (experiment-only helper)."""
+
+from __future__ import annotations
 
 import numpy as np
 
@@ -7,7 +9,7 @@ __all__ = ["simulate_equity_returns"]
 
 def simulate_equity_returns(
     n: int,
-    T: int,  # noqa: N803
+    T: int,
     *,
     k: int | None = None,
     rng: np.random.Generator | int | None = None,
@@ -59,12 +61,12 @@ def simulate_equity_returns(
     factor_vols = np.concatenate([[0.01], np.full(k - 1, 0.005)])
 
     # Factor returns: T x k
-    F = rng.standard_normal((T, k)) * factor_vols  # noqa: N806
+    F = rng.standard_normal((T, k)) * factor_vols
 
     # Factor loadings: n x k
     # Market: all assets have positive exposure in [0.4, 0.8]
     # Style:  sparse (~50 % non-zero), drawn from N(0, 0.2)
-    B = np.zeros((n, k))  # noqa: N806
+    B = np.zeros((n, k))
     B[:, 0] = rng.uniform(0.4, 0.8, size=n)
     for j in range(1, k):
         mask = rng.random(n) < 0.5
@@ -72,8 +74,8 @@ def simulate_equity_returns(
 
     # Idiosyncratic volatility: uniform in [0.5 %, 1.5 %] per asset
     idio_vols = rng.uniform(0.005, 0.015, size=n)
-    E = rng.standard_normal((T, n)) * idio_vols  # noqa: N806
+    E = rng.standard_normal((T, n)) * idio_vols
 
-    X: np.ndarray = F @ B.T + E  # noqa: N806
-    X -= X.mean(axis=0)  # noqa: N806
+    X: np.ndarray = F @ B.T + E
+    X -= X.mean(axis=0)
     return X

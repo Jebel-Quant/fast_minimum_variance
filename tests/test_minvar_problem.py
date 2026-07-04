@@ -5,9 +5,6 @@ import pytest
 
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
-# we have some cross-validation tests that need to access the _Problem class
-from fast_minimum_variance.problem import _Problem as Problem
-
 
 def _sigma(p, active):
     """Compute the n_a × n_a SPD covariance matrix for the active assets."""
@@ -500,29 +497,6 @@ class TestSolveOsqp:
         """OSQP always takes at least one ADMM iteration."""
         _, iters = mvp.solve_osqp()
         assert iters > 0
-
-
-# ---------------------------------------------------------------------------
-# Cross-validation: MinVarProblem agrees with Problem
-# ---------------------------------------------------------------------------
-
-
-class TestCrossValidation:
-    """MinVarProblem and Problem should produce identical portfolios."""
-
-    def test_kkt_agrees_with_problem(self, X_small):  # noqa: N803
-        """KKT solutions from both classes are identical."""
-        w_mvp, _ = MinVarProblem(X_small).solve_kkt()
-        w_prob, _ = Problem(X_small).solve_kkt()
-        np.testing.assert_allclose(w_mvp, w_prob, atol=1e-6)
-
-    def test_with_shrinkage(self, X_small):  # noqa: N803
-        """Agreement holds with Ledoit-Wolf ridge."""
-        T, N = X_small.shape  # noqa: N806
-        alpha = N / (N + T)
-        w_mvp, _ = MinVarProblem(X_small, alpha=alpha).solve_kkt()
-        w_prob, _ = Problem(X_small, alpha=alpha).solve_kkt()
-        np.testing.assert_allclose(w_mvp, w_prob, atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
