@@ -13,6 +13,8 @@ def Problem(  # noqa: N802
     b: np.ndarray | None = None,
     C: np.ndarray | None = None,  # noqa: N803
     d: np.ndarray | None = None,
+    B: np.ndarray | None = None,  # noqa: N803
+    c: np.ndarray | None = None,
     alpha: float = 0.0,
     rho: float = 0.0,
     mu: np.ndarray | None = None,
@@ -22,8 +24,9 @@ def Problem(  # noqa: N802
     """Create a portfolio optimisation problem.
 
     Returns a :class:`_MinVarProblem` (shrinking active-set) when no custom
-    constraints are supplied, or a :class:`_Problem` (growing active-set) when
-    any of ``A``, ``b``, ``C``, ``d`` are provided.
+    constraints — or only a balance system ``(B, c)`` — are supplied, or a
+    :class:`_Problem` (growing active-set) when any of ``A``, ``b``, ``C``,
+    ``d`` are provided.
 
     Args:
         X:      Returns matrix of shape ``(T, N)``.
@@ -34,6 +37,11 @@ def Problem(  # noqa: N802
         b:      Equality RHS ``(m,)``.
         C:      Inequality constraint matrix ``(N, p)``: ``C^T w <= d``.
         d:      Inequality RHS ``(p,)``.
+        B:      Balance system ``(p, N)`` for the fast shrinking active-set
+                path: ``B w = c`` replaces the budget ``1^T w = 1``.  ``B``
+                must have full row rank on every active set the loop visits.
+                Cannot be combined with ``A``/``b``/``C``/``d``.
+        c:      Balance RHS ``(p,)``; required together with ``B``.
         alpha:     Shrinkage intensity; only active when ``target`` is provided.
         rho:       Return tilt strength (Markowitz mean-variance).
         mu:        Expected returns vector ``(N,)``; required when ``rho != 0``.
@@ -55,9 +63,24 @@ def Problem(  # noqa: N802
         1.0
         >>> bool((w >= 0).all())
         True
+
+        A two-sleeve balance system — each half of the universe holds half
+        of the budget:
+
+        >>> B = np.zeros((2, 20)); B[0, :10] = 1.0; B[1, 10:] = 1.0
+        >>> w, _ = Problem(X, B=B, c=np.array([0.5, 0.5])).solve_kkt()
+        >>> [float(round(s, 8)) for s in B @ w]
+        [0.5, 0.5]
+        >>> bool((w >= -1e-6).all())
+        True
     """
     if A is None and b is None and C is None and d is None:
-        return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu, target_lr=target_lr, pcg_lr=pcg_lr)
+        return _MinVarProblem(
+            X, target=target, alpha=alpha, rho=rho, mu=mu, target_lr=target_lr, pcg_lr=pcg_lr, B=B, c=c
+        )
+
+    if B is not None or c is not None:
+        raise ValueError("B/c (balance system) cannot be combined with A/b/C/d constraints")  # noqa: TRY003
 
     # number of assets
     n = X.shape[1]

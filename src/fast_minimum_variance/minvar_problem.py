@@ -22,14 +22,19 @@ class _MinVarProblem(_BaseProblem):
     Solves::
 
         min  (1-alpha)||X w||^2 + alpha*(||X||_F^2/N)*||w||^2 - rho*mu^T w
-        s.t. 1^T w = 1,  w >= 0
+        s.t. B w = c,  w >= 0
+
+    where ``B`` is a ``(p, N)`` balance system with full row rank on every
+    active set the loop visits.  The default (``B = None``) is the budget
+    constraint ``1^T w = 1`` (``p = 1``).
 
     Each inner step solves the equality-constrained subproblem over the current
-    active asset set.  Stationarity gives ``2*Sigma_a*w_a = lambda*1 + rho*mu_a``
+    active asset set.  Stationarity gives ``2*Sigma_a*w_a = B_a^T lambda + rho*mu_a``
     where ``Sigma_a = (1-alpha)*X_a^T X_a + ridge*I``.  Solving the ``n_a x n_a``
-    SPD system ``Sigma_a v = 1`` (and ``Sigma_a v2 = mu_a`` when ``rho != 0``)
-    and recovering ``lambda`` from the budget constraint avoids the indefinite
-    ``(n_a+1) x (n_a+1)`` saddle-point system entirely.  The outer primal-dual
+    SPD system ``Sigma_a V = B_a^T`` (``p`` right-hand sides, plus
+    ``Sigma_a v_mu = mu_a`` when ``rho != 0``) and recovering ``lambda`` from the
+    ``p x p`` Schur system ``(B_a V) lambda = c`` avoids the indefinite
+    ``(n_a+p) x (n_a+p)`` saddle-point system entirely.  The outer primal-dual
     loop enforces ``w >= 0`` and terminates when both primal and dual feasibility
     hold simultaneously.
 
@@ -49,7 +54,59 @@ class _MinVarProblem(_BaseProblem):
         True
     """
 
-    # No extra fields — X, alpha, rho, mu all inherited from _BaseProblem.
+    B: np.ndarray | None = None  # (p, N) balance system: B w = c; None = budget 1^T w = 1
+    c: np.ndarray | None = None  # (p,) balance targets
+
+    def __post_init__(self) -> None:
+        """Validate balance-system shapes on top of the base checks."""
+        super().__post_init__()
+        if (self.B is None) != (self.c is None):
+            raise ValueError("B and c must be supplied together")  # noqa: TRY003
+        if self.B is not None:
+            c = self.c
+            assert c is not None  # noqa: S101
+            if self.B.ndim != 2 or self.B.shape[1] != self.n:
+                raise ValueError(f"B must have shape (p, {self.n}), got {self.B.shape}")  # noqa: TRY003
+            if c.shape != (self.B.shape[0],):
+                raise ValueError(f"c must have shape ({self.B.shape[0]},), got {c.shape}")  # noqa: TRY003
+
+    # ------------------------------------------------------------------
+    # Balance-system helpers (budget is the p = 1 special case)
+    # ------------------------------------------------------------------
+
+    @property
+    def _p(self) -> int:
+        """Number of balance constraints (1 for the default budget)."""
+        return 1 if self.B is None else int(self.B.shape[0])
+
+    def _c_vec(self) -> np.ndarray:
+        """Balance right-hand side ``c`` (the budget gives ``[1.0]``)."""
+        return np.ones(1) if self.c is None else self.c
+
+    def _balance_rows(self, active: np.ndarray) -> np.ndarray:
+        """Return ``B_a``, the balance system restricted to active assets, shape ``(p, n_a)``."""
+        if self.B is None:
+            return np.ones((1, int(active.sum())))
+        return self.B[:, active]
+
+    def _recover_balance(self, v_eq: np.ndarray, v_mu: np.ndarray | None, b_a: np.ndarray) -> np.ndarray:
+        """Recover ``w_a`` from the Schur reduction of the balance system.
+
+        Given ``V = Sigma_a^{-1} B_a^T`` (columns of ``v_eq``) and optionally
+        ``v_mu = Sigma_a^{-1} mu_a``, stationarity ``2*Sigma_a*w = B_a^T lambda
+        + rho*mu_a`` and feasibility ``B_a w = c`` pin the multiplier through
+        the ``p x p`` SPD Schur system ``(B_a V) eta = c - rho/2 * B_a v_mu``
+        with ``eta = lambda/2``, so ``w = V eta + rho/2 * v_mu``.
+        """
+        schur = b_a @ v_eq  # (p, p)
+        rhs = self._c_vec().astype(np.float64)
+        if v_mu is not None:
+            rhs = rhs - 0.5 * self.rho * (b_a @ v_mu)
+        eta = np.linalg.solve(schur, rhs) if self._p > 1 else rhs / schur[0, 0]
+        w = v_eq @ eta
+        if v_mu is not None:
+            w = w + 0.5 * self.rho * v_mu
+        return w
 
     # ------------------------------------------------------------------
     # Shared helpers used by both active-set loop variants
@@ -85,13 +142,26 @@ class _MinVarProblem(_BaseProblem):
         return True
 
     def _dual_add(self, grad: np.ndarray, asset_active: np.ndarray, tol: float) -> int:
-        """Return index of excluded asset that violates KKT dual condition, or -1 if none."""
+        """Return index of excluded asset that violates KKT dual condition, or -1 if none.
+
+        The multiplier is estimated from the active gradient: for the budget the
+        stationary ``lambda`` is a location estimate of ``g_a`` (median for
+        robustness on larger sets); for a general balance system it is the
+        least-squares solution of ``B_a^T lambda = g_a``.  The bound multiplier
+        estimate is then ``nu = grad - B^T lambda``, which must be non-negative
+        on excluded assets at the optimum.
+        """
         excluded = ~asset_active
         if not excluded.any():
             return -1
         g_a = grad[asset_active]
-        lambda_ = np.median(g_a) if g_a.size > 5 else g_a.mean()
-        nu = grad - lambda_
+        if self.B is None:
+            lambda_ = np.median(g_a) if g_a.size > 5 else g_a.mean()
+            nu = grad - lambda_
+        else:
+            b_a = self.B[:, asset_active]
+            lam, *_ = np.linalg.lstsq(b_a.T, g_a, rcond=None)
+            nu = grad - self.B.T @ lam
         idx_ex = np.where(excluded)[0]
         j = idx_ex[np.argmin(nu[excluded])]
         return int(j) if nu[j] < -tol else -1
@@ -149,10 +219,12 @@ class _MinVarProblem(_BaseProblem):
     def _kkt_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:  # noqa: ARG002
         """Solve the reduced SPD system directly; return ``(w_a, 1)``.
 
-        Stationarity gives ``2*Sigma_a*w_a = lambda*1 + rho*mu_a``.  A single
-        solve with two RHS columns yields ``v1 = Sigma_a^{-1} 1`` and
-        ``v2 = Sigma_a^{-1} mu_a``; the budget constraint then pins ``lambda``
-        analytically as ``lambda = 2*(1 - rho/2 * sum(v2)) / sum(v1)``.
+        Stationarity gives ``2*Sigma_a*w_a = B_a^T lambda + rho*mu_a``.  A single
+        solve with ``p`` RHS columns yields ``V = Sigma_a^{-1} B_a^T`` (plus
+        ``v_mu = Sigma_a^{-1} mu_a`` when ``rho != 0``); the balance system then
+        pins ``lambda`` through the ``p x p`` Schur solve of
+        :meth:`_recover_balance` (for the budget this reduces to
+        ``lambda = 2*(1 - rho/2 * sum(v_mu)) / sum(v1)``).
 
         When ``alpha=1`` and ``target_lr`` is set the system is purely the RMT
         target ``T0 = bar_lam*I + U_k diag(delta_k) U_k^T``.  The Woodbury
@@ -160,7 +232,9 @@ class _MinVarProblem(_BaseProblem):
         ``T0^{-1} b = b/bar_lam - U_k_a W^{-1}(U_k_a^T b)/bar_lam^2``
         where ``W = diag(1/delta_k) + U_k_a^T U_k_a / bar_lam``.
         """
-        n_a = int(active.sum())
+        b_a = self._balance_rows(active)
+        tilt = self.rho != 0.0 and self.mu is not None
+        rhs = np.column_stack([b_a.T, self.mu[active]]) if tilt else b_a.T
 
         # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target. The target
         # T0 = bar_lam*I + U_k diag(delta_k) U_k^T is a diagonal-plus-low-rank operator,
@@ -168,33 +242,22 @@ class _MinVarProblem(_BaseProblem):
         if self.alpha == 1.0 and self.target_lr is not None:
             bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
             t0 = FactorOperator(np.full(U_k.shape[0], bar_lam), U_k, np.diag(delta_k))
-            idx = np.flatnonzero(active)
-
-            if self.rho == 0.0 or self.mu is None:
-                v = t0.solve_free(idx, np.ones(n_a))
-                return v / v.sum(), 1
-            v1, v2 = t0.solve_free(idx, np.column_stack([np.ones(n_a), self.mu[active]])).T
-            half_rho = 0.5 * self.rho
-            half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
-            return half_lambda * v1 + half_rho * v2, 1
-
-        x_a = self.X[:, active]
-        if self.target is None:
-            sigma = (x_a.T @ x_a) / self.t
+            sols = np.asarray(t0.solve_free(np.flatnonzero(active), rhs))
         else:
-            sigma = (1.0 - self.alpha) * (x_a.T @ x_a) / self.t + self.alpha * self.target[np.ix_(active, active)]
+            x_a = self.X[:, active]
+            if self.target is None:
+                sigma = (x_a.T @ x_a) / self.t
+            else:
+                sigma = (1.0 - self.alpha) * (x_a.T @ x_a) / self.t + self.alpha * self.target[np.ix_(active, active)]
+            sols = spd_solve(sigma, rhs, assume_a="pos")
 
-        if self.rho == 0.0 or self.mu is None:
-            v = spd_solve(sigma, np.ones(n_a), assume_a="pos")
-            return v / v.sum(), 1
-
-        v1, v2 = spd_solve(sigma, np.column_stack([np.ones(n_a), self.mu[active]]), assume_a="pos").T
-        half_rho = 0.5 * self.rho
-        half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
-        return half_lambda * v1 + half_rho * v2, 1
+        v_mu = sols[:, -1] if tilt else None
+        return self._recover_balance(sols[:, : self._p], v_mu, b_a), 1
 
     def _cvxpy_constraints(self, w: Any, cp: Any) -> list[Any]:
-        """Return budget-equality and long-only inequality constraints for CVXPY."""
+        """Return balance-equality and long-only inequality constraints for CVXPY."""
+        if self.B is not None:
+            return [self.B @ w == self.c, w >= 0]
         return [cp.sum(w) == 1, w >= 0]
 
     def _system_operator(self) -> SumOperator:
@@ -216,11 +279,34 @@ class _MinVarProblem(_BaseProblem):
             terms.append((self.alpha, DenseOperator(self.target)))
         return SumOperator(terms)
 
+    @staticmethod
+    def _free_matvec(sigma: SumOperator, active_idx: np.ndarray) -> Callable[[np.ndarray], np.ndarray]:
+        """Return the free-block action ``v -> Sigma[A, A] v`` with the slice hoisted out.
+
+        When cvx-linalg exposes ``restricted`` (>= 0.9.6), the pre-sliced free-block
+        operator is built once here and its plain ``matvec`` is returned. Calling
+        ``apply_free(idx, v)`` per CG iteration instead re-gathers the operator's
+        storage (the Gram factor columns) on every call, which costs an order of
+        magnitude more wall clock at identical iteration counts. The fallback keeps
+        older cvx-linalg releases working.
+        """
+        restricted = getattr(sigma, "restricted", None)
+        if restricted is not None:
+            try:
+                restricted_op = restricted(active_idx)
+            except NotImplementedError:
+                restricted_op = None
+            if restricted_op is not None:
+                matvec: Callable[[np.ndarray], np.ndarray] = restricted_op.matvec
+                return matvec
+        return lambda v: sigma.apply_free(active_idx, v)
+
     def _cg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
 
         Runs conjugate gradients over the active-set system operator
-        (:meth:`_system_operator`, applied through ``apply_free``) without ever
+        (:meth:`_system_operator`), restricted to the active set once per step so
+        the reduced matvec is ``O(n_a T)`` rather than ``O(n T)``, without ever
         forming ``Sigma_a`` explicitly. Low-rank and dense targets share one path.
 
         Args:
@@ -231,24 +317,23 @@ class _MinVarProblem(_BaseProblem):
         n_a = int(active.sum())
         sigma = self._system_operator()
         active_idx = np.flatnonzero(active)
+        free_matvec = self._free_matvec(sigma, active_idx)
         count = [0]
 
         def matvec(v: np.ndarray) -> np.ndarray:
-            """Apply Sigma_a to v via the operator's free-block product."""
+            """Apply Sigma_a to v via the pre-sliced free-block operator."""
             count[0] += 1
-            return sigma.apply_free(active_idx, v)
+            return free_matvec(v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
-        if self.rho == 0.0 or self.mu is None:
-            v, _ = cg(op, np.ones(n_a), x0=x0)
-            return v / v.sum(), count[0]
-
-        v1, _ = cg(op, np.ones(n_a), x0=x0)
-        v2, _ = cg(op, self.mu[active], x0=x0)
-        half_rho = 0.5 * self.rho
-        half_lambda = (1.0 - half_rho * v2.sum()) / v1.sum()
-        return half_lambda * v1 + half_rho * v2, count[0]
+        b_a = self._balance_rows(active)
+        # x0 approximates the final w, which is proportional to the single
+        # solve column only in the budget case; skip the guess for p > 1.
+        guess = x0 if self._p == 1 else None
+        v_eq = np.column_stack([cg(op, b_a[j], x0=guess)[0] for j in range(self._p)])
+        v_mu = cg(op, self.mu[active], x0=guess)[0] if self.rho != 0.0 and self.mu is not None else None
+        return self._recover_balance(v_eq, v_mu, b_a), count[0]
 
     def _pcg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via PCG with RMT preconditioner; return (w_a, iters).
@@ -260,15 +345,16 @@ class _MinVarProblem(_BaseProblem):
         """
         n_a = int(active.sum())
 
-        # System matvec — the same active-set operator as _cg_step.
+        # System matvec — the same active-set operator as _cg_step, sliced once.
         sigma = self._system_operator()
         active_idx = np.flatnonzero(active)
+        free_matvec = self._free_matvec(sigma, active_idx)
         count = [0]
 
         def matvec(v: np.ndarray) -> np.ndarray:
             """Apply the active-set system matrix Sigma_a to v."""
             count[0] += 1
-            return sigma.apply_free(active_idx, v)
+            return free_matvec(v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
@@ -287,8 +373,10 @@ class _MinVarProblem(_BaseProblem):
 
         M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]  # noqa: N806
 
-        v, _ = cg(op, np.ones(n_a), x0=x0, M=M_op)
-        return v / v.sum(), count[0]
+        b_a = self._balance_rows(active)
+        guess = x0 if self._p == 1 else None
+        v_eq = np.column_stack([cg(op, b_a[j], x0=guess, M=M_op)[0] for j in range(self._p)])
+        return self._recover_balance(v_eq, None, b_a), count[0]
 
     def _constraint_active_set_warm(
         self,
@@ -457,35 +545,37 @@ class _MinVarProblem(_BaseProblem):
         return w, outer, (final_active, final_w)
 
     def _clarabel_constraints(self) -> tuple[csc_matrix, np.ndarray, list[Any]]:
-        """Return budget-equality and long-only inequality constraints for Clarabel."""
+        """Return balance-equality and long-only inequality constraints for Clarabel."""
         n = self.n
+        b_rows = np.ones((1, n)) if self.B is None else self.B
         a_mat = vstack(
-            [csc_matrix(np.ones((1, n))), -eye(n, format="csc")],
+            [csc_matrix(b_rows), -eye(n, format="csc")],
             format="csc",
         )
 
-        b_vec = np.concatenate([[1.0], np.zeros(n)])
-        cones = [clarabel.ZeroConeT(1), clarabel.NonnegativeConeT(n)]  # ty:ignore[unresolved-attribute]
+        b_vec = np.concatenate([self._c_vec(), np.zeros(n)])
+        cones = [clarabel.ZeroConeT(self._p), clarabel.NonnegativeConeT(n)]  # ty:ignore[unresolved-attribute]
         return a_mat, b_vec, cones
 
     def _osqp_constraints(self) -> tuple[csc_matrix, np.ndarray, np.ndarray]:
-        """Return budget-equality and long-only inequality constraints for OSQP."""
+        """Return balance-equality and long-only inequality constraints for OSQP."""
         n = self.n
+        b_rows = np.ones((1, n)) if self.B is None else self.B
         a_mat = vstack(
-            [csc_matrix(np.ones((1, n))), eye(n, format="csc")],
+            [csc_matrix(b_rows), eye(n, format="csc")],
             format="csc",
         )
-        l_vec = np.concatenate([[1.0], np.zeros(n)])
-        u_vec = np.concatenate([[1.0], np.full(n, np.inf)])
+        l_vec = np.concatenate([self._c_vec(), np.zeros(n)])
+        u_vec = np.concatenate([self._c_vec(), np.full(n, np.inf)])
         return a_mat, l_vec, u_vec
 
     def _nnls_solve(self) -> tuple[np.ndarray, int]:
         """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
 
-        Builds ``A = [sqrt(1-alpha)*X ; sqrt(gamma)*I ; M*ones^T]`` and
-        solves ``min ||Aw||² s.t. w >= 0``.  The budget row with weight
-        ``M = ||X||_F * T`` enforces ``ones^T w ≈ 1``; exact normalisation
-        is applied by the ``project`` step in ``solve_nnls``.
+        Builds ``A = [sqrt(1-alpha)*X ; sqrt(gamma)*I ; M*B]`` and
+        solves ``min ||Aw||² s.t. w >= 0``.  The balance rows with weight
+        ``M = ||X||_F * T`` enforce ``B w ≈ c``; for the budget, exact
+        normalisation is applied by the ``project`` step in ``solve_nnls``.
         Return tilt (``rho != 0``) is not supported.
         """
         t = self.X.shape[0]
@@ -503,8 +593,23 @@ class _MinVarProblem(_BaseProblem):
         else:
             rows = [np.sqrt(1.0 / self.t) * self.X]
             tgt = [np.zeros(t)]
-        rows.append(m * np.ones((1, self.n)))
-        tgt.append(np.array([m]))
+        rows.append(m * (np.ones((1, self.n)) if self.B is None else self.B))
+        tgt.append(m * self._c_vec())
 
         w, _ = nnls(np.vstack(rows), np.concatenate(tgt))
         return w, 1
+
+    # ------------------------------------------------------------------
+    # Budget-specific overrides
+    # ------------------------------------------------------------------
+
+    def _clip_and_renormalize(self, w: np.ndarray) -> np.ndarray:  # ty:ignore[invalid-method-override]
+        """Project onto the budget simplex; identity when a balance system is set.
+
+        Renormalising by the weight sum would break a general ``B w = c``, and
+        the active-set loop already exits primal-feasible, so balance-system
+        solves return the iterate unchanged.
+        """
+        if self.B is not None:
+            return w
+        return _BaseProblem._clip_and_renormalize(w)

@@ -7,7 +7,7 @@ Usage:
     uv run experiment_synthetic.py   # from the experiment/ directory
 
 Outputs (stdout):
-    Scaling table — runtime vs n for KKT / CG / proximal (T=1250 fixed).
+    Scaling table — runtime vs n for KKT / CG (T=1250 fixed).
     Iterations table — CG iterations vs alpha (n=500, T=250, rank-deficient).
     Frontier table — warm- vs cold-start sweep timings (n=500, T=1250).
 
@@ -78,14 +78,9 @@ print("=" * 70)
 
 T_FIXED = 1250
 ns = [50, 100, 200, 300, 500, 750, 1000, 1500, 2000, 3000]
-times = {k: [] for k in ("kkt", "cg", "proximal", "fista")}
+times = {k: [] for k in ("kkt", "cg")}
 
-print(
-    f"{'n':>6}  {'k_active':>8}  {'kkt(s)':>10}  {'kkt_out':>8}"
-    f"  {'cg(s)':>10}  {'cg_out':>7}  {'cg_in':>7}"
-    f"  {'prox(s)':>10}  {'prox_in':>8}"
-    f"  {'fista(s)':>10}  {'fista_in':>9}"
-)
+print(f"{'n':>6}  {'k_active':>8}  {'kkt(s)':>10}  {'kkt_out':>8}  {'cg(s)':>10}  {'cg_out':>7}  {'cg_in':>7}")
 print("-" * 110)
 
 for n in ns:
@@ -96,19 +91,10 @@ for n in ns:
     (w_kkt, kkt_outer), t_kkt = run_timed(lambda p=prob: p.solve_kkt())
     k_active = int((w_kkt > 1e-6).sum())
     (_, cg_outer, cg_inner), t_cg = run_timed(lambda p=prob: p.solve_cg())
-    (_, prox_inner), t_prox = run_timed(lambda p=prob: p.solve_proximal())
-    (_, fista_inner), t_fista = run_timed(lambda p=prob: p.solve_fista())
 
     times["kkt"].append(t_kkt)
     times["cg"].append(t_cg)
-    times["proximal"].append(t_prox)
-    times["fista"].append(t_fista)
-    print(
-        f"{n:>6}  {k_active:>8}  {t_kkt:>10.4f}  {kkt_outer:>8}"
-        f"  {t_cg:>10.4f}  {cg_outer:>7}  {cg_inner:>7}"
-        f"  {t_prox:>10.4f}  {prox_inner:>8}"
-        f"  {t_fista:>10.4f}  {fista_inner:>9}"
-    )
+    print(f"{n:>6}  {k_active:>8}  {t_kkt:>10.4f}  {kkt_outer:>8}  {t_cg:>10.4f}  {cg_outer:>7}  {cg_inner:>7}")
 
 # Empirical scaling exponent for CG (log-log least squares over n >= 300).
 _ns = np.array(ns, dtype=float)
@@ -150,16 +136,15 @@ for a in alphas:
 # Figures 1 and 2
 # ---------------------------------------------------------------------------
 
-COLORS = {"cg": "#ff7f0e", "proximal": "#9467bd", "kkt": "#1f77b4"}
+COLORS = {"cg": "#ff7f0e", "kkt": "#1f77b4"}
 LABELS = {
     "cg": "CG (LW, $\\alpha=0.5$)",
-    "proximal": "Proximal gradient",
     "kkt": "KKT (Cholesky)",
 }
 
 # Figure 1: runtime vs n
 fig1, ax1 = plt.subplots(figsize=(4.5, 3.2))
-for key in ("kkt", "cg", "proximal"):
+for key in ("kkt", "cg"):
     ax1.plot(ns, times[key], marker="o", markersize=4, label=LABELS[key], color=COLORS[key])
 n_arr = np.array(ns, dtype=float)
 anchor_idx = ns.index(500)
@@ -233,7 +218,6 @@ def _sweep_cold(solve_fn, repeats=3, ef_alpha=None, ef_target=None):
 print("Running cold sweeps...")
 ef_times_cvxpy = _sweep_cold(lambda p: p.solve_cvxpy(), repeats=1)
 ef_times_osqp = _sweep_cold(lambda p: p.solve_osqp(), repeats=3)
-ef_times_proximal = _sweep_cold(lambda p: p.solve_proximal(), repeats=3)
 ef_times_cg_cold = _sweep_cold(lambda p: p.solve_cg(), repeats=3)
 print("Running CG warm-start sweep...")
 ef_warm_runs = []
@@ -280,7 +264,6 @@ print(f"\n{'Solver':<30}  {'Cold total':>12}  {'Warm total':>12}")
 print("-" * 70)
 _row("cvxpy (Clarabel)", ef_times_cvxpy)
 _row("OSQP (direct API)", ef_times_osqp)
-_row("Proximal gradient", ef_times_proximal)
 _row("CG (alpha=0.5, LW)", ef_times_cg_cold, ef_times_cg_warm)
 
 total_ef_cold = sum(ef_times_cg_cold)
@@ -318,7 +301,6 @@ write_frontier_def(
     [
         {"label": "cvxpy (Clarabel)", "cold": sum(ef_times_cvxpy), "warm": None},
         {"label": "OSQP (direct API)", "cold": sum(ef_times_osqp), "warm": None},
-        {"label": "Proximal gradient", "cold": sum(ef_times_proximal), "warm": None},
         {"label": r"CG (LW, $\alpha=0.5$)", "cold": sum(ef_times_cg_cold), "warm": sum(ef_times_cg_warm)},
     ],
     n_pts=N_PTS,
