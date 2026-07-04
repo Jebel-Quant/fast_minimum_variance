@@ -52,8 +52,8 @@ import numpy as np
 import pandas as pd
 from sklearn.utils.extmath import randomized_svd
 from util.runner import run_timed
+from util.simulate import simulate_equity_returns
 
-from fast_minimum_variance.data import simulate_equity_returns
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 from fast_minimum_variance.shrinkage.util import (
     rmt_target_and_alpha,

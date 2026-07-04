@@ -42,8 +42,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from util.runner import run_timed, write_frontier_def
+from util.simulate import simulate_equity_returns
 
-from fast_minimum_variance.data import simulate_equity_returns
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 from fast_minimum_variance.shrinkage.util import (
     lw_alpha_and_target,
