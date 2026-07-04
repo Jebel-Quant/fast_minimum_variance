@@ -234,7 +234,7 @@ class _MinVarProblem(_BaseProblem):
         """
         b_a = self._balance_rows(active)
         tilt = self.rho != 0.0 and self.mu is not None
-        rhs = np.column_stack([b_a.T, self.mu[active]]) if tilt else b_a.T
+        rhs = np.column_stack([b_a.T, self.mu[active]]) if tilt and self.mu is not None else b_a.T
 
         # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target. The target
         # T0 = bar_lam*I + U_k diag(delta_k) U_k^T is a diagonal-plus-low-rank operator,
@@ -611,7 +611,7 @@ class _MinVarProblem(_BaseProblem):
     # Budget-specific overrides
     # ------------------------------------------------------------------
 
-    def _clip_and_renormalize(self, w: np.ndarray) -> np.ndarray:  # ty:ignore[invalid-method-override]
+    def _clip_and_renormalize(self, w: np.ndarray) -> np.ndarray:  # type: ignore[override]
         """Project onto the budget simplex; identity when a balance system is set.
 
         Renormalising by the weight sum would break a general ``B w = c``, and

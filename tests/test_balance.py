@@ -213,12 +213,16 @@ class TestFreeMatvec:
         calls = {"restricted": 0, "apply_free": 0}
 
         class _Restrictable:
+            """Backend exposing ``restricted`` so it should never touch ``apply_free``."""
+
             def restricted(self, free):
+                """Return a sub-operator over ``free``, counting the call."""
                 calls["restricted"] += 1
                 sub = np.diag([1.0, 2.0, 3.0])
                 return type("_Sub", (), {"matvec": staticmethod(lambda v: sub @ v)})()
 
             def apply_free(self, free, v):  # pragma: no cover - must not be reached
+                """Fail loudly: ``restricted`` should be preferred over this path."""
                 calls["apply_free"] += 1
                 raise AssertionError
 
@@ -230,7 +234,10 @@ class TestFreeMatvec:
         """A backend without ``restricted`` falls back to per-call ``apply_free``."""
 
         class _Legacy:
+            """Backend without ``restricted``; only the ``apply_free`` path exists."""
+
             def apply_free(self, free, v):
+                """Scale the free sub-vector by two."""
                 return 2.0 * v
 
         f = MinVarProblem._free_matvec(_Legacy(), np.array([0, 1]))
@@ -240,10 +247,14 @@ class TestFreeMatvec:
         """A backend whose ``restricted`` raises NotImplementedError falls back."""
 
         class _Partial:
+            """Backend whose ``restricted`` is declared but not implemented."""
+
             def restricted(self, free):
+                """Signal that restriction is unsupported so the fallback is used."""
                 raise NotImplementedError
 
             def apply_free(self, free, v):
+                """Scale the free sub-vector by three."""
                 return 3.0 * v
 
         f = MinVarProblem._free_matvec(_Partial(), np.array([0]))
