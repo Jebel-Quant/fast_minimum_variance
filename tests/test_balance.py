@@ -134,20 +134,20 @@ class TestBudgetEquivalence:
 
 
 # ---------------------------------------------------------------------------
-# Sleeve systems against the CVXPY reference
+# Sleeve systems against the reference oracle
 # ---------------------------------------------------------------------------
 
 
 class TestSleeves:
     """p=4 sleeve systems solved by every production path."""
 
-    def test_kkt_matches_cvxpy(self, X, sleeves, lw):  # noqa: N803
-        """solve_kkt reaches the CVXPY objective and is exactly feasible."""
+    def test_kkt_matches_reference(self, X, sleeves, lw, reference_weights):  # noqa: N803
+        """solve_kkt reaches the reference-oracle objective and is exactly feasible."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target)
         w, _ = prob.solve_kkt()
-        w_ref, _ = prob.solve_cvxpy(project=False)
+        w_ref = reference_weights(prob)
 
         assert np.abs(b_eq @ w - c_eq).max() < 1e-12
         assert w.min() > -1e-6
@@ -247,15 +247,15 @@ class TestFreeMatvec:
 class TestSleevesWithTilt:
     """Markowitz tilt combined with a sleeve system."""
 
-    def test_kkt_and_cg_match_cvxpy(self, X, sleeves, lw):  # noqa: N803
-        """Tilted sleeve solves agree with the CVXPY reference."""
+    def test_kkt_and_cg_match_reference(self, X, sleeves, lw, reference_weights):  # noqa: N803
+        """Tilted sleeve solves agree with the reference oracle."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         mu = np.random.default_rng(1).standard_normal(X.shape[1]) * 0.01
         prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
         w_kkt, _ = prob.solve_kkt()
         w_cg, _, _ = prob.solve_cg()
-        w_ref, _ = prob.solve_cvxpy(project=False)
+        w_ref = reference_weights(prob)
         np.testing.assert_allclose(w_kkt, w_ref, atol=1e-5)
         np.testing.assert_allclose(w_cg, w_ref, atol=1e-5)
         assert np.abs(b_eq @ w_kkt - c_eq).max() < 1e-12

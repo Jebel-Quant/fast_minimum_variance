@@ -3,23 +3,19 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
-import cvxpy as cp
 import numpy as np
-from cvx.linalg import cholesky
 
 
 @dataclass(frozen=True)
 class _BaseProblem(ABC):
     """Shared fields, utilities, and solver templates for portfolio problems.
 
-    Subclasses must implement the four abstract hooks:
+    Subclasses must implement the three abstract hooks:
 
     * ``_constraint_active_set(solve_fn)`` — outer constraint-handling loop
     * ``_kkt_step(mask) -> (w, iters)`` — one direct-KKT inner step
     * ``_cg_step(mask) -> (w, iters)`` — one CG inner step
-    * ``_cvxpy_constraints(w, cp) -> list`` — CVXPY constraint list
 
     All ``solve_*`` methods are implemented here as template methods that
     call ``_constraint_active_set`` with the appropriate ``_XXX_step``
@@ -86,11 +82,6 @@ class _BaseProblem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _cvxpy_constraints(self, w: cp.Variable, cp: object) -> list[Any]:  # pragma: no cover
-        """Return the list of CVXPY constraints for ``solve_cvxpy``."""
-        raise NotImplementedError
-
-    @abstractmethod
     def _cg_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:
         """Solve one inner CG step; return ``(w, iters)``."""
         raise NotImplementedError  # pragma: no cover
@@ -133,50 +124,6 @@ class _BaseProblem(ABC):
         if project:
             w = self._clip_and_renormalize(w)
         return w, outer
-
-    def solve_cvxpy(self, *, project: bool = True) -> tuple[np.ndarray, int]:
-        """Solve via CVXPY with the Clarabel backend (reference solver).
-
-        Requires ``cvxpy`` (installed with ``fast-minimum-variance``).
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and solver
-            iteration count.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_cvxpy()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= -1e-6).all())
-            True
-        """
-        w = cp.Variable(self.n)
-        if self.target is not None:
-            # target is the penalty matrix M; decompose as M = chol chol^T so ||chol^T w||^2 = w^T M w
-            chol = cholesky(self.target)
-            objective = (1.0 - self.alpha) * cp.sum_squares(self.X @ w) / self.t + self.alpha * cp.sum_squares(
-                chol.T @ w
-            )
-        else:
-            objective = cp.sum_squares(self.X @ w) / self.t
-        if self.rho != 0.0 and self.mu is not None:
-            objective = objective - self.rho * (self.mu @ w)
-
-        problem = cp.Problem(cp.Minimize(objective), self._cvxpy_constraints(w, cp))
-        problem.solve(solver=cp.CLARABEL)
-
-        result = w.value
-        if result is None:
-            raise RuntimeError("CVXPY solver failed to find a solution")  # noqa: TRY003
-        if project:
-            result = self._clip_and_renormalize(result)
-        return result, int(problem.solver_stats.num_iters or 0)
 
     def solve_cg(self, *, project: bool = True) -> tuple[np.ndarray, int, int]:
         """Solve via matrix-free conjugate gradients.

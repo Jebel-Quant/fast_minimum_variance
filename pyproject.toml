@@ -22,18 +22,12 @@ dependencies = [
     "numpy>=2.0.0",
     "scipy>=1.14",
     "scikit-learn>=1.5",
-    "cvxpy>=1.8",
     "cvx-linalg>=0.9.6",
 ]
 
 [project.urls]
 Homepage = "https://github.com/Jebel-Quant/fast_minimum_variance"
 Repository = "https://github.com/Jebel-Quant/fast_minimum_variance"
-
-#[project.optional-dependencies]
-#convex = [
-#    "cvxpy>=1.0",
-#]
 
 [dependency-groups]
 lint = []
@@ -65,13 +59,6 @@ module = [
 ]
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-# cvxpy ships a py.typed marker but with incomplete annotations; skip following
-# it so partial stubs don't produce spurious attr-defined / untyped-call errors.
-module = ["cvxpy", "cvxpy.*"]
-ignore_missing_imports = true
-follow_imports = "skip"
-
 [tool.deptry]
 optional_dependencies_dev_groups = ["dev"]
 
@@ -81,7 +68,6 @@ polars = "polars"
 scipy = "scipy"
 "scikit-learn" = "sklearn"
 marimo = "marimo"
-cvxpy = "cvxpy"
 pandas = "pandas"
 pyarrow = "pyarrow"
 "cvx-linalg" = "cvx"

@@ -251,12 +251,6 @@ class _MinVarProblem(_BaseProblem):
         v_mu = sols[:, -1] if tilt else None
         return self._recover_balance(sols[:, : self._p], v_mu, b_a), 1
 
-    def _cvxpy_constraints(self, w: Any, cp: Any) -> list[Any]:
-        """Return balance-equality and long-only inequality constraints for CVXPY."""
-        if self.B is not None:
-            return [self.B @ w == self.c, w >= 0]
-        return [cp.sum(w) == 1, w >= 0]
-
     def _system_operator(self) -> SumOperator:
         """Build ``Sigma = (1-alpha)/T * X^T X + alpha * T0`` as a cvx-linalg operator.
 

@@ -1,6 +1,5 @@
 """Tests for _BaseProblem shared fields, utilities, and template solvers."""
 
-import sys
 from dataclasses import dataclass
 
 import numpy as np
@@ -34,10 +33,6 @@ class _Stub(_BaseProblem):
         """Return canned weights and inner iter count 5 for the CG step."""
         return np.array([0.5, -0.1, 0.6]), 5
 
-    def _cvxpy_constraints(self, w, cp):
-        """Return the long-only, sum-to-one CVXPY constraints for the stub."""
-        return [cp.sum(w) == 1, w >= 0]
-
 
 _X3 = np.eye(3)  # minimal 3x3 return matrix for most tests
 
@@ -55,12 +50,12 @@ class TestAbstractInterface:
         with pytest.raises(TypeError):
             _BaseProblem(_X3)  # type: ignore[abstract]
 
-    def test_missing_cvxpy_constraints_raises(self):
-        """A subclass missing _cvxpy_constraints cannot be instantiated."""
+    def test_missing_cg_step_raises(self):
+        """A subclass missing _cg_step cannot be instantiated."""
 
         @dataclass(frozen=True)
         class _Partial(_BaseProblem):
-            """_BaseProblem subclass missing _cvxpy_constraints (still abstract)."""
+            """_BaseProblem subclass missing _cg_step (still abstract)."""
 
             def _constraint_active_set(self, fn):
                 """Call fn once and return its result."""
@@ -70,7 +65,7 @@ class TestAbstractInterface:
                 """Return zero weights and iter count 1."""
                 return np.zeros(3), 1
 
-            # _cvxpy_constraints intentionally omitted
+            # _cg_step intentionally omitted
 
         with pytest.raises(TypeError):
             _Partial(_X3)
@@ -176,66 +171,3 @@ class TestProjectParameter:
         w_default, _ = _Stub(_X3).solve_kkt()
         w_explicit, _ = _Stub(_X3).solve_kkt(project=True)
         np.testing.assert_array_equal(w_default, w_explicit)
-
-
-# ---------------------------------------------------------------------------
-# solve_cvxpy
-# ---------------------------------------------------------------------------
-
-
-class TestSolveCvxpy:
-    """Tests for _BaseProblem.solve_cvxpy template."""
-
-    def test_raises_import_error_when_cvxpy_missing(self, monkeypatch):
-        """solve_cvxpy raises ImportError when cvxpy is absent from sys.modules.
-
-        Evict every cached ``cvxpy`` submodule, not just the top-level name, so
-        the assertion does not depend on whether an earlier test warmed cvxpy's
-        lazy-import cache (which made this order-dependent).
-        """
-        for name in [m for m in sys.modules if m == "cvxpy" or m.startswith("cvxpy.")]:
-            monkeypatch.setitem(sys.modules, name, None)
-        with pytest.raises(ImportError, match="cvxpy"):
-            _Stub(_X3).solve_cvxpy()
-
-    def test_calls_cvxpy_constraints(self):
-        """_cvxpy_constraints is invoked during solve_cvxpy."""
-        stub = _Stub(_X3)
-        w, iters = stub.solve_cvxpy()
-        assert w.sum() == pytest.approx(1.0, abs=1e-4)
-        assert np.all(w >= -1e-4)
-        assert iters > 0
-
-    def test_solve_cvxpy_project_false(self):
-        """project=False returns the raw CVXPY solution without clipping."""
-        w, _ = _Stub(_X3).solve_cvxpy(project=False)
-        assert w.shape == (3,)
-
-    def test_raises_runtime_error_when_no_solution(self, monkeypatch):
-        """solve_cvxpy raises RuntimeError when the solver leaves w.value unset."""
-        import cvxpy as cp
-
-        # No-op solve leaves the Variable's value as None (never populated).
-        monkeypatch.setattr(cp.Problem, "solve", lambda self, *args, **kwargs: None)
-        with pytest.raises(RuntimeError, match="failed to find a solution"):
-            _Stub(_X3).solve_cvxpy()
-
-    def test_cvxpy_constraints_called_with_correct_args(self):
-        """_cvxpy_constraints receives (w: cp.Variable, cp: module)."""
-        import cvxpy as cp
-
-        received = {}
-
-        @dataclass(frozen=True)
-        class _SpyStub(_Stub):
-            """Stub that records the arguments passed to _cvxpy_constraints."""
-
-            def _cvxpy_constraints(self, w, cp_module):
-                """Record the (w, cp) arguments, then return long-only constraints."""
-                received["w_type"] = type(w).__name__
-                received["cp"] = cp_module
-                return [cp_module.sum(w) == 1, w >= 0]
-
-        _SpyStub(_X3).solve_cvxpy()
-        assert received["w_type"] == "Variable"
-        assert received["cp"] is cp

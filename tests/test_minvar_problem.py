@@ -298,60 +298,6 @@ class TestSolveCg:
         assert w.shape == (mvp.n,)
 
 
-class TestSolveCvxpy:
-    """Tests for MinVarProblem.solve_cvxpy (CVXPY / Clarabel reference solver)."""
-
-    def test_shape(self, mvp):
-        """Output weight vector has shape (N,)."""
-        w, _ = mvp.solve_cvxpy()
-        assert w.shape == (mvp.n,)
-
-    def test_weights_sum_to_one(self, mvp):
-        """Weights sum to 1."""
-        w, _ = mvp.solve_cvxpy()
-        assert abs(w.sum() - 1.0) < 1e-6
-
-    def test_weights_non_negative(self, mvp):
-        """All weights are non-negative."""
-        w, _ = mvp.solve_cvxpy()
-        assert np.all(w >= -1e-6)
-
-    def test_close_to_kkt(self, mvp_small):
-        """CVXPY solution is close to the exact KKT solution."""
-        w_kkt, _ = mvp_small.solve_kkt()
-        w_cvxpy, _ = mvp_small.solve_cvxpy()
-        np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
-
-    def test_objective_no_worse_than_equal_weight(self, X, mvp):  # noqa: N803
-        """Optimal portfolio has variance <= equal-weight portfolio."""
-        w_opt, _ = mvp.solve_cvxpy()
-        w_eq = np.ones(mvp.n) / mvp.n
-        assert np.linalg.norm(X @ w_opt) <= np.linalg.norm(X @ w_eq) + 1e-6
-
-    def test_return_tilt_branch(self, X_small):  # noqa: N803
-        """Return-tilt (rho != 0) tilts weights toward high-return assets."""
-        _T, N = X_small.shape  # noqa: N806
-        mu = np.random.default_rng(7).standard_normal(N)
-        p = MinVarProblem(X_small, rho=0.5, mu=mu)
-        w_cvxpy, _ = p.solve_cvxpy()
-        w_kkt, _ = p.solve_kkt()
-        np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
-
-    def test_with_shrinkage(self, X_small):  # noqa: N803
-        """Alpha != 0 enters the Ledoit-Wolf ridge branch."""
-        T, N = X_small.shape  # noqa: N806
-        p = MinVarProblem(X_small, alpha=N / (N + T))
-        w_cvxpy, _ = p.solve_cvxpy()
-        w_kkt, _ = p.solve_kkt()
-        np.testing.assert_allclose(w_cvxpy, w_kkt, atol=1e-4)
-
-    def test_project_false(self, mvp):
-        """project=False returns raw CVXPY solution without clipping."""
-        w, iters = mvp.solve_cvxpy(project=False)
-        assert w.shape == (mvp.n,)
-        assert iters > 0
-
-
 # ---------------------------------------------------------------------------
 # target_lr (low-rank shrinkage target)
 # ---------------------------------------------------------------------------
