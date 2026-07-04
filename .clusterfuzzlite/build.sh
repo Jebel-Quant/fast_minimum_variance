@@ -16,6 +16,15 @@ pip3 install .
 # the frozen fuzzer crashes at runtime with
 # "No module named 'numpy._core._exceptions'". --collect-all pulls in every
 # numpy submodule, data file and shared library.
-for fuzzer in tests/fuzz/fuzz_*.py; do
+# nullglob so an empty tests/fuzz/ yields zero iterations rather than passing
+# the literal unexpanded pattern to compile_python_fuzzer; fail loudly instead
+# of silently building nothing.
+shopt -s nullglob
+fuzzers=(tests/fuzz/fuzz_*.py)
+if [ ${#fuzzers[@]} -eq 0 ]; then
+  echo "ERROR: no fuzz harnesses found in tests/fuzz/ (expected fuzz_*.py)" >&2
+  exit 1
+fi
+for fuzzer in "${fuzzers[@]}"; do
   compile_python_fuzzer "$fuzzer" --collect-all numpy --collect-all scipy --collect-all cvxpy --collect-all osqp
 done
