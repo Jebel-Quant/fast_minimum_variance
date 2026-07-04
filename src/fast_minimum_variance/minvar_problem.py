@@ -197,30 +197,38 @@ class _MinVarProblem(_BaseProblem):
         """Return budget-equality and long-only inequality constraints for CVXPY."""
         return [cp.sum(w) == 1, w >= 0]
 
-    def _system_operator(self) -> SumOperator:
-        """Build ``Sigma = (1-alpha)/T * X^T X + alpha * T0`` as a cvx-linalg operator.
+    def _system_operator(self, active: np.ndarray) -> SumOperator:
+        """Build the active-set system ``Sigma_a`` as a cvx-linalg operator.
 
         A :class:`~cvx.linalg.SumOperator` of the data Gram term and, when present,
         the target term (a :class:`~cvx.linalg.FactorOperator` for a low-rank RMT
-        target, else a :class:`~cvx.linalg.DenseOperator`). The full-universe
-        operators are sliced to the active set via ``apply_free``; nothing is
-        formed at ``n x n``. Without a target the data term carries the full weight.
+        target, else a :class:`~cvx.linalg.DenseOperator`). The factors are sliced
+        to the active set HERE, once per outer step, so the per-iteration
+        ``matvec`` runs on contiguous pre-sliced arrays; slicing inside the CG
+        loop (``apply_free`` on full-universe operators) re-gathers the columns
+        of ``X`` on every iteration and is an order of magnitude slower.
+        Nothing is formed at ``n_a x n_a``; without a target the data term
+        carries the full weight.
+
+        Args:
+            active: Boolean mask selecting the active asset subset.
         """
         has_target = self.target_lr is not None or self.target is not None
         c_data = (1.0 - self.alpha) if has_target else 1.0
-        terms: list[tuple[float, Any]] = [(c_data / self.t, GramOperator(self.X))]
+        terms: list[tuple[float, Any]] = [(c_data / self.t, GramOperator(np.ascontiguousarray(self.X[:, active])))]
         if self.target_lr is not None:
             bar_lam, u_k, delta_k = self.target_lr
-            terms.append((self.alpha, FactorOperator(np.full(u_k.shape[0], bar_lam), u_k, np.diag(delta_k))))
+            u_a = u_k[active, :]
+            terms.append((self.alpha, FactorOperator(np.full(u_a.shape[0], bar_lam), u_a, np.diag(delta_k))))
         elif self.target is not None:
-            terms.append((self.alpha, DenseOperator(self.target)))
+            terms.append((self.alpha, DenseOperator(self.target[np.ix_(active, active)])))
         return SumOperator(terms)
 
     def _cg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """Solve the reduced SPD system via matrix-free CG; return ``(w_a, iters)``.
 
         Runs conjugate gradients over the active-set system operator
-        (:meth:`_system_operator`, applied through ``apply_free``) without ever
+        (:meth:`_system_operator`, sliced once per outer step) without ever
         forming ``Sigma_a`` explicitly. Low-rank and dense targets share one path.
 
         Args:
@@ -229,14 +237,13 @@ class _MinVarProblem(_BaseProblem):
                 When provided it must have shape ``(active.sum(),)``.
         """
         n_a = int(active.sum())
-        sigma = self._system_operator()
-        active_idx = np.flatnonzero(active)
+        sigma = self._system_operator(active)
         count = [0]
 
         def matvec(v: np.ndarray) -> np.ndarray:
-            """Apply Sigma_a to v via the operator's free-block product."""
+            """Apply Sigma_a to v via the pre-sliced operator."""
             count[0] += 1
-            return sigma.apply_free(active_idx, v)
+            return sigma.matvec(v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
@@ -261,14 +268,13 @@ class _MinVarProblem(_BaseProblem):
         n_a = int(active.sum())
 
         # System matvec — the same active-set operator as _cg_step.
-        sigma = self._system_operator()
-        active_idx = np.flatnonzero(active)
+        sigma = self._system_operator(active)
         count = [0]
 
         def matvec(v: np.ndarray) -> np.ndarray:
             """Apply the active-set system matrix Sigma_a to v."""
             count[0] += 1
-            return sigma.apply_free(active_idx, v)
+            return sigma.matvec(v)
 
         op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
 
