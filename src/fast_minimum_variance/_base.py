@@ -5,27 +5,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-import clarabel
 import cvxpy as cp
 import numpy as np
-import osqp
 from cvx.linalg import cholesky
-from scipy.sparse import csc_matrix, triu
 
 
 @dataclass(frozen=True)
 class _BaseProblem(ABC):
     """Shared fields, utilities, and solver templates for portfolio problems.
 
-    Subclasses must implement the seven abstract hooks:
+    Subclasses must implement the four abstract hooks:
 
     * ``_constraint_active_set(solve_fn)`` — outer constraint-handling loop
     * ``_kkt_step(mask) -> (w, iters)`` — one direct-KKT inner step
     * ``_cg_step(mask) -> (w, iters)`` — one CG inner step
     * ``_cvxpy_constraints(w, cp) -> list`` — CVXPY constraint list
-    * ``_clarabel_constraints() -> (A, b, cones)`` — Clarabel constraint data
-    * ``_osqp_constraints() -> (A, l, u)`` — OSQP constraint data
-    * ``_nnls_solve() -> (w, 1)`` — NNLS direct solve
 
     All ``solve_*`` methods are implemented here as template methods that
     call ``_constraint_active_set`` with the appropriate ``_XXX_step``
@@ -110,21 +104,6 @@ class _BaseProblem(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def _nnls_solve(self) -> tuple[np.ndarray, int]:  # pragma: no cover
-        """Solve via NNLS directly (no outer loop); return ``(w, 1)``."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _clarabel_constraints(self) -> tuple[csc_matrix, np.ndarray, list[Any]]:  # pragma: no cover
-        """Return ``(A_mat, b_vec, cones)`` for the Clarabel QP solver."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _osqp_constraints(self) -> tuple[csc_matrix, np.ndarray, np.ndarray]:  # pragma: no cover
-        """Return ``(A_mat, l_vec, u_vec)`` for the OSQP solver."""
-        raise NotImplementedError
-
     # ------------------------------------------------------------------
     # Template solvers
     # ------------------------------------------------------------------
@@ -155,8 +134,8 @@ class _BaseProblem(ABC):
             w = self._clip_and_renormalize(w)
         return w, outer
 
-    def solve_cvxpy(self, *, project: bool = True, backend: str = "clarabel") -> tuple[np.ndarray, int]:
-        """Solve via CVXPY with a configurable backend solver.
+    def solve_cvxpy(self, *, project: bool = True) -> tuple[np.ndarray, int]:
+        """Solve via CVXPY with the Clarabel backend (reference solver).
 
         Requires the ``convex`` extra::
 
@@ -164,8 +143,6 @@ class _BaseProblem(ABC):
 
         Args:
             project: Clip and renormalize after solving (see ``solve_kkt``).
-            backend: CVXPY solver name (default ``"clarabel"``; ``"osqp"`` is
-                also supported).
 
         Returns:
             ``(w, n_iters)`` — weight vector of shape ``(N,)`` and solver
@@ -193,9 +170,8 @@ class _BaseProblem(ABC):
         if self.rho != 0.0 and self.mu is not None:
             objective = objective - self.rho * (self.mu @ w)
 
-        cvxpy_solver = cp.CLARABEL if backend.lower() == "clarabel" else cp.OSQP
         problem = cp.Problem(cp.Minimize(objective), self._cvxpy_constraints(w, cp))
-        problem.solve(solver=cvxpy_solver)
+        problem.solve(solver=cp.CLARABEL)
 
         result = w.value
         if result is None:
@@ -262,142 +238,3 @@ class _BaseProblem(ABC):
         if project:
             w = self._clip_and_renormalize(w)
         return w, outer, inner
-
-    def solve_nnls(self, *, project: bool = True) -> tuple[np.ndarray, int]:
-        """Solve via non-negative least squares (scipy.optimize.nnls).
-
-        The budget constraint is enforced by augmenting the return matrix
-        with a heavily weighted all-ones row; non-negativity is handled
-        natively by the Lawson-Hanson algorithm.  The covariance matrix
-        ``X'X`` is formed internally by scipy.  Return tilt (``rho != 0``)
-        is not supported.
-
-        Args:
-            project: Renormalize weights to sum to 1 after solving.
-                     Clipping is a no-op (NNLS already gives ``w >= 0``).
-
-        Returns:
-            ``(w, 1)`` — weight vector of shape ``(N,)`` and iteration
-            count (always 1; NNLS is a single direct solve).
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_nnls()
-            >>> float(round(w.sum(), 10))
-            1.0
-            >>> bool((w >= 0).all())
-            True
-        """
-        w, iters = self._nnls_solve()
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, iters
-
-    def solve_osqp(self, *, project: bool = True) -> tuple[np.ndarray, int]:
-        """Solve via OSQP (operator-splitting QP solver).
-
-        Assembles ``P = 2·Σ_LW`` as a sparse upper-triangular CSC matrix and
-        calls OSQP directly. Returns ``(w, iters)`` where ``iters`` is the
-        OSQP iteration count.
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
-            OSQP iterations.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_osqp()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= -1e-6).all())
-            True
-        """
-        n = self.n
-
-        if self.target is None:
-            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
-        else:
-            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
-
-        p_upper = triu(csc_matrix(p_dense), format="csc")
-
-        q = np.zeros(n)
-        if self.rho != 0.0 and self.mu is not None:
-            q = -self.rho * self.mu
-
-        a_mat, l_vec, u_vec = self._osqp_constraints()
-
-        solver = osqp.OSQP()
-        solver.setup(
-            p_upper,
-            q,
-            a_mat,
-            l_vec,
-            u_vec,
-            warm_starting=True,
-            verbose=False,
-            eps_abs=1e-8,
-            eps_rel=1e-8,
-        )
-        result = solver.solve()
-
-        w = np.array(result.x)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, result.info.iter
-
-    def solve_clarabel(self, *, project: bool = True) -> tuple[np.ndarray, int]:
-        """Solve via Clarabel interior-point solver (direct API, no CVXPY overhead).
-
-        Assembles ``P = 2·Σ_LW`` as a sparse CSC matrix and calls Clarabel
-        directly, bypassing CVXPY's problem-construction overhead.  The
-        problem-specific constraint data is supplied by ``_clarabel_constraints``.
-        Returns ``(w, iters)`` where ``iters`` is the Clarabel iteration count.
-
-        Args:
-            project: Clip and renormalize after solving (see ``solve_kkt``).
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
-            interior-point iterations.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_clarabel()
-            >>> float(round(w.sum(), 6))
-            1.0
-            >>> bool((w >= -1e-6).all())
-            True
-        """
-        n = self.n
-
-        if self.target is None:
-            p_dense = 2.0 * ((self.X.T @ self.X) / self.t)
-        else:
-            p_dense = 2.0 * ((1 - self.alpha) * (self.X.T @ self.X) / self.t + self.alpha * self.target)
-
-        p_csc = csc_matrix(p_dense)
-
-        q = np.zeros(n)
-        if self.rho != 0.0 and self.mu is not None:
-            q = -self.rho * self.mu
-
-        a_mat, b_vec, cones = self._clarabel_constraints()
-
-        settings = clarabel.DefaultSettings()  # ty:ignore[unresolved-attribute]
-        settings.verbose = False
-        sol = clarabel.DefaultSolver(p_csc, q, a_mat, b_vec, cones, settings).solve()  # ty:ignore[unresolved-attribute]
-
-        w = np.array(sol.x)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, sol.iterations

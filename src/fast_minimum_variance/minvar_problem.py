@@ -4,12 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-import clarabel
 import numpy as np
-from cvx.linalg import DenseOperator, FactorOperator, GramOperator, SumOperator, cholesky
+from cvx.linalg import DenseOperator, FactorOperator, GramOperator, SumOperator
 from scipy.linalg import solve as spd_solve
-from scipy.optimize import nnls
-from scipy.sparse import csc_matrix, eye, vstack
 from scipy.sparse.linalg import LinearOperator, cg
 
 from ._base import _BaseProblem
@@ -543,61 +540,6 @@ class _MinVarProblem(_BaseProblem):
         if project:
             w = self._clip_and_renormalize(w)
         return w, outer, (final_active, final_w)
-
-    def _clarabel_constraints(self) -> tuple[csc_matrix, np.ndarray, list[Any]]:
-        """Return balance-equality and long-only inequality constraints for Clarabel."""
-        n = self.n
-        b_rows = np.ones((1, n)) if self.B is None else self.B
-        a_mat = vstack(
-            [csc_matrix(b_rows), -eye(n, format="csc")],
-            format="csc",
-        )
-
-        b_vec = np.concatenate([self._c_vec(), np.zeros(n)])
-        cones = [clarabel.ZeroConeT(self._p), clarabel.NonnegativeConeT(n)]  # ty:ignore[unresolved-attribute]
-        return a_mat, b_vec, cones
-
-    def _osqp_constraints(self) -> tuple[csc_matrix, np.ndarray, np.ndarray]:
-        """Return balance-equality and long-only inequality constraints for OSQP."""
-        n = self.n
-        b_rows = np.ones((1, n)) if self.B is None else self.B
-        a_mat = vstack(
-            [csc_matrix(b_rows), eye(n, format="csc")],
-            format="csc",
-        )
-        l_vec = np.concatenate([self._c_vec(), np.zeros(n)])
-        u_vec = np.concatenate([self._c_vec(), np.full(n, np.inf)])
-        return a_mat, l_vec, u_vec
-
-    def _nnls_solve(self) -> tuple[np.ndarray, int]:
-        """Solve via NNLS on the augmented return matrix; return ``(w, 1)``.
-
-        Builds ``A = [sqrt(1-alpha)*X ; sqrt(gamma)*I ; M*B]`` and
-        solves ``min ||Aw||² s.t. w >= 0``.  The balance rows with weight
-        ``M = ||X||_F * T`` enforce ``B w ≈ c``; for the budget, exact
-        normalisation is applied by the ``project`` step in ``solve_nnls``.
-        Return tilt (``rho != 0``) is not supported.
-        """
-        t = self.X.shape[0]
-        m = float(np.linalg.norm(self.X, "fro")) * t
-
-        if self.target is not None:
-            # target is the penalty matrix M; Cholesky gives chol s.t. chol @ chol.T = M,
-            # so sqrt(alpha)*chol.T rows enforce alpha * w^T M w in the LS objective.
-            chol = cholesky(self.target)
-            rows = [np.sqrt((1 - self.alpha) / self.t) * self.X]
-            tgt = [np.zeros(t)]
-            if self.alpha > 0.0:
-                rows.append(np.sqrt(self.alpha) * chol.T)
-                tgt.append(np.zeros(self.n))
-        else:
-            rows = [np.sqrt(1.0 / self.t) * self.X]
-            tgt = [np.zeros(t)]
-        rows.append(m * (np.ones((1, self.n)) if self.B is None else self.B))
-        tgt.append(m * self._c_vec())
-
-        w, _ = nnls(np.vstack(rows), np.concatenate(tgt))
-        return w, 1
 
     # ------------------------------------------------------------------
     # Budget-specific overrides
