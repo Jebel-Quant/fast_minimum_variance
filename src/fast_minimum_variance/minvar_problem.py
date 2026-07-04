@@ -260,23 +260,31 @@ class _MinVarProblem(_BaseProblem):
             return [self.B @ w == self.c, w >= 0]
         return [cp.sum(w) == 1, w >= 0]
 
-    def _system_operator(self) -> SumOperator:
-        """Build ``Sigma = (1-alpha)/T * X^T X + alpha * T0`` as a cvx-linalg operator.
+    def _system_operator(self, active: np.ndarray) -> SumOperator:
+        """Build the active-set system ``Sigma_a`` as a cvx-linalg operator.
 
         A :class:`~cvx.linalg.SumOperator` of the data Gram term and, when present,
         the target term (a :class:`~cvx.linalg.FactorOperator` for a low-rank RMT
-        target, else a :class:`~cvx.linalg.DenseOperator`). The full-universe
-        operators are sliced to the active set via ``apply_free``; nothing is
-        formed at ``n x n``. Without a target the data term carries the full weight.
+        target, else a :class:`~cvx.linalg.DenseOperator`). The factors are sliced
+        to the active set HERE, once per outer step, so the per-iteration
+        ``matvec`` runs on contiguous pre-sliced arrays; slicing inside the CG
+        loop (``apply_free`` on full-universe operators) re-gathers the columns
+        of ``X`` on every iteration and is an order of magnitude slower.
+        Nothing is formed at ``n_a x n_a``; without a target the data term
+        carries the full weight.
+
+        Args:
+            active: Boolean mask selecting the active asset subset.
         """
         has_target = self.target_lr is not None or self.target is not None
         c_data = (1.0 - self.alpha) if has_target else 1.0
-        terms: list[tuple[float, Any]] = [(c_data / self.t, GramOperator(self.X))]
+        terms: list[tuple[float, Any]] = [(c_data / self.t, GramOperator(np.ascontiguousarray(self.X[:, active])))]
         if self.target_lr is not None:
             bar_lam, u_k, delta_k = self.target_lr
-            terms.append((self.alpha, FactorOperator(np.full(u_k.shape[0], bar_lam), u_k, np.diag(delta_k))))
+            u_a = u_k[active, :]
+            terms.append((self.alpha, FactorOperator(np.full(u_a.shape[0], bar_lam), u_a, np.diag(delta_k))))
         elif self.target is not None:
-            terms.append((self.alpha, DenseOperator(self.target)))
+            terms.append((self.alpha, DenseOperator(self.target[np.ix_(active, active)])))
         return SumOperator(terms)
 
     @staticmethod
