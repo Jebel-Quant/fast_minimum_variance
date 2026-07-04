@@ -233,7 +233,7 @@ print(f"  OOS-vol-minimising alpha = {vol_opt2[0]:.3f} (vol {vol_opt2[1]:.2f}%)"
 print(f"  vol(alpha=0.5)={v05_2:.2f}%  vol(alpha=0.017)={v017_2:.2f}%")
 
 # ---------------------------------------------------------------------------
-# Seed sensitivity (referee m3): CG deterministic (x0=0); proximal random.
+# Seed sensitivity (referee m3): CG is deterministic (x0=0).
 # ---------------------------------------------------------------------------
 print("\n" + "=" * 78)
 print("Seed sensitivity  (last L=504 window, alpha=0.5)")
@@ -244,12 +244,7 @@ X_last = X_last - X_last.mean(axis=0)
 bar_lam = float(np.linalg.norm(X_last, "fro") ** 2) / (n * EST)
 tgt = bar_lam * np.eye(n)
 cg_counts = [MinVarProblem(X_last, alpha=0.5, target=tgt).solve_cg()[2] for _ in range(10)]
-prox_counts = [MinVarProblem(X_last, alpha=0.5, target=tgt).solve_proximal()[1] for _ in range(10)]
 print(f"CG inner iters over 10 runs:       {set(cg_counts)}  (deterministic, x0=0)")
-print(
-    f"Proximal iters over 10 runs: min={min(prox_counts)} max={max(prox_counts)} "
-    f"mean={np.mean(prox_counts):.0f} std={np.std(prox_counts):.1f}  (random start)"
-)
 
 # ---------------------------------------------------------------------------
 # Write LaTeX table macro (primary L=504)

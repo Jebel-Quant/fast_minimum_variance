@@ -204,8 +204,14 @@ class TestSolveCvxpy:
     """Tests for _BaseProblem.solve_cvxpy template."""
 
     def test_raises_import_error_when_cvxpy_missing(self, monkeypatch):
-        """solve_cvxpy raises ImportError when cvxpy is absent from sys.modules."""
-        monkeypatch.setitem(sys.modules, "cvxpy", None)
+        """solve_cvxpy raises ImportError when cvxpy is absent from sys.modules.
+
+        Evict every cached ``cvxpy`` submodule, not just the top-level name, so
+        the assertion does not depend on whether an earlier test warmed cvxpy's
+        lazy-import cache (which made this order-dependent).
+        """
+        for name in [m for m in sys.modules if m == "cvxpy" or m.startswith("cvxpy.")]:
+            monkeypatch.setitem(sys.modules, name, None)
         with pytest.raises(ImportError, match="cvxpy"):
             _Stub(_X3).solve_cvxpy()
 
@@ -241,98 +247,3 @@ class TestSolveCvxpy:
         _SpyStub(_X3).solve_cvxpy()
         assert received["w_type"] == "Variable"
         assert received["cp"] is cp
-
-
-# ---------------------------------------------------------------------------
-# solve_proximal
-# ---------------------------------------------------------------------------
-
-
-class TestSolveProximal:
-    """Tests for _BaseProblem.solve_proximal template."""
-
-    def test_returns_tuple(self):
-        """solve_proximal returns a (w, iters) tuple."""
-        result = _Stub(_X3).solve_proximal()
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
-    def test_iters_positive(self):
-        """Iteration count is at least 1."""
-        _, iters = _Stub(_X3).solve_proximal()
-        assert iters >= 1
-
-    def test_weight_shape(self):
-        """Returned weight vector has shape (N,)."""
-        w, _ = _Stub(_X3).solve_proximal()
-        assert w.shape == (_X3.shape[1],)
-
-    def test_project_true_sums_to_one(self):
-        """project=True ensures weights sum to 1."""
-        w, _ = _Stub(_X3).solve_proximal(project=True)
-        assert w.sum() == pytest.approx(1.0)
-
-    def test_project_true_non_negative(self):
-        """project=True ensures all weights are non-negative."""
-        w, _ = _Stub(_X3).solve_proximal(project=True)
-        assert np.all(w >= 0)
-
-    def test_project_false_still_on_simplex(self):
-        """project=False skips clip-and-renormalize; prox_gradient already enforces simplex."""
-        w, _ = _Stub(_X3).solve_proximal(project=False)
-        np.testing.assert_allclose(w.sum(), 1.0, rtol=1e-6)
-        assert np.all(w >= -1e-10)
-
-    def test_project_default_clips_and_renormalizes(self):
-        """Default (project=True) clips and renormalizes like other template solvers."""
-        w, _ = _Stub(_X3).solve_proximal()
-        assert w.sum() == pytest.approx(1.0)
-        assert np.all(w >= 0)
-
-
-# ---------------------------------------------------------------------------
-# solve_fista
-# ---------------------------------------------------------------------------
-
-
-class TestSolveFista:
-    """Tests for _BaseProblem.solve_fista template."""
-
-    @pytest.fixture(scope="class")
-    @staticmethod
-    def X():  # noqa: N802
-        """Return a (100, 5) return matrix."""
-        return np.random.default_rng(0).standard_normal((100, 5))
-
-    def test_returns_tuple(self, X):  # noqa: N803
-        """solve_fista returns a (w, iters) tuple."""
-        from fast_minimum_variance import Problem
-
-        result = Problem(X).solve_fista()
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
-    def test_weights_sum_to_one(self, X):  # noqa: N803
-        """Weights sum to 1."""
-        from fast_minimum_variance import Problem
-
-        w, _ = Problem(X).solve_fista()
-        assert w.sum() == pytest.approx(1.0, abs=1e-5)
-
-    def test_weights_non_negative(self, X):  # noqa: N803
-        """All weights are non-negative."""
-        from fast_minimum_variance import Problem
-
-        w, _ = Problem(X).solve_fista()
-        assert np.all(w >= -1e-8)
-
-    def test_with_shrinkage_and_target(self, X):  # noqa: N803
-        """Shrinkage branch (alpha > 0, target supplied) exercises the extra_grad path."""
-        from fast_minimum_variance import Problem
-
-        T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
-        w, iters = Problem(X, alpha=alpha, target=np.eye(N)).solve_fista()
-        assert w.sum() == pytest.approx(1.0, abs=1e-5)
-        assert np.all(w >= -1e-8)
-        assert iters >= 1

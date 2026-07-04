@@ -49,7 +49,8 @@ from fast_minimum_variance.shrinkage.util import (
 HERE = Path(__file__).parent
 TABLES = HERE / "tables"
 
-# Solver rows written to the paper tables (FISTA is benchmarked but not in the paper).
+# Solver rows written to the paper tables (first-order methods are treated in the
+# nncg companion paper and excluded here).
 _TABLE_METHODS_ALL = [
     "cvxpy (Clarabel)",
     "cvxpy (OSQP)",
@@ -57,15 +58,13 @@ _TABLE_METHODS_ALL = [
     "OSQP (direct API)",
     "KKT (Cholesky)",
     "CG (SPD)",
-    "Proximal gradient",
 ]
 _TABLE_METHODS_KEY = [
     "cvxpy (Clarabel)",
     "KKT (Cholesky)",
     "CG (SPD)",
-    "Proximal gradient",
 ]
-_FOOTNOTE = {"Proximal gradient"}
+_FOOTNOTE = set()
 
 DATASETS = {
     "sp500": HERE / "data/sp500_pct_returns.parquet",
@@ -79,15 +78,11 @@ SOLVERS_ALL = [
     ("OSQP (direct API)", lambda p: p.solve_osqp(), False),
     ("KKT (Cholesky)", lambda p: p.solve_kkt(), True),
     ("CG (SPD)", lambda p: p.solve_cg(), False),
-    ("Proximal gradient", lambda p: p.solve_proximal(), False),
-    ("FISTA (Nesterov)", lambda p: p.solve_fista(), False),
 ]
 SOLVERS_KEY = [
     ("cvxpy (Clarabel)", lambda p: p.solve_cvxpy(), False),
     ("KKT (Cholesky)", lambda p: p.solve_kkt(), True),
     ("CG (SPD)", lambda p: p.solve_cg(), False),
-    ("Proximal gradient", lambda p: p.solve_proximal(), False),
-    ("FISTA (Nesterov)", lambda p: p.solve_fista(), False),
 ]
 
 
@@ -99,7 +94,7 @@ def _make_entry(prob, fn, is_kkt=False):
     elif is_kkt:  # solve_kkt -> (w, outer_steps)
         _, outer = raw
         inner = None
-    else:  # proximal / cvxpy / etc -> (w, iters)
+    else:  # cvxpy / clarabel / osqp -> (w, iters)
         _, inner = raw
         outer = None
     return {"time_s": t, "outer": outer, "inner": inner}
