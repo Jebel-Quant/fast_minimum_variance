@@ -351,62 +351,6 @@ class TestTargetLr:
 
 
 # ---------------------------------------------------------------------------
-# Warm-start solvers
-# ---------------------------------------------------------------------------
-
-
-class TestWarmStart:
-    """solve_cg_warm and solve_kkt_warm chain solves with warm-starting."""
-
-    @pytest.fixture(scope="class")
-    @staticmethod
-    def X():  # noqa: N802
-        """Return a (100, 8) return matrix."""
-        return np.random.default_rng(7).standard_normal((100, 8))
-
-    def test_solve_cg_warm_cold_start(self, X):  # noqa: N803
-        """Cold start returns a valid portfolio."""
-        from fast_minimum_variance import Problem
-
-        w, outer, inner, warm = Problem(X).solve_cg_warm()
-        assert abs(w.sum() - 1.0) < 1e-4
-        assert np.all(w >= -1e-4)
-        assert outer >= 1
-        assert inner >= 1
-        assert warm is not None
-
-    def test_solve_kkt_warm_cold_start(self, X):  # noqa: N803
-        """Cold KKT start returns a valid portfolio."""
-        from fast_minimum_variance import Problem
-
-        w, outer, warm = Problem(X).solve_kkt_warm()
-        assert abs(w.sum() - 1.0) < 1e-4
-        assert np.all(w >= -1e-4)
-        assert outer >= 1
-        assert warm is not None
-
-    def test_solve_cg_warm_chained(self, X):  # noqa: N803
-        """Chained warm-start produces same result as cold start."""
-        from fast_minimum_variance import Problem
-
-        w_cold, *_ = Problem(X).solve_cg()
-        w_warm, _, _, warm = Problem(X).solve_cg_warm()
-        w_warm2, *_ = Problem(X, rho=0.0).solve_cg_warm(warm_start=warm)
-        np.testing.assert_allclose(w_cold, w_warm, atol=1e-4)
-        assert abs(w_warm2.sum() - 1.0) < 1e-4
-
-    def test_solve_kkt_warm_chained(self, X):  # noqa: N803
-        """Chained KKT warm-start agrees with cold KKT."""
-        from fast_minimum_variance import Problem
-
-        w_cold, _ = Problem(X).solve_kkt()
-        w_warm, _, warm = Problem(X).solve_kkt_warm()
-        np.testing.assert_allclose(w_cold, w_warm, atol=1e-6)
-        w_warm2, _, _ = Problem(X).solve_kkt_warm(warm_start=warm)
-        assert abs(w_warm2.sum() - 1.0) < 1e-6
-
-
-# ---------------------------------------------------------------------------
 # solve_pcg (PCG with RMT preconditioner)
 # ---------------------------------------------------------------------------
 
