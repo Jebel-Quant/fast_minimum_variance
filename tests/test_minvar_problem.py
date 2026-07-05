@@ -22,21 +22,9 @@ def X():  # noqa: N802
 
 
 @pytest.fixture(scope="session")
-def X_small():  # noqa: N802
-    """Return matrix of shape (100, 3) for fast solver tests."""
-    return _make_returns(T=100, N=3, seed=0)
-
-
-@pytest.fixture(scope="session")
 def mvp(X):  # noqa: N803
     """MinVarProblem wrapping the session-scoped (200, 10) return matrix."""
     return MinVarProblem(X)
-
-
-@pytest.fixture(scope="session")
-def mvp_small(X_small):  # noqa: N803
-    """MinVarProblem wrapping the session-scoped (100, 3) return matrix."""
-    return MinVarProblem(X_small)
 
 
 # ---------------------------------------------------------------------------
@@ -217,30 +205,13 @@ class TestSolveCg:
         w, *_ = mvp.solve_cg()
         assert np.all(w >= -1e-4)
 
-    def test_close_to_reference(self, mvp_small, reference_weights):
-        """CG solution is close to the independent SLSQP oracle."""
-        w_cg, *_ = mvp_small.solve_cg()
-        np.testing.assert_allclose(w_cg, reference_weights(mvp_small), atol=1e-4)
-
-    def test_with_shrinkage(self, X_small, reference_weights):  # noqa: N803
-        """Shrinkage branch (alpha > 0) agrees with the reference oracle."""
-        T, N = X_small.shape  # noqa: N806
-        p = MinVarProblem(X_small, alpha=N / (N + T))
-        w_cg, *_ = p.solve_cg()
-        np.testing.assert_allclose(w_cg, reference_weights(p), atol=1e-4)
-
-    def test_return_tilt_branch(self, X_small, reference_weights):  # noqa: N803
-        """Return-tilt (rho != 0) runs two CG solves and matches the oracle."""
-        _T, N = X_small.shape  # noqa: N806
-        mu = np.random.default_rng(7).standard_normal(N)
-        p = MinVarProblem(X_small, rho=0.5, mu=mu)
-        w_cg, *_ = p.solve_cg()
-        np.testing.assert_allclose(w_cg, reference_weights(p), atol=1e-4)
-
     def test_project_false(self, mvp):
         """project=False returns raw CG solution without clipping."""
         w, *_ = mvp.solve_cg(project=False)
         assert w.shape == (mvp.n,)
+
+    # CG-vs-oracle cross-validation (plain / shrinkage / tilt / sizes / low-rank)
+    # lives in test_cg.py::TestCgVsReference to avoid duplicating it here.
 
 
 # ---------------------------------------------------------------------------
