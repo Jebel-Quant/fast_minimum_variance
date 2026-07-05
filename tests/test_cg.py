@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from fast_minimum_variance import Problem
+from fast_minimum_variance.shrinkage.util import rmt_target_and_alpha
 
 
 def make_returns(T, N, seed=0):  # noqa: N803
@@ -84,3 +85,48 @@ class TestCgVsReference:
         prob = Problem(X, alpha=N / (N + T), target=np.eye(N))
         w_cg, *_ = prob.solve_cg()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Low-rank RMT target (alpha=1)
+# ---------------------------------------------------------------------------
+
+
+def _build_rmt_problem(T=300, N=50, seed=99, rho=0.0, mu=None):  # noqa: N803
+    """Return (X, Problem) with alpha=1 and RMT low-rank target."""
+    X = make_returns(T=T, N=N, seed=seed)  # noqa: N806
+    target, lr_factors, _k, alpha = rmt_target_and_alpha(X)
+    assert alpha == 1.0
+    return X, Problem(X, alpha=alpha, target=target, target_lr=lr_factors, rho=rho, mu=mu)
+
+
+class TestLowRank:
+    """The alpha=1 low-rank factor path must agree with the reference oracle."""
+
+    def test_minvar_agrees_with_reference(self, reference_weights):
+        """alpha=1, RMT target: CG matches the oracle."""
+        _, prob = _build_rmt_problem()
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
+
+    def test_return_tilt_agrees_with_reference(self, reference_weights):
+        """alpha=1, RMT target, return tilt: CG matches the oracle."""
+        mu = np.random.default_rng(5).standard_normal(50)
+        _, prob = _build_rmt_problem(rho=0.5, mu=mu)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
+
+    def test_weights_are_valid(self):
+        """Low-rank solution sums to 1 and is non-negative."""
+        _, prob = _build_rmt_problem()
+        w, *_ = prob.solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-6
+        assert (w >= -1e-6).all()
+
+    def test_dense_target_without_target_lr(self):
+        """alpha=1 with only a dense target (no target_lr) solves via the Gram path."""
+        X = make_returns(T=300, N=20, seed=7)  # noqa: N806
+        target, _, _k, _ = rmt_target_and_alpha(X)
+        prob = Problem(X, alpha=1.0, target=target)  # no target_lr
+        w, *_ = prob.solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-6
