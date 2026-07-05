@@ -51,9 +51,9 @@ def test_dual_variable_at_optimum():
 
 
 def test_known_optimum():
-    """KKT solver recovers the known long-only optimum [1/2, 1/2, 0]."""
-    w, _ = MinVarProblem(X3).solve_kkt()
-    np.testing.assert_allclose(w, W_OPT, atol=1e-10)
+    """CG solver recovers the known long-only optimum [1/2, 1/2, 0]."""
+    w, *_ = MinVarProblem(X3).solve_cg()
+    np.testing.assert_allclose(w, W_OPT, atol=1e-6)
 
 
 def test_two_outer_iterations():
@@ -61,12 +61,12 @@ def test_two_outer_iterations():
     p = MinVarProblem(X3)
     calls = []
 
-    def counting_kkt(active):
-        """Record each active-set mask, then delegate to the real _kkt_step."""
+    def counting_cg(active):
+        """Record each active-set mask, then delegate to the real _cg_step."""
         calls.append(active.copy())
-        return p._kkt_step(active)
+        return p._cg_step(active)
 
-    p._constraint_active_set(counting_kkt)
+    p._constraint_active_set(counting_cg)
 
     assert len(calls) == 2
     assert calls[0].all()  # iteration 1: full active set

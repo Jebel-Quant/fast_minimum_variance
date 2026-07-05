@@ -34,7 +34,6 @@ from fast_minimum_variance import Problem
 X = np.random.default_rng(42).standard_normal((500, 20))
 
 w, outer, inner = Problem(X).solve_cg()   # matrix-free CG — recommended
-w, iters = Problem(X).solve_kkt()  # direct dense solve — exact baseline
 
 assert abs(w.sum() - 1.0) < 1e-8
 assert (w >= 0).all()
@@ -56,14 +55,12 @@ On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations fro
 
 ## Solvers
 
-All solvers are methods on `Problem` and return `(w, ...)` where
+All solvers are methods on `Problem` and return `(w, outer_steps, inner_iters)` where
 $w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
-`solve_cg` and `solve_pcg` return `(w, outer_steps, inner_iters)`; `solve_kkt` returns `(w, iters)`.
 
 | Method | Approach | When to use |
 |---|---|---|
 | `solve_cg()` | Matrix-free conjugate gradients on the SPD reduced system | Default — fastest for large $N$, especially with shrinkage |
-| `solve_kkt()` | Direct dense factorisation via `numpy.linalg.solve` | Small problems or when an exact solve is needed |
 | `solve_pcg()` | Matrix-free PCG with an RMT (low-rank) preconditioner | Eigenvalue-cleaned shrinkage targets (requires `pcg_lr`) |
 
 ### `solve_cg` — matrix-free conjugate gradients
@@ -77,14 +74,6 @@ ever forming $\Sigma_a = X_a^\top X_a$. Standard CG then solves $\Sigma_a v = \m
 Ledoit-Wolf shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and reduces
 iteration counts dramatically — from nearly 2000 iterations at $\alpha \approx 0$ to
 single digits at $\alpha \approx 1$ in rank-deficient settings.
-
-### `solve_kkt` — direct dense solve
-
-Assembles $\Sigma_a = (1-\alpha)X_a^\top X_a + \gamma I$ explicitly and calls
-`numpy.linalg.solve`. Exact to machine precision. Scales as $O(N^3)$ in the active
-portfolio size, so it becomes expensive for $N \gtrsim 500$ without shrinkage (which
-reduces the number of active assets). With shrinkage, the active-set outer loop converges
-in 2–4 steps and the inner systems are small, making the direct solve competitive.
 
 ### `solve_pcg` — preconditioned CG
 
@@ -147,7 +136,7 @@ pass a balance system `(B, c)`:
 ```python
 B = np.zeros((2, N)); B[0, :N // 2] = 1.0; B[1, N // 2:] = 1.0  # each half holds...
 c = np.array([0.5, 0.5])                                        # ...half of the budget
-w, _ = Problem(X, B=B, c=c).solve_kkt()
+w, *_ = Problem(X, B=B, c=c).solve_cg()
 ```
 
 Long-only ($w \ge 0$) is still enforced. `B` must have full row rank on every active set
@@ -158,23 +147,13 @@ the shrinking loop visits. Use this path only when you need it — the default p
 
 All timings on Apple M4 Pro, Python 3.12, NumPy 2.4, SciPy 1.17.
 
-### Synthetic: $N=1000$, $T=2000$, i.i.d. Gaussian returns
+| Universe | $N$ | $T$ | `solve_cg` time (s) |
+|---|---|---|---|
+| Synthetic i.i.d. Gaussian | 1000 | 2000 | 0.019 |
+| S&P 500 (Jul 2021–Apr 2026) | 495 | 1192 | 0.0091 |
 
-| Method | Time (s) | Speedup vs KKT |
-|---|---|---|
-| `solve_kkt` | 0.063 | 1× |
-| **`solve_cg`** | **0.019** | **3.3×** |
-
-*With Ledoit-Wolf shrinkage ($\alpha = 0.333$), 56 CG iterations.*
-
-### S&P 500: $N=495$, $T=1192$ (Jul 2021–Apr 2026)
-
-| Method | Time (s) | Speedup vs KKT |
-|---|---|---|
-| `solve_kkt` | 0.018 | 1× |
-| **`solve_cg`** | **0.0091** | **2.0×** |
-
-*With Ledoit-Wolf shrinkage ($\alpha = 0.293$), 205 CG iterations.*
+*Both with Ledoit-Wolf shrinkage ($\alpha = 0.333$ synthetic / $0.293$ S&P), 56 and 205
+CG iterations respectively.*
 
 ## Installation
 

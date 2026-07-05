@@ -111,7 +111,8 @@ def rmt_target_and_alpha(
     exceed the MP upper edge bar_lambda * (1 + sqrt(n/T))^2.
 
     Returns (target, lr_factors, k, 1.0).  alpha=1 means the system matrix is
-    T0^RMT directly; the _kkt_step Woodbury path applies this in O(n_a k + k^3).
+    T0^RMT directly; solve_cg applies it matrix-free via the low-rank factor
+    operator at O(n_a k) per iteration.
     """
     T, n = X.shape  # noqa: N806
     cov = (X.T @ X) / T

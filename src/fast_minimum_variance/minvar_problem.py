@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 from cvx.linalg import DenseOperator, FactorOperator, GramOperator, SumOperator
-from scipy.linalg import solve as spd_solve
 from scipy.sparse.linalg import LinearOperator, cg
 
 from ._base import _BaseProblem
@@ -38,13 +37,13 @@ class _MinVarProblem(_BaseProblem):
     Use ``alpha = N/(N+T)`` for Ledoit-Wolf shrinkage intensity::
 
         T, N = X.shape
-        w, iters = Problem(X, alpha=N/(N+T)).solve_kkt()
+        w, outer, inner = Problem(X, alpha=N/(N+T)).solve_cg()
 
     Examples:
         >>> import numpy as np
         >>> from fast_minimum_variance import Problem
         >>> X = np.random.default_rng(0).standard_normal((100, 5))
-        >>> w, iters = Problem(X).solve_kkt()
+        >>> w, *_ = Problem(X).solve_cg()
         >>> float(round(w.sum(), 6))
         1.0
         >>> bool((w >= 0).all())
@@ -212,44 +211,6 @@ class _MinVarProblem(_BaseProblem):
     # ------------------------------------------------------------------
     # Inner steps
     # ------------------------------------------------------------------
-
-    def _kkt_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:  # noqa: ARG002
-        """Solve the reduced SPD system directly; return ``(w_a, 1)``.
-
-        Stationarity gives ``2*Sigma_a*w_a = B_a^T lambda + rho*mu_a``.  A single
-        solve with ``p`` RHS columns yields ``V = Sigma_a^{-1} B_a^T`` (plus
-        ``v_mu = Sigma_a^{-1} mu_a`` when ``rho != 0``); the balance system then
-        pins ``lambda`` through the ``p x p`` Schur solve of
-        :meth:`_recover_balance` (for the budget this reduces to
-        ``lambda = 2*(1 - rho/2 * sum(v_mu)) / sum(v1)``).
-
-        When ``alpha=1`` and ``target_lr`` is set the system is purely the RMT
-        target ``T0 = bar_lam*I + U_k diag(delta_k) U_k^T``.  The Woodbury
-        identity gives the exact inverse in O(n_a*k + k^3) without CG iterations:
-        ``T0^{-1} b = b/bar_lam - U_k_a W^{-1}(U_k_a^T b)/bar_lam^2``
-        where ``W = diag(1/delta_k) + U_k_a^T U_k_a / bar_lam``.
-        """
-        b_a = self._balance_rows(active)
-        tilt = self.rho != 0.0 and self.mu is not None
-        rhs = np.column_stack([b_a.T, self.mu[active]]) if tilt and self.mu is not None else b_a.T
-
-        # Woodbury direct solve: O(n_a*k + k^3) for alpha=1, RMT target. The target
-        # T0 = bar_lam*I + U_k diag(delta_k) U_k^T is a diagonal-plus-low-rank operator,
-        # so its active-block inverse is exactly cvx-linalg's FactorOperator.solve_free.
-        if self.alpha == 1.0 and self.target_lr is not None:
-            bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
-            t0 = FactorOperator(np.full(U_k.shape[0], bar_lam), U_k, np.diag(delta_k))
-            sols = np.asarray(t0.solve_free(np.flatnonzero(active), rhs))
-        else:
-            x_a = self.X[:, active]
-            if self.target is None:
-                sigma = (x_a.T @ x_a) / self.t
-            else:
-                sigma = (1.0 - self.alpha) * (x_a.T @ x_a) / self.t + self.alpha * self.target[np.ix_(active, active)]
-            sols = spd_solve(sigma, rhs, assume_a="pos")
-
-        v_mu = sols[:, -1] if tilt else None
-        return self._recover_balance(sols[:, : self._p], v_mu, b_a), 1
 
     def _system_operator(self) -> SumOperator:
         """Build ``Sigma = (1-alpha)/T * X^T X + alpha * T0`` as a cvx-linalg operator.

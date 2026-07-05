@@ -40,13 +40,12 @@ def Problem(  # noqa: N802
                    ``solve_pcg``; ignored unless PCG is invoked.
 
     Returns:
-        A solver instance with ``solve_kkt()``, ``solve_cg()``, and
-        ``solve_pcg()`` methods, each returning ``(w, n_iters)``.
+        A solver instance with ``solve_cg()`` and ``solve_pcg()`` methods.
 
     Examples:
         >>> import numpy as np
         >>> X = np.random.default_rng(42).standard_normal((500, 20))
-        >>> w, _ = Problem(X).solve_kkt()
+        >>> w, *_ = Problem(X).solve_cg()
         >>> float(round(w.sum(), 8))
         1.0
         >>> bool((w >= 0).all())
@@ -56,7 +55,7 @@ def Problem(  # noqa: N802
         of the budget:
 
         >>> B = np.zeros((2, 20)); B[0, :10] = 1.0; B[1, 10:] = 1.0
-        >>> w, _ = Problem(X, B=B, c=np.array([0.5, 0.5])).solve_kkt()
+        >>> w, *_ = Problem(X, B=B, c=np.array([0.5, 0.5])).solve_cg()
         >>> [float(round(s, 8)) for s in B @ w]
         [0.5, 0.5]
         >>> bool((w >= -1e-6).all())

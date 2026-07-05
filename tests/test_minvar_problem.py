@@ -5,14 +5,6 @@ import pytest
 
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 
-
-def _sigma(p, active):
-    """Compute the n_a × n_a SPD covariance matrix for the active assets."""
-    x_a = p.X[:, active]
-    int(active.sum())
-    return (1.0 - p.alpha) * (x_a.T @ x_a) + p.alpha * p.target[np.ix_(active, active)]
-
-
 # ---------------------------------------------------------------------------
 # Session-scoped fixtures
 # ---------------------------------------------------------------------------
@@ -87,11 +79,11 @@ class TestConstraintActiveSet:
         call_count = [0]
 
         def solve_fn(mask):
-            """Return a weakly negative weight first, then defer to _kkt_step."""
+            """Return a weakly negative weight first, then defer to _cg_step."""
             call_count[0] += 1
             if call_count[0] == 1:
                 return np.array([-5e-6, 0.6, 0.5 + 5e-6]), 1
-            return p._kkt_step(mask)
+            return p._cg_step(mask)
 
         w, *_ = p._constraint_active_set(solve_fn)
         assert w[0] == pytest.approx(0.0)
@@ -101,9 +93,9 @@ class TestConstraintActiveSet:
         """With rho != 0 the gradient is adjusted by -rho*mu in the dual check."""
         X = _make_returns(100, 5, seed=7)  # noqa: N806
         mu = np.ones(5) / 5
-        w, _ = MinVarProblem(X, rho=0.1, mu=mu).solve_kkt()
+        w, *_ = MinVarProblem(X, rho=0.1, mu=mu).solve_cg()
         assert w.sum() == pytest.approx(1.0, abs=1e-6)
-        assert np.all(w >= -1e-10)
+        assert np.all(w >= -1e-6)
 
     def test_starts_all_active(self):
         """solve_fn receives all-True mask on the first call."""
@@ -197,57 +189,13 @@ class TestConstraintActiveSet:
         X = np.eye(3)  # noqa: N806
         p = MinVarProblem(X)
 
-        w, *_ = p._constraint_active_set(p._kkt_step)
+        w, *_ = p._constraint_active_set(p._cg_step)
         # All assets should be in the final portfolio (equal-weight is optimal).
         assert (w > 0).all()
 
 
 # ---------------------------------------------------------------------------
 # Solver end-to-end tests
-# ---------------------------------------------------------------------------
-
-
-class TestKktStep:
-    """Tests for MinVarProblem._kkt_step."""
-
-    def test_rho_nonzero_two_solves(self):
-        """With rho != 0 and mu given, _kkt_step performs two SPD solves."""
-        X = _make_returns(50, 4, seed=3)  # noqa: N806
-        mu = np.array([0.1, 0.2, 0.15, 0.05])
-        p = MinVarProblem(X, rho=0.5, mu=mu)
-        active = np.ones(4, dtype=bool)
-        w_a, iters = p._kkt_step(active)
-        assert w_a.shape == (4,)
-        assert iters == 1
-
-
-class TestSolveKkt:
-    """Tests for MinVarProblem.solve_kkt."""
-
-    def test_shape(self, mvp):
-        """Output weight vector has shape (N,)."""
-        w, _ = mvp.solve_kkt()
-        assert w.shape == (mvp.n,)
-
-    def test_weights_sum_to_one(self, mvp):
-        """Weights sum to 1."""
-        w, _ = mvp.solve_kkt()
-        assert w.sum() == pytest.approx(1.0, abs=1e-6)
-
-    def test_weights_non_negative(self, mvp):
-        """All weights are non-negative."""
-        w, _ = mvp.solve_kkt()
-        assert np.all(w >= -1e-10)
-
-    def test_project_false_preserves_raw(self):
-        """project=False skips clip-and-renormalize; result may not sum to 1."""
-        X = np.eye(3)  # noqa: N806
-        w, _ = MinVarProblem(X).solve_kkt(project=False)
-        assert w.shape == (3,)
-
-
-# ---------------------------------------------------------------------------
-# Cross-validation: MinVarProblem agrees with Problem
 # ---------------------------------------------------------------------------
 
 
@@ -269,28 +217,25 @@ class TestSolveCg:
         w, *_ = mvp.solve_cg()
         assert np.all(w >= -1e-4)
 
-    def test_close_to_kkt(self, mvp_small):
-        """CG solution is close to the exact KKT solution."""
-        w_kkt, _ = mvp_small.solve_kkt()
+    def test_close_to_reference(self, mvp_small, reference_weights):
+        """CG solution is close to the independent SLSQP oracle."""
         w_cg, *_ = mvp_small.solve_cg()
-        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+        np.testing.assert_allclose(w_cg, reference_weights(mvp_small), atol=1e-4)
 
-    def test_with_shrinkage(self, X_small):  # noqa: N803
-        """Shrinkage branch (alpha > 0) agrees with KKT."""
+    def test_with_shrinkage(self, X_small, reference_weights):  # noqa: N803
+        """Shrinkage branch (alpha > 0) agrees with the reference oracle."""
         T, N = X_small.shape  # noqa: N806
         p = MinVarProblem(X_small, alpha=N / (N + T))
         w_cg, *_ = p.solve_cg()
-        w_kkt, _ = p.solve_kkt()
-        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+        np.testing.assert_allclose(w_cg, reference_weights(p), atol=1e-4)
 
-    def test_return_tilt_branch(self, X_small):  # noqa: N803
-        """Return-tilt (rho != 0) runs two CG solves."""
+    def test_return_tilt_branch(self, X_small, reference_weights):  # noqa: N803
+        """Return-tilt (rho != 0) runs two CG solves and matches the oracle."""
         _T, N = X_small.shape  # noqa: N806
         mu = np.random.default_rng(7).standard_normal(N)
         p = MinVarProblem(X_small, rho=0.5, mu=mu)
         w_cg, *_ = p.solve_cg()
-        w_kkt, _ = p.solve_kkt()
-        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-4)
+        np.testing.assert_allclose(w_cg, reference_weights(p), atol=1e-4)
 
     def test_project_false(self, mvp):
         """project=False returns raw CG solution without clipping."""
@@ -313,7 +258,7 @@ def _make_target_lr(n, k=2, seed=0):
 
 
 class TestTargetLr:
-    """target_lr (low-rank target) exercises distinct code branches in CG and KKT steps."""
+    """target_lr (low-rank target) exercises distinct code branches in the CG step."""
 
     @pytest.fixture(scope="class")
     @staticmethod
@@ -327,15 +272,6 @@ class TestTargetLr:
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
         w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_cg()
-        assert abs(w.sum() - 1.0) < 1e-4
-        assert np.all(w >= -1e-4)
-
-    def test_kkt_with_target_lr(self, X):  # noqa: N803
-        """solve_kkt with target_lr returns a valid portfolio."""
-        T, N = X.shape  # noqa: N806
-        alpha = N / (N + T)
-        target_lr = _make_target_lr(N)
-        w, _ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_kkt()
         assert abs(w.sum() - 1.0) < 1e-4
         assert np.all(w >= -1e-4)
 
@@ -399,11 +335,11 @@ class TestSolvePcg:
         w, *_ = MinVarProblem(X, pcg_lr=pcg_lr).solve_pcg(project=False)
         assert w.shape == (X.shape[1],)
 
-    def test_close_to_kkt(self, X, pcg_lr):  # noqa: N803
-        """PCG solution agrees with the direct KKT solution."""
-        w_pcg, *_ = MinVarProblem(X, pcg_lr=pcg_lr).solve_pcg()
-        w_kkt, _ = MinVarProblem(X).solve_kkt()
-        np.testing.assert_allclose(w_pcg, w_kkt, atol=1e-4)
+    def test_close_to_reference(self, X, pcg_lr, reference_weights):  # noqa: N803
+        """PCG solution agrees with the independent SLSQP oracle."""
+        prob = MinVarProblem(X, pcg_lr=pcg_lr)
+        w_pcg, *_ = prob.solve_pcg()
+        np.testing.assert_allclose(w_pcg, reference_weights(prob), atol=1e-4)
 
     def test_with_target_lr(self, X, pcg_lr):  # noqa: N803
         """target_lr exercises the low-rank system-matvec branch in _pcg_step."""
