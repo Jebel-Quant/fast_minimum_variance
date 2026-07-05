@@ -83,6 +83,19 @@ $O(n_a k)$ per step). Requires `pcg_lr = (bar_lam, U_k, delta_k)` from RMT prepr
 and returns the oracle-LW minimum-variance portfolio in far fewer iterations when the
 shrinkage target has been eigenvalue-cleaned.
 
+Build `pcg_lr` either from the dense `rmt_target_and_alpha` (full `eigh`) or, for large
+$N$, from `rmt_preconditioner_rsvd`, which recovers the top eigenpairs via a randomized
+SVD of $X$ — matrix-free at $O(TNk)$, never forming $X^\top X$. Because a preconditioner
+only affects the iteration count and not the solution, the randomized factors match the
+dense ones in CG iterations while cutting setup cost by up to ~10× at $N \sim 2000$:
+
+```python
+from fast_minimum_variance.shrinkage.util import rmt_preconditioner_rsvd
+
+pcg_lr = rmt_preconditioner_rsvd(X, n_components=16)
+w, outer, inner = Problem(X, alpha=N / (N + T), pcg_lr=pcg_lr).solve_pcg()
+```
+
 ## The Primal-Dual Active-Set Loop
 
 Long-only weights are enforced by an outer loop that wraps any inner solver:

@@ -2,6 +2,7 @@
 
 import numpy as np
 from sklearn.covariance import ledoit_wolf, oas
+from sklearn.utils.extmath import randomized_svd
 
 
 def lw_alpha_and_target(X: np.ndarray) -> tuple[float, np.ndarray]:  # noqa: N803
@@ -129,3 +130,87 @@ def rmt_target_and_alpha(
     target = bar_lam * np.eye(n) + vecs_k @ np.diag(delta_k) @ vecs_k.T
     lr_factors = (float(bar_lam), vecs_k, delta_k)  # for O(nk) matvec
     return target, lr_factors, k, 1.0
+
+
+def rmt_preconditioner_rsvd(
+    X: np.ndarray,  # noqa: N803
+    *,
+    n_components: int | None = None,
+    n_oversamples: int = 10,
+    n_iter: int = 4,
+    threshold: bool = True,
+    random_state: int = 0,
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Build an RMT low-rank preconditioner ``(bar_lam, U_k, delta_k)`` via randomized SVD.
+
+    Computes the top singular triplets of ``X`` directly with a randomized SVD --
+    matrix-free at ``O(T n k)``, never forming the ``n x n`` covariance
+    ``X^T X / T`` nor running a dense eigendecomposition. The eigenpairs of the
+    sample covariance are recovered as ``(V, sigma^2 / T)`` from the right
+    singular vectors ``V`` and singular values ``sigma`` of ``X``, since
+    ``X = U diag(sigma) V^T`` implies ``X^T X = V diag(sigma^2) V^T``.
+
+    This is the randomized-SVD counterpart of :func:`rmt_target_and_alpha`'s
+    dense ``eigh`` path, intended for the ``pcg_lr`` argument of
+    :meth:`~fast_minimum_variance.minvar_problem._MinVarProblem.solve_pcg`:
+    a preconditioner only affects the CG iteration count and never the solution,
+    so the approximate factors from a randomized SVD are sufficient here while
+    the setup stays matrix-free and consistent with the ``O(T n)``/iter solver.
+
+    Args:
+        X:             Returns matrix of shape ``(T, N)``; should be column-demeaned.
+        n_components:  Number of singular triplets to compute (the maximum
+                       preconditioner rank).  Defaults to ``min(10, min(T, N) - 1)``.
+        n_oversamples: Extra random dimensions for the rangefinder (accuracy).
+        n_iter:        Power iterations; ``2-4`` sharpen eigenvalues near the MP edge.
+        threshold:     When ``True`` keep only components whose eigenvalue exceeds
+                       the Marchenko-Pastur upper edge ``bar_lam*(1+sqrt(N/T))^2``
+                       (the RMT signal set); when ``False`` keep all ``n_components``.
+        random_state:  Seed for the randomized SVD's random projection.
+
+    Returns:
+        ``(bar_lam, U_k, delta_k)`` -- the low-rank factors of
+        ``T0 = bar_lam*I + U_k diag(delta_k) U_k^T``, ready to pass as ``pcg_lr``.
+
+    Examples:
+        >>> import numpy as np
+        >>> from fast_minimum_variance import Problem
+        >>> from fast_minimum_variance.shrinkage.util import rmt_preconditioner_rsvd
+        >>> rng = np.random.default_rng(0)
+        >>> X = rng.standard_normal((300, 40))
+        >>> X = X - X.mean(axis=0)
+        >>> pcg_lr = rmt_preconditioner_rsvd(X, n_components=5)
+        >>> w, outer, inner = Problem(X, pcg_lr=pcg_lr).solve_pcg()
+        >>> float(round(w.sum(), 8))
+        1.0
+        >>> bool((w >= -1e-8).all())
+        True
+    """
+    T, n = X.shape  # noqa: N806
+    m = min(T, n)
+    if n_components is None:
+        n_components = min(10, m - 1)
+    n_components = max(1, min(n_components, m - 1))
+
+    bar_lam = float(np.sum(X * X)) / (n * T)  # ||X||_F^2 / (n T) = trace(cov)/n, matrix-free
+
+    _u, s, vt = randomized_svd(
+        X,
+        n_components=n_components,
+        n_oversamples=n_oversamples,
+        n_iter=n_iter,
+        random_state=random_state,
+    )
+    eigs = (s**2) / T  # eigenvalues of X^T X / T
+    vecs = vt.T  # (n, n_components) right singular vectors = eigenvectors of cov
+
+    if threshold:
+        mp_upper = bar_lam * (1.0 + np.sqrt(n / T)) ** 2
+        keep = eigs > mp_upper
+        if not keep.any():
+            keep[0] = True  # always retain the leading direction as a rank-1 preconditioner
+        eigs = eigs[keep]
+        vecs = vecs[:, keep]
+
+    delta_k = eigs - bar_lam  # (k,) eigenvalue excesses; bar_lam + delta_k = eigs > 0 keeps P SPD
+    return bar_lam, vecs, delta_k
