@@ -35,7 +35,6 @@ test = [
     "pytest>=8.0",
 ]
 dev = [
-    "marimo>=0.20.0",
     "matplotlib>=3.10.9",
     "pandas>=3.0",
     "pyarrow>=24.0.0",
@@ -67,7 +66,6 @@ numpy = "numpy"
 polars = "polars"
 scipy = "scipy"
 "scikit-learn" = "sklearn"
-marimo = "marimo"
 pandas = "pandas"
 pyarrow = "pyarrow"
 "cvx-linalg" = "cvx"
