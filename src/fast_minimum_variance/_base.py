@@ -11,10 +11,9 @@ import numpy as np
 class _BaseProblem(ABC):
     """Shared fields, utilities, and solver templates for portfolio problems.
 
-    Subclasses must implement the three abstract hooks:
+    Subclasses must implement the two abstract hooks:
 
     * ``_constraint_active_set(solve_fn)`` — outer constraint-handling loop
-    * ``_kkt_step(mask) -> (w, iters)`` — one direct-KKT inner step
     * ``_cg_step(mask) -> (w, iters)`` — one CG inner step
 
     All ``solve_*`` methods are implemented here as template methods that
@@ -77,11 +76,6 @@ class _BaseProblem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _kkt_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:  # pragma: no cover
-        """Solve one inner direct-KKT step; return ``(w, iters)``."""
-        raise NotImplementedError
-
-    @abstractmethod
     def _cg_step(self, active: np.ndarray) -> tuple[np.ndarray, int]:
         """Solve one inner CG step; return ``(w, iters)``."""
         raise NotImplementedError  # pragma: no cover
@@ -98,32 +92,6 @@ class _BaseProblem(ABC):
     # ------------------------------------------------------------------
     # Template solvers
     # ------------------------------------------------------------------
-
-    def solve_kkt(self, *, project: bool = True) -> tuple[np.ndarray, int]:
-        """Solve via the direct KKT system.
-
-        Args:
-            project: Clip weights to ``[0, ∞)`` and renormalize to sum to 1
-                     after solving.  Set to ``False`` for custom constraints.
-
-        Returns:
-            ``(w, n_iters)`` — weight vector of shape ``(N,)`` and number of
-            outer iterations taken.
-
-        Examples:
-            >>> import numpy as np
-            >>> from fast_minimum_variance import Problem
-            >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, iters = Problem(X).solve_kkt()
-            >>> float(round(w.sum(), 10))
-            1.0
-            >>> bool((w >= 0).all())
-            True
-        """
-        w, outer, _inner = self._constraint_active_set(self._kkt_step)
-        if project:
-            w = self._clip_and_renormalize(w)
-        return w, outer
 
     def solve_cg(self, *, project: bool = True) -> tuple[np.ndarray, int, int]:
         """Solve via matrix-free conjugate gradients.

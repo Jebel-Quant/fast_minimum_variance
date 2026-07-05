@@ -1,4 +1,4 @@
-"""Cross-validation: KKT solver vs an independent SLSQP reference for _MinVarProblem."""
+"""Cross-validation: CG solver vs an independent SLSQP reference for _MinVarProblem."""
 
 import numpy as np
 import pytest
@@ -30,58 +30,58 @@ def X_small():  # noqa: N802
 
 
 # ---------------------------------------------------------------------------
-# KKT vs reference oracle
+# CG vs reference oracle
 # ---------------------------------------------------------------------------
 
 
-class TestKktVsReference:
-    """KKT and the independent SLSQP oracle must return the same portfolio."""
+class TestCgVsReference:
+    """CG and the independent SLSQP oracle must return the same portfolio."""
 
     def test_plain_minvar(self, X, reference_weights):  # noqa: N803
         """Plain minimum variance (alpha=0, rho=0)."""
         prob = Problem(X)
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_with_shrinkage(self, X, reference_weights):  # noqa: N803
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
         prob = Problem(X, alpha=N / (N + T))
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_with_return_tilt(self, X, reference_weights):  # noqa: N803
         """Return tilt (rho != 0, mu given)."""
         mu = np.random.default_rng(1).standard_normal(X.shape[1])
         prob = Problem(X, rho=0.5, mu=mu)
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_small_problem(self, X_small, reference_weights):  # noqa: N803
         """Small problem (T=100, N=5)."""
         prob = Problem(X_small)
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_shrinkage_and_tilt(self, X, reference_weights):  # noqa: N803
         """Shrinkage and return tilt combined."""
         T, N = X.shape  # noqa: N806
         mu = np.ones(N) / N
         prob = Problem(X, alpha=N / (N + T), rho=0.3, mu=mu)
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     @pytest.mark.parametrize("N", [2, 5, 20])
     def test_various_sizes(self, N, reference_weights):  # noqa: N803
         """Agreement holds for several problem sizes."""
         X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
         prob = Problem(X)
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
 
 # ---------------------------------------------------------------------------
-# Woodbury path (alpha=1, RMT target)
+# Low-rank RMT target (alpha=1)
 # ---------------------------------------------------------------------------
 
 
@@ -93,40 +93,33 @@ def _build_rmt_problem(T=300, N=50, seed=99, rho=0.0, mu=None):  # noqa: N803
     return X, Problem(X, alpha=alpha, target=target, target_lr=lr_factors, rho=rho, mu=mu)
 
 
-class TestWoodbury:
-    """Woodbury path must agree with the reference oracle and with the CG path."""
+class TestLowRank:
+    """The alpha=1 low-rank factor path must agree with the reference oracle."""
 
     def test_minvar_agrees_with_reference(self, reference_weights):
-        """alpha=1, RMT target: KKT (Woodbury) matches the oracle."""
+        """alpha=1, RMT target: CG matches the oracle."""
         _, prob = _build_rmt_problem()
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
-
-    def test_minvar_agrees_with_cg(self):
-        """alpha=1, RMT target: KKT (Woodbury) matches CG."""
-        _, prob = _build_rmt_problem()
-        w_kkt, _ = prob.solve_kkt()
-        w_cg, _, _ = prob.solve_cg()
-        np.testing.assert_allclose(w_kkt, w_cg, atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_return_tilt_agrees_with_reference(self, reference_weights):
-        """alpha=1, RMT target, return tilt: KKT (Woodbury) matches the oracle."""
+        """alpha=1, RMT target, return tilt: CG matches the oracle."""
         mu = np.random.default_rng(5).standard_normal(50)
         _, prob = _build_rmt_problem(rho=0.5, mu=mu)
-        w_kkt, _ = prob.solve_kkt()
-        np.testing.assert_allclose(w_kkt, reference_weights(prob), atol=1e-4)
+        w_cg, *_ = prob.solve_cg()
+        np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_weights_are_valid(self):
-        """Woodbury solution sums to 1 and is non-negative."""
+        """Low-rank solution sums to 1 and is non-negative."""
         _, prob = _build_rmt_problem()
-        w, _ = prob.solve_kkt()
-        assert abs(w.sum() - 1.0) < 1e-8
-        assert (w >= -1e-8).all()
+        w, *_ = prob.solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-6
+        assert (w >= -1e-6).all()
 
-    def test_woodbury_not_triggered_without_target_lr(self):
-        """alpha=1 without target_lr falls back to dense solve (no crash)."""
+    def test_dense_target_without_target_lr(self):
+        """alpha=1 with only a dense target (no target_lr) solves via the Gram path."""
         X = make_returns(T=300, N=20, seed=7)  # noqa: N806
         target, _, _k, _ = rmt_target_and_alpha(X)
         prob = Problem(X, alpha=1.0, target=target)  # no target_lr
-        w, _ = prob.solve_kkt()
-        assert abs(w.sum() - 1.0) < 1e-8
+        w, *_ = prob.solve_cg()
+        assert abs(w.sum() - 1.0) < 1e-6

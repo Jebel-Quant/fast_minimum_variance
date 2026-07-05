@@ -16,18 +16,14 @@ from fast_minimum_variance._base import _BaseProblem
 class _Stub(_BaseProblem):
     """_BaseProblem subclass that returns fixed, distinguishable values.
 
-    Each ``_XXX_step`` returns a unique iter count (1 / 3 / 5) so tests can
-    verify that each ``solve_*`` template calls exactly the right step method.
+    ``_cg_step`` returns a fixed iter count (5) so tests can verify that the
+    ``solve_cg`` template calls it and threads its count through.
     """
 
     def _constraint_active_set(self, solve_fn):
         """Call solve_fn once and report a fixed outer-iteration count of 1."""
         w, step_iters = solve_fn(None)
         return w, 1, step_iters
-
-    def _kkt_step(self, mask):
-        """Return canned weights and iter count 1 for the KKT step."""
-        return np.array([0.5, -0.1, 0.6]), 1
 
     def _cg_step(self, mask):
         """Return canned weights and inner iter count 5 for the CG step."""
@@ -60,10 +56,6 @@ class TestAbstractInterface:
             def _constraint_active_set(self, fn):
                 """Call fn once and return its result."""
                 return fn(None)
-
-            def _kkt_step(self, mask):
-                """Return zero weights and iter count 1."""
-                return np.zeros(3), 1
 
             # _cg_step intentionally omitted
 
@@ -137,11 +129,6 @@ class TestClipAndRenormalize:
 class TestTemplateDelegation:
     """solve_* passes the correct _XXX_step to _constraint_active_set."""
 
-    def test_solve_kkt_uses_kkt_step(self):
-        """solve_kkt delegates to _kkt_step (iters==1)."""
-        _, iters = _Stub(_X3).solve_kkt()
-        assert iters == 1
-
     def test_solve_cg_uses_cg_step(self):
         """solve_cg delegates to _cg_step (inner iters==5)."""
         _, _, iters = _Stub(_X3).solve_cg()
@@ -153,21 +140,21 @@ class TestProjectParameter:
 
     def test_project_true_clips_negative(self):
         """project=True removes negative weights."""
-        w, _ = _Stub(_X3).solve_kkt(project=True)
+        w, *_ = _Stub(_X3).solve_cg(project=True)
         assert np.all(w >= 0)
 
     def test_project_true_sums_to_one(self):
         """project=True ensures weights sum to 1."""
-        w, _ = _Stub(_X3).solve_kkt(project=True)
+        w, *_ = _Stub(_X3).solve_cg(project=True)
         assert w.sum() == pytest.approx(1.0)
 
     def test_project_false_preserves_negative(self):
         """project=False returns the raw negative weight unchanged."""
-        w, _ = _Stub(_X3).solve_kkt(project=False)
+        w, *_ = _Stub(_X3).solve_cg(project=False)
         assert w[1] == pytest.approx(-0.1)
 
     def test_project_default_is_true(self):
         """Default project behaviour matches project=True."""
-        w_default, _ = _Stub(_X3).solve_kkt()
-        w_explicit, _ = _Stub(_X3).solve_kkt(project=True)
+        w_default, *_ = _Stub(_X3).solve_cg()
+        w_explicit, *_ = _Stub(_X3).solve_cg(project=True)
         np.testing.assert_array_equal(w_default, w_explicit)

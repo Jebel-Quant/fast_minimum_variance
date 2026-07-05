@@ -117,13 +117,6 @@ class TestValidation:
 class TestBudgetEquivalence:
     """An explicit ones-row budget matches the default budget path."""
 
-    def test_kkt_identical(self, X):  # noqa: N803
-        """solve_kkt with B=1^T, c=[1] equals the default budget solution."""
-        n = X.shape[1]
-        w0, _ = MinVarProblem(X).solve_kkt()
-        w1, _ = MinVarProblem(X, B=np.ones((1, n)), c=np.array([1.0])).solve_kkt()
-        np.testing.assert_allclose(w1, w0, atol=1e-12)
-
     def test_cg_same_iteration_counts(self, X):  # noqa: N803
         """The single-constraint CG path takes the same outer/inner counts."""
         n = X.shape[1]
@@ -141,44 +134,36 @@ class TestBudgetEquivalence:
 class TestSleeves:
     """p=4 sleeve systems solved by every production path."""
 
-    def test_kkt_matches_reference(self, X, sleeves, lw, reference_weights):  # noqa: N803
-        """solve_kkt reaches the reference-oracle objective and is exactly feasible."""
+    def test_cg_matches_reference(self, X, sleeves, lw, reference_weights):  # noqa: N803
+        """solve_cg reaches the reference-oracle objective and is exactly feasible."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w, _ = prob.solve_kkt()
+        w_cg, _outer, inner = prob.solve_cg()
         w_ref = reference_weights(prob)
 
-        assert np.abs(b_eq @ w - c_eq).max() < 1e-12
-        assert w.min() > -1e-6
-        assert _objective(prob, w) <= _objective(prob, w_ref) + 1e-9
-
-    def test_cg_matches_kkt(self, X, sleeves, lw):  # noqa: N803
-        """solve_cg agrees with solve_kkt on the sleeve problem."""
-        b_eq, c_eq = sleeves
-        alpha, target = lw
-        prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w_kkt, _ = prob.solve_kkt()
-        w_cg, _outer, inner = prob.solve_cg()
         assert inner > 0
-        np.testing.assert_allclose(w_cg, w_kkt, atol=1e-5)
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
+        assert w_cg.min() > -1e-6
+        # CG is at least as good as the independent oracle (which is itself only
+        # approximately optimal near the long-only boundary on this universe).
+        assert _objective(prob, w_cg) <= _objective(prob, w_ref) + 1e-9
 
     def test_no_shrinkage_active_set_shrinks(self, X, sleeves):  # noqa: N803
         """Without shrinkage some assets are eliminated and feasibility holds."""
         b_eq, c_eq = sleeves
-        w, outer = MinVarProblem(X, B=b_eq, c=c_eq).solve_kkt()
+        w, outer, _inner = MinVarProblem(X, B=b_eq, c=c_eq).solve_cg()
         assert outer > 1
         assert (w > 1e-8).sum() < X.shape[1]
-        assert np.abs(b_eq @ w - c_eq).max() < 1e-12
+        assert np.abs(b_eq @ w - c_eq).max() < 1e-8
 
     def test_projection_is_identity_for_balance(self, X, sleeves, lw):  # noqa: N803
         """project=True must not renormalise a balance-system solution."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w_proj, _ = prob.solve_kkt(project=True)
-        w_raw, _ = prob.solve_kkt(project=False)
+        w_proj, *_ = prob.solve_cg(project=True)
+        w_raw, *_ = prob.solve_cg(project=False)
         np.testing.assert_array_equal(w_proj, w_raw)
 
 
@@ -247,18 +232,16 @@ class TestFreeMatvec:
 class TestSleevesWithTilt:
     """Markowitz tilt combined with a sleeve system."""
 
-    def test_kkt_and_cg_match_reference(self, X, sleeves, lw, reference_weights):  # noqa: N803
-        """Tilted sleeve solves agree with the reference oracle."""
+    def test_cg_matches_reference(self, X, sleeves, lw, reference_weights):  # noqa: N803
+        """Tilted sleeve solve agrees with the reference oracle."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         mu = np.random.default_rng(1).standard_normal(X.shape[1]) * 0.01
         prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
-        w_kkt, _ = prob.solve_kkt()
         w_cg, _, _ = prob.solve_cg()
         w_ref = reference_weights(prob)
-        np.testing.assert_allclose(w_kkt, w_ref, atol=1e-5)
         np.testing.assert_allclose(w_cg, w_ref, atol=1e-5)
-        assert np.abs(b_eq @ w_kkt - c_eq).max() < 1e-12
+        assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
 
 
 # ---------------------------------------------------------------------------
@@ -269,15 +252,15 @@ class TestSleevesWithTilt:
 class TestSleevesLowRank:
     """Balance systems through the Woodbury and PCG paths."""
 
-    def test_woodbury_kkt_matches_dense(self, X, sleeves, rmt):  # noqa: N803
+    def test_lowrank_matches_dense(self, X, sleeves, rmt):  # noqa: N803
         """alpha=1 with target_lr equals the dense-target solve on sleeves."""
         b_eq, c_eq = sleeves
         bar_lam, u_k, delta_k = rmt
         dense = bar_lam * np.eye(X.shape[1]) + (u_k * delta_k) @ u_k.T
-        w_lr, _ = MinVarProblem(X, B=b_eq, c=c_eq, alpha=1.0, target_lr=rmt).solve_kkt()
-        w_dense, _ = MinVarProblem(X, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_kkt()
-        np.testing.assert_allclose(w_lr, w_dense, atol=1e-10)
-        assert np.abs(b_eq @ w_lr - c_eq).max() < 1e-12
+        w_lr, *_ = MinVarProblem(X, B=b_eq, c=c_eq, alpha=1.0, target_lr=rmt).solve_cg()
+        w_dense, *_ = MinVarProblem(X, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_cg()
+        np.testing.assert_allclose(w_lr, w_dense, atol=1e-6)
+        assert np.abs(b_eq @ w_lr - c_eq).max() < 1e-8
 
     def test_pcg_matches_cg(self, X, sleeves, lw, rmt):  # noqa: N803
         """solve_pcg with an RMT preconditioner agrees with plain CG on sleeves."""
