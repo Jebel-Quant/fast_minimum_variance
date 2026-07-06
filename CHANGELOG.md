@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and entries are generated from [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.7.2] - 2026-07-06
+
+### New Features
+- Randomized-SVD RMT preconditioner for solve_pcg (#85)
+
+### Maintenance
+- Cover solve_cvxpy no-solution branch (100% coverage) (#80)
+- Remove warm-start solvers (#83)
+- Remove the direct KKT solver (#84)
+- Remove marimo notebooks, book scaffolding, and workflow (#86)
+- Consolidate duplicated CG cross-validation tests (#87)
+- Remove the solve_pcg preconditioned solver (#88)
+
+### Other Changes
+- Remove nnls, clarabel, and osqp solvers (#77)
+- Remove .claude/commands directory (#78)
+- Remove experiment scripts and paper-generation utilities (#79)
+- Remove CVXPY solver; add independent SLSQP test oracle (#82)
+
 ## [0.7.1] - 2026-07-04
 
 ### New Features
@@ -72,6 +91,7 @@ and entries are generated from [Conventional Commits](https://www.conventionalco
 - Adopt cvx-linalg operators (FactorOperator, SumOperator, operator-aware power_iteration) (#71)
 - Balance systems (B, c) and CG speed restoration (#75)
 - Remove `data` and `problem` subpackages and unused project artifacts (#76)
+- Bump version 0.7.0 → 0.7.1
 
 ## [0.7.0] - 2026-05-07
 
