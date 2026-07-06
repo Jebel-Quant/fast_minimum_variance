@@ -3,14 +3,12 @@
 import numpy as np
 import pytest
 
-from fast_minimum_variance import Problem
 from fast_minimum_variance.shrinkage.util import (
     cc_target,
     lw_alpha_and_target,
     lw_alpha_and_target_hard,
     lw_alpha_for_target,
     oas_alpha_and_target,
-    rmt_preconditioner_rsvd,
     rmt_target_and_alpha,
 )
 
@@ -246,89 +244,3 @@ class TestRmtTargetAndAlpha:
         assert 0.0 <= alpha <= 1.0
         reconstructed = bar_lam * np.eye(50) + U_k @ np.diag(delta_k) @ U_k.T
         np.testing.assert_allclose(reconstructed, target, atol=1e-10)
-
-
-# ---------------------------------------------------------------------------
-# rmt_preconditioner_rsvd
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def X_signal():  # noqa: N802
-    """Demeaned (400, 60) matrix with a few strong factors above the MP bulk."""
-    rng = np.random.default_rng(1)
-    T, n, k = 400, 60, 4  # noqa: N806
-    loadings = rng.standard_normal((n, k))
-    factors = rng.standard_normal((T, k)) * np.array([6.0, 4.0, 3.0, 2.0])
-    X = factors @ loadings.T + rng.standard_normal((T, n))  # noqa: N806
-    return X - X.mean(axis=0)
-
-
-class TestRmtPreconditionerRsvd:
-    """Tests for rmt_preconditioner_rsvd (randomized-SVD RMT preconditioner)."""
-
-    def test_return_shapes_and_types(self, X_signal):  # noqa: N803
-        """Returns (float bar_lam, (n, k) U_k, (k,) delta_k) with matching k."""
-        bar_lam, U_k, delta_k = rmt_preconditioner_rsvd(X_signal, n_components=6)  # noqa: N806
-        n = X_signal.shape[1]
-        assert isinstance(bar_lam, float)
-        assert U_k.shape[0] == n
-        assert delta_k.shape == (U_k.shape[1],)
-
-    def test_bar_lam_matches_mean_eigenvalue(self, X_signal):  # noqa: N803
-        """bar_lam equals trace(cov)/n computed matrix-free."""
-        T, n = X_signal.shape  # noqa: N806
-        bar_lam, *_ = rmt_preconditioner_rsvd(X_signal)
-        cov = (X_signal.T @ X_signal) / T
-        assert bar_lam == pytest.approx(np.trace(cov) / n, rel=1e-10)
-
-    def test_orthonormal_columns(self, X_signal):  # noqa: N803
-        """U_k columns are orthonormal (right singular vectors)."""
-        _, U_k, _ = rmt_preconditioner_rsvd(X_signal, n_components=6)  # noqa: N806
-        np.testing.assert_allclose(U_k.T @ U_k, np.eye(U_k.shape[1]), atol=1e-8)
-
-    def test_threshold_keeps_signal_factors(self, X_signal):  # noqa: N803
-        """Thresholding keeps the strong factors and all excesses are positive."""
-        _, U_k, delta_k = rmt_preconditioner_rsvd(X_signal, n_components=10)  # noqa: N806
-        assert 1 <= U_k.shape[1] <= 10
-        assert np.all(delta_k > 0)
-
-    def test_eigenvalues_match_dense(self, X_signal):  # noqa: N803
-        """Recovered top eigenvalues agree with the dense eigh path."""
-        T, _n = X_signal.shape  # noqa: N806
-        bar_lam, _, delta_k = rmt_preconditioner_rsvd(X_signal, n_components=4)
-        eigs_rsvd = np.sort(bar_lam + delta_k)[::-1]
-        cov = (X_signal.T @ X_signal) / T
-        eigs_dense = np.sort(np.linalg.eigvalsh(cov))[::-1][: eigs_rsvd.size]
-        np.testing.assert_allclose(eigs_rsvd, eigs_dense, rtol=1e-3)
-
-    def test_no_threshold_keeps_all_components(self, X_signal):  # noqa: N803
-        """threshold=False keeps exactly n_components factors."""
-        _, U_k, _ = rmt_preconditioner_rsvd(X_signal, n_components=7, threshold=False)  # noqa: N806
-        assert U_k.shape[1] == 7
-
-    def test_default_n_components(self, X_signal):  # noqa: N803
-        """Default n_components caps the rank at min(10, min(T, n) - 1)."""
-        _, U_k, _ = rmt_preconditioner_rsvd(X_signal, threshold=False)  # noqa: N806
-        assert U_k.shape[1] == 10
-
-    def test_n_components_clamped_to_rank(self):
-        """An oversized n_components is clamped to min(T, n) - 1."""
-        X = np.random.default_rng(3).standard_normal((8, 5))  # noqa: N806
-        _, U_k, _ = rmt_preconditioner_rsvd(X, n_components=100, threshold=False)  # noqa: N806
-        assert U_k.shape[1] == 4  # min(8, 5) - 1
-
-    def test_flat_spectrum_forces_rank_one(self):
-        """With no eigenvalue above the MP edge, a rank-1 preconditioner is retained."""
-        X = np.eye(6)  # noqa: N806  # all eigenvalues equal -> none exceed the MP edge
-        _, U_k, delta_k = rmt_preconditioner_rsvd(X, n_components=3)  # noqa: N806
-        assert U_k.shape[1] == 1
-        assert delta_k.shape == (1,)
-
-    def test_usable_as_pcg_preconditioner(self, X_signal, reference_weights):  # noqa: N803
-        """solve_pcg with the rSVD preconditioner matches the independent oracle."""
-        pcg_lr = rmt_preconditioner_rsvd(X_signal, n_components=6)
-        prob = Problem(X_signal, pcg_lr=pcg_lr)
-        w, _outer, inner = prob.solve_pcg()
-        assert inner >= 1
-        np.testing.assert_allclose(w, reference_weights(prob), atol=1e-4)

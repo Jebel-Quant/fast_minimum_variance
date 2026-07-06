@@ -245,12 +245,12 @@ class TestSleevesWithTilt:
 
 
 # ---------------------------------------------------------------------------
-# RMT low-rank target (alpha=1) and PCG with sleeves
+# RMT low-rank target (alpha=1) with sleeves
 # ---------------------------------------------------------------------------
 
 
 class TestSleevesLowRank:
-    """Balance systems through the Woodbury and PCG paths."""
+    """Balance systems through the Woodbury low-rank path."""
 
     def test_lowrank_matches_dense(self, X, sleeves, rmt):  # noqa: N803
         """alpha=1 with target_lr equals the dense-target solve on sleeves."""
@@ -261,13 +261,3 @@ class TestSleevesLowRank:
         w_dense, *_ = MinVarProblem(X, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_cg()
         np.testing.assert_allclose(w_lr, w_dense, atol=1e-6)
         assert np.abs(b_eq @ w_lr - c_eq).max() < 1e-8
-
-    def test_pcg_matches_cg(self, X, sleeves, lw, rmt):  # noqa: N803
-        """solve_pcg with an RMT preconditioner agrees with plain CG on sleeves."""
-        b_eq, c_eq = sleeves
-        alpha, target = lw
-        prob = MinVarProblem(X, B=b_eq, c=c_eq, alpha=alpha, target=target, pcg_lr=rmt)
-        w_pcg, _, inner_pcg = prob.solve_pcg()
-        w_cg, _, _ = prob.solve_cg()
-        assert inner_pcg > 0
-        np.testing.assert_allclose(w_pcg, w_cg, atol=1e-5)
