@@ -33,7 +33,7 @@ from fast_minimum_variance import Problem
 # 500 daily returns, 20 assets
 X = np.random.default_rng(42).standard_normal((500, 20))
 
-w, outer, inner = Problem(X).solve_cg()   # matrix-free CG — recommended
+w, outer, inner = Problem(X).solve_cg()   # matrix-free conjugate gradients
 
 assert abs(w.sum() - 1.0) < 1e-8
 assert (w >= 0).all()
@@ -51,18 +51,13 @@ w, outer, inner = Problem(X, alpha=N / (N + T)).solve_cg()
 ```
 
 On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations from 685 to
-205 and makes the matrix-free solver the fastest option by a wide margin.
+205 — the entire solve runs in under 10 ms (see [Benchmarks](#benchmarks)).
 
-## Solvers
+## The Solver
 
-The solver is a method on `Problem` and returns `(w, outer_steps, inner_iters)` where
-$w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
-
-| Method | Approach | When to use |
-|---|---|---|
-| `solve_cg()` | Matrix-free conjugate gradients on the SPD reduced system | Fastest for large $N$, especially with shrinkage |
-
-### `solve_cg` — matrix-free conjugate gradients
+`Problem.solve_cg()` runs matrix-free conjugate gradients on the SPD reduced system and
+returns `(w, outer_steps, inner_iters)` where $w \in \mathbb{R}^N$, $\sum_i w_i = 1$,
+$w_i \geq 0$.
 
 The inner step builds a `LinearOperator` that applies
 
@@ -76,7 +71,7 @@ single digits at $\alpha \approx 1$ in rank-deficient settings.
 
 ## The Primal-Dual Active-Set Loop
 
-Long-only weights are enforced by an outer loop that wraps any inner solver:
+Long-only weights are enforced by an outer loop around the inner CG solve:
 
 1. **Primal step.** Solve the budget-only equality system over the current active asset
    set. Drop any asset with weight below $-\varepsilon$ (multiple assets at once if
