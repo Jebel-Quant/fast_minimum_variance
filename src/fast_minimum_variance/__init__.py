@@ -14,7 +14,6 @@ def Problem(  # noqa: N802
     rho: float = 0.0,
     mu: np.ndarray | None = None,
     target_lr: tuple[float, np.ndarray, np.ndarray] | None = None,
-    pcg_lr: tuple[float, np.ndarray, np.ndarray] | None = None,
 ) -> _MinVarProblem:
     """Create a long-only minimum-variance portfolio optimisation problem.
 
@@ -36,11 +35,9 @@ def Problem(  # noqa: N802
         mu:        Expected returns vector ``(N,)``; required when ``rho != 0``.
         target_lr: Low-rank factored target ``(bar_lam, U_k, delta_k)`` for
                    RMT eigenvalue-cleaning; replaces ``target`` in the CG matvec.
-        pcg_lr:    RMT preconditioner ``(bar_lam, U_k, delta_k)`` for
-                   ``solve_pcg``; ignored unless PCG is invoked.
 
     Returns:
-        A solver instance with ``solve_cg()`` and ``solve_pcg()`` methods.
+        A solver instance with a ``solve_cg()`` method.
 
     Examples:
         >>> import numpy as np
@@ -61,7 +58,7 @@ def Problem(  # noqa: N802
         >>> bool((w >= -1e-6).all())
         True
     """
-    return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu, target_lr=target_lr, pcg_lr=pcg_lr, B=B, c=c)
+    return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu, target_lr=target_lr, B=B, c=c)
 
 
 __all__ = ["Problem"]

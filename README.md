@@ -33,7 +33,7 @@ from fast_minimum_variance import Problem
 # 500 daily returns, 20 assets
 X = np.random.default_rng(42).standard_normal((500, 20))
 
-w, outer, inner = Problem(X).solve_cg()   # matrix-free CG — recommended
+w, outer, inner = Problem(X).solve_cg()   # matrix-free conjugate gradients
 
 assert abs(w.sum() - 1.0) < 1e-8
 assert (w >= 0).all()
@@ -51,19 +51,13 @@ w, outer, inner = Problem(X, alpha=N / (N + T)).solve_cg()
 ```
 
 On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations from 685 to
-205 and makes the matrix-free solver the fastest option by a wide margin.
+205 — the entire solve runs in under 10 ms (see [Benchmarks](#benchmarks)).
 
-## Solvers
+## The Solver
 
-All solvers are methods on `Problem` and return `(w, outer_steps, inner_iters)` where
-$w \in \mathbb{R}^N$, $\sum_i w_i = 1$, $w_i \geq 0$.
-
-| Method | Approach | When to use |
-|---|---|---|
-| `solve_cg()` | Matrix-free conjugate gradients on the SPD reduced system | Default — fastest for large $N$, especially with shrinkage |
-| `solve_pcg()` | Matrix-free PCG with an RMT (low-rank) preconditioner | Eigenvalue-cleaned shrinkage targets (requires `pcg_lr`) |
-
-### `solve_cg` — matrix-free conjugate gradients
+`Problem.solve_cg()` runs matrix-free conjugate gradients on the SPD reduced system and
+returns `(w, outer_steps, inner_iters)` where $w \in \mathbb{R}^N$, $\sum_i w_i = 1$,
+$w_i \geq 0$.
 
 The inner step builds a `LinearOperator` that applies
 
@@ -75,30 +69,9 @@ Ledoit-Wolf shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and redu
 iteration counts dramatically — from nearly 2000 iterations at $\alpha \approx 0$ to
 single digits at $\alpha \approx 1$ in rank-deficient settings.
 
-### `solve_pcg` — preconditioned CG
-
-Runs the same matrix-free active-set iteration as `solve_cg`, but preconditions the
-inner CG solve with the RMT low-rank target `T0` (applied via the Woodbury identity at
-$O(n_a k)$ per step). Requires `pcg_lr = (bar_lam, U_k, delta_k)` from RMT preprocessing
-and returns the oracle-LW minimum-variance portfolio in far fewer iterations when the
-shrinkage target has been eigenvalue-cleaned.
-
-Build `pcg_lr` either from the dense `rmt_target_and_alpha` (full `eigh`) or, for large
-$N$, from `rmt_preconditioner_rsvd`, which recovers the top eigenpairs via a randomized
-SVD of $X$ — matrix-free at $O(TNk)$, never forming $X^\top X$. Because a preconditioner
-only affects the iteration count and not the solution, the randomized factors match the
-dense ones in CG iterations while cutting setup cost by up to ~10× at $N \sim 2000$:
-
-```python
-from fast_minimum_variance.shrinkage.util import rmt_preconditioner_rsvd
-
-pcg_lr = rmt_preconditioner_rsvd(X, n_components=16)
-w, outer, inner = Problem(X, alpha=N / (N + T), pcg_lr=pcg_lr).solve_pcg()
-```
-
 ## The Primal-Dual Active-Set Loop
 
-Long-only weights are enforced by an outer loop that wraps any inner solver:
+Long-only weights are enforced by an outer loop around the inner CG solve:
 
 1. **Primal step.** Solve the budget-only equality system over the current active asset
    set. Drop any asset with weight below $-\varepsilon$ (multiple assets at once if

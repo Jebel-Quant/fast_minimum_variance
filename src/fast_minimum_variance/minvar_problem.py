@@ -287,49 +287,6 @@ class _MinVarProblem(_BaseProblem):
         v_mu = cg(op, self.mu[active], x0=guess)[0] if self.rho != 0.0 and self.mu is not None else None
         return self._recover_balance(v_eq, v_mu, b_a), count[0]
 
-    def _pcg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
-        """Solve the reduced SPD system via PCG with RMT preconditioner; return (w_a, iters).
-
-        The system matrix is the oracle-LW covariance (using self.alpha and self.target).
-        The preconditioner P = T0^RMT is applied via the Woodbury identity:
-          P^{-1} v = (1/bar_lam) v + U_k diag(1/lambda_k - 1/bar_lam) U_k^T v
-        costing O(n_a * k) per application.  Requires self.pcg_lr to be set.
-        """
-        n_a = int(active.sum())
-
-        # System matvec — the same active-set operator as _cg_step, sliced once.
-        sigma = self._system_operator()
-        active_idx = np.flatnonzero(active)
-        free_matvec = self._free_matvec(sigma, active_idx)
-        count = [0]
-
-        def matvec(v: np.ndarray) -> np.ndarray:
-            """Apply the active-set system matrix Sigma_a to v."""
-            count[0] += 1
-            return free_matvec(v)
-
-        op = LinearOperator((n_a, n_a), matvec=matvec, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]
-
-        # Preconditioner P^{-1}: Woodbury inverse of T0^RMT restricted to active set
-        pcg_lr = self.pcg_lr
-        if pcg_lr is None:  # pragma: no cover - defensive; solve_pcg validates pcg_lr upfront (see _base.py)
-            raise RuntimeError("_pcg_step called without pcg_lr")  # noqa: TRY003
-        bar_lam_p, U_k_p, delta_k_p = pcg_lr  # noqa: N806
-        U_k_a_p = U_k_p[active, :]  # noqa: N806  # (n_a, k)
-        inv_coeff = 1.0 / (bar_lam_p + delta_k_p) - 1.0 / bar_lam_p  # (k,) negative
-
-        def precond(v: np.ndarray) -> np.ndarray:
-            """Apply P^{-1} to v via the Woodbury identity."""
-            result: np.ndarray = (1.0 / bar_lam_p) * v + U_k_a_p @ (inv_coeff * (U_k_a_p.T @ v))
-            return result
-
-        M_op = LinearOperator((n_a, n_a), matvec=precond, dtype=np.float64)  # ty:ignore[missing-argument, parameter-already-assigned, unknown-argument]  # noqa: N806
-
-        b_a = self._balance_rows(active)
-        guess = x0 if self._p == 1 else None
-        v_eq = np.column_stack([cg(op, b_a[j], x0=guess, M=M_op)[0] for j in range(self._p)])
-        return self._recover_balance(v_eq, None, b_a), count[0]
-
     # ------------------------------------------------------------------
     # Budget-specific overrides
     # ------------------------------------------------------------------
