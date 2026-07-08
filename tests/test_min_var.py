@@ -7,7 +7,7 @@ Covers:
 * a small hand-verifiable three-asset worked example;
 * unit tests for ``Problem`` (defaults, validation, ``solve``,
   low-rank ``target_lr``);
-* cross-validation of the solver against an independent SLSQP oracle
+* cross-validation of the solver against an independent augmented-KKT reference
   (plain / shrinkage / return-tilt / sizes / dense- and low-rank targets);
 * balance-system (``B w = c``) tests across every production path;
 * property-based invariants.
@@ -26,7 +26,6 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from scipy.optimize import minimize
 
 from fast_minimum_variance import Problem
 
@@ -52,66 +51,45 @@ def resource_dir() -> Path:
 
 @pytest.fixture(scope="session")
 def reference_weights() -> Callable[[object], np.ndarray]:
-    """Return an independent equality-constrained min-var oracle (SLSQP), for cross-validation.
+    """Return an independent equality-constrained min-var reference, for cross-validation.
 
-    Solves the same objective as ``Problem`` — ``(1-alpha)||Xw||^2/T +
-    alpha*w^T T0 w - rho*mu^T w`` subject to ``Bw = c`` (or the budget) with no
-    sign constraint — using SciPy's SLSQP, sharing no code with the library's
-    solver. It agrees with the direct KKT solve to ~1e-7 on the covered cases.
+    Solves the same problem as ``Problem`` but via a different linear-algebra
+    path: it assembles the full ``(n+p) x (n+p)`` augmented KKT saddle-point
+    system
+
+        [[2*Sigma, -B^T], [B, 0]] @ [w; lambda] = [rho*mu; c]
+
+    and solves it with ``np.linalg.solve``, sharing no code with the solver's
+    Schur reduction. Pure NumPy — no SciPy.
     """
 
     def _reference(prob: object) -> np.ndarray:
-        """Return the SLSQP-optimal equality-constrained weights for ``prob``."""
+        """Return the augmented-KKT weights for ``prob``."""
         x = prob.X  # ty:ignore[unresolved-attribute]
         t, n = x.shape
         alpha = prob.alpha  # ty:ignore[unresolved-attribute]
 
+        sigma = (x.T @ x) / t
         if prob.target_lr is not None:  # ty:ignore[unresolved-attribute]
             bar_lam, u_k, delta_k = prob.target_lr  # ty:ignore[unresolved-attribute]
-
-            def target_quad(w: np.ndarray) -> float:
-                """Quadratic form ``w^T T0 w`` for the low-rank RMT target."""
-                return float(w @ (bar_lam * w + u_k @ (delta_k * (u_k.T @ w))))
-
-            has_target = True
+            t0 = bar_lam * np.eye(n) + (u_k * delta_k) @ u_k.T
+            sigma = (1.0 - alpha) * sigma + alpha * t0
         elif prob.target is not None:  # ty:ignore[unresolved-attribute]
-            target = prob.target  # ty:ignore[unresolved-attribute]
+            sigma = (1.0 - alpha) * sigma + alpha * prob.target  # ty:ignore[unresolved-attribute]
 
-            def target_quad(w: np.ndarray) -> float:
-                """Quadratic form ``w^T target w`` for the dense target."""
-                return float(w @ (target @ w))
+        b_mat = np.ones((1, n)) if prob.B is None else prob.B  # ty:ignore[unresolved-attribute]
+        c_vec = np.ones(1) if prob.c is None else prob.c  # ty:ignore[unresolved-attribute]
+        p = b_mat.shape[0]
 
-            has_target = True
-        else:
-            has_target = False
+        rho, mu = prob.rho, prob.mu  # ty:ignore[unresolved-attribute]
+        grad_rhs = rho * mu if rho != 0.0 and mu is not None else np.zeros(n)
 
-        rho = prob.rho  # ty:ignore[unresolved-attribute]
-        mu = prob.mu  # ty:ignore[unresolved-attribute]
-
-        def objective(w: np.ndarray) -> float:
-            """Portfolio objective: variance (+ shrinkage) minus the return tilt."""
-            data = float((x @ w) @ (x @ w)) / t
-            value = (1.0 - alpha) * data + alpha * target_quad(w) if has_target else data
-            if rho != 0.0 and mu is not None:
-                value = value - rho * float(mu @ w)
-            return value
-
-        if prob.B is not None:  # ty:ignore[unresolved-attribute]
-            b_mat, c_vec = prob.B, prob.c  # ty:ignore[unresolved-attribute]
-            constraints = [
-                {"type": "eq", "fun": (lambda w, i=i: float(b_mat[i] @ w - c_vec[i]))} for i in range(b_mat.shape[0])
-            ]
-        else:
-            constraints = [{"type": "eq", "fun": lambda w: float(w.sum() - 1.0)}]
-
-        res = minimize(
-            objective,
-            np.ones(n) / n,
-            method="SLSQP",
-            constraints=constraints,
-            options={"ftol": 1e-12, "maxiter": 1000},
-        )
-        result: np.ndarray = res.x
+        kkt = np.zeros((n + p, n + p))
+        kkt[:n, :n] = 2.0 * sigma
+        kkt[:n, n:] = -b_mat.T
+        kkt[n:, :n] = b_mat
+        sol = np.linalg.solve(kkt, np.concatenate([grad_rhs, c_vec]))
+        result: np.ndarray = sol[:n]
         return result
 
     return _reference
@@ -276,7 +254,7 @@ class TestTargetLr:
 
 
 # ===========================================================================
-# Cross-validation: solver vs an independent SLSQP reference
+# Cross-validation: solver vs an independent augmented-KKT reference
 # ===========================================================================
 
 
@@ -306,7 +284,7 @@ def rmt_target_and_alpha(X):  # noqa: N803
 
 
 class TestCgVsReference:
-    """The solver and the independent SLSQP oracle must return the same portfolio."""
+    """The solver and the independent augmented-KKT reference must return the same portfolio."""
 
     def test_plain_minvar(self, X, reference_weights):  # noqa: N803
         """Plain minimum variance (alpha=0, rho=0)."""
@@ -419,20 +397,6 @@ def _simulate_equity_returns(n, T, *, rng=None):  # noqa: N803
     return x - x.mean(axis=0)
 
 
-def _portfolio_objective(prob, w):
-    """Full solver objective at ``w``: variance (+ shrinkage) minus the return tilt."""
-    val = w @ (prob.X.T @ (prob.X @ w)) / prob.t
-    if prob.target_lr is not None:
-        bar_lam, u_k, delta_k = prob.target_lr
-        tq = float(w @ (bar_lam * w + u_k @ (delta_k * (u_k.T @ w))))
-        val = (1 - prob.alpha) * val + prob.alpha * tq
-    elif prob.target is not None:
-        val = (1 - prob.alpha) * val + prob.alpha * float(w @ (prob.target @ w))
-    if prob.rho != 0.0 and prob.mu is not None:
-        val = val - prob.rho * float(prob.mu @ w)
-    return float(val)
-
-
 def _sleeve_system(n, p, rng):
     """Partition the universe into p sleeves; each holds its proportional share."""
     perm = rng.permutation(n)
@@ -516,7 +480,7 @@ class TestSleeves:
     """p=4 sleeve systems solved against the reference oracle."""
 
     def test_matches_reference(self, X_bal, sleeves, lw, reference_weights):  # noqa: N803
-        """Solve reaches the reference-oracle objective and is exactly feasible."""
+        """Solve matches the independent augmented-KKT reference and is exactly feasible."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         prob = Problem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target)
@@ -524,10 +488,7 @@ class TestSleeves:
         w_ref = reference_weights(prob)
 
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
-        # Unique convex minimum: the direct solve is more accurate than the SLSQP
-        # oracle (whose large-leverage solution is only approximate), so its
-        # objective is at least as good.
-        assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
+        np.testing.assert_allclose(w_cg, w_ref, rtol=1e-6, atol=1e-8)
 
 
 class TestSleevesWithTilt:
@@ -541,7 +502,7 @@ class TestSleevesWithTilt:
         prob = Problem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
         w_cg = prob.solve()
         w_ref = reference_weights(prob)
-        assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
+        np.testing.assert_allclose(w_cg, w_ref, rtol=1e-6, atol=1e-8)
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
 
 
