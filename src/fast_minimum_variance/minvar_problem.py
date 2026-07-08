@@ -8,8 +8,8 @@ from .operators import build_system_operator, cg_solve_reduced
 
 
 @dataclass(frozen=True)
-class _MinVarProblem:
-    """Global minimum-variance portfolio solver (equality-constrained, sign-unconstrained).
+class Problem:
+    """Global minimum-variance portfolio (equality-constrained, sign-unconstrained).
 
     Solves::
 
@@ -27,12 +27,22 @@ class _MinVarProblem:
     loop.  Matrix-free CG solves the SPD system ``Sigma V = B^T`` (``p``
     right-hand sides, plus ``Sigma v_mu = mu`` when ``rho != 0``) and a ``p x p``
     Schur solve recovers the multiplier, so the indefinite ``(n+p) x (n+p)``
-    saddle-point system is never formed.
+    saddle-point system is never formed.  Call :meth:`solve_cg` to solve it.
 
-    Use ``alpha = N/(N+T)`` for Ledoit-Wolf shrinkage intensity::
-
-        T, N = X.shape
-        w, outer, inner = Problem(X, alpha=N/(N+T)).solve_cg()
+    Args:
+        X:      Returns matrix of shape ``(T, N)``.
+        target: Optional ``(N, N)`` regularisation matrix; when supplied the
+                shrinkage term ``alpha * w^T target w`` is added to the objective.
+                ``None`` disables shrinkage entirely.
+        alpha:     Shrinkage intensity; only active when ``target``/``target_lr``
+                   is provided.  Use ``alpha = N/(N+T)`` for Ledoit-Wolf.
+        rho:       Return tilt strength (Markowitz mean-variance).
+        mu:        Expected returns vector ``(N,)``; required when ``rho != 0``.
+        target_lr: Low-rank factored target ``(bar_lam, U_k, delta_k)`` for RMT
+                   eigenvalue-cleaning; replaces ``target`` in the CG matvec.
+        B:         Balance system ``(p, N)``: ``B w = c`` replaces the budget.
+                   Must have full row rank; required together with ``c``.
+        c:         Balance RHS ``(p,)``; required together with ``B``.
 
     Examples:
         >>> import numpy as np
@@ -41,6 +51,14 @@ class _MinVarProblem:
         >>> w, *_ = Problem(X).solve_cg()
         >>> float(round(w.sum(), 6))
         1.0
+
+        A two-sleeve balance system — each half of the universe holds half of
+        the budget:
+
+        >>> B = np.zeros((2, 5)); B[0, :3] = 1.0; B[1, 3:] = 1.0
+        >>> w, *_ = Problem(X, B=B, c=np.array([0.5, 0.5])).solve_cg()
+        >>> [float(round(s, 8)) for s in B @ w]
+        [0.5, 0.5]
     """
 
     X: np.ndarray
