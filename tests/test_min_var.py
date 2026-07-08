@@ -5,7 +5,7 @@ Covers:
 * shared fixtures (``resource_dir``, ``reference_weights``) and the
   ``make_returns`` helper;
 * a small hand-verifiable three-asset worked example;
-* unit tests for ``_MinVarProblem`` (defaults, validation, ``solve_cg``,
+* unit tests for ``Problem`` (defaults, validation, ``solve_cg``,
   low-rank ``target_lr``);
 * cross-validation of the CG solver against an independent SLSQP oracle
   (plain / shrinkage / return-tilt / sizes / dense- and low-rank targets);
@@ -29,7 +29,6 @@ from hypothesis import strategies as st
 from scipy.optimize import minimize
 
 from fast_minimum_variance import Problem
-from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
 from fast_minimum_variance.operators import restricted_matvec
 
 if TYPE_CHECKING:
@@ -56,7 +55,7 @@ def resource_dir() -> Path:
 def reference_weights() -> Callable[[object], np.ndarray]:
     """Return an independent equality-constrained min-var oracle (SLSQP), for cross-validation.
 
-    Solves the same objective as ``_MinVarProblem`` — ``(1-alpha)||Xw||^2/T +
+    Solves the same objective as ``Problem`` — ``(1-alpha)||Xw||^2/T +
     alpha*w^T T0 w - rho*mu^T w`` subject to ``Bw = c`` (or the budget) with no
     sign constraint — using SciPy's SLSQP, sharing no code with the library's CG
     solver. It agrees with the direct KKT solve to ~1e-7 on the covered cases.
@@ -133,8 +132,8 @@ def X_small():  # noqa: N802
 
 @pytest.fixture(scope="session")
 def mvp(X):  # noqa: N803
-    """MinVarProblem wrapping the session-scoped (200, 10) return matrix."""
-    return MinVarProblem(X)
+    """Problem wrapping the session-scoped (200, 10) return matrix."""
+    return Problem(X)
 
 
 # ===========================================================================
@@ -163,24 +162,24 @@ def test_covariance():
 
 def test_known_optimum():
     """CG solver recovers the known GMV optimum [2/3, 2/3, -1/3] (asset 2 is short)."""
-    w, *_ = MinVarProblem(X3).solve_cg()
+    w, *_ = Problem(X3).solve_cg()
     np.testing.assert_allclose(w, W_GMV, atol=1e-6)
 
 
 def test_short_position_allowed():
     """The unconstrained solution keeps the negative weight instead of clipping it."""
-    w, *_ = MinVarProblem(X3).solve_cg()
+    w, *_ = Problem(X3).solve_cg()
     assert w[2] < 0
     assert w.sum() == pytest.approx(1.0)
 
 
 # ===========================================================================
-# _MinVarProblem unit tests
+# Problem unit tests
 # ===========================================================================
 
 
-class TestMinVarProblemDefaults:
-    """Tests for default field values in MinVarProblem."""
+class TestProblemDefaults:
+    """Tests for default field values in Problem."""
 
     def test_n_equals_columns(self, mvp):
         """N equals the number of columns in X."""
@@ -200,7 +199,7 @@ class TestMinVarProblemDefaults:
 
     def test_n_rectangular(self):
         """N equals the column count for a non-square matrix."""
-        assert MinVarProblem(np.ones((20, 7))).n == 7
+        assert Problem(np.ones((20, 7))).n == 7
 
 
 class TestTargetValidation:
@@ -209,18 +208,18 @@ class TestTargetValidation:
     def test_wrong_target_shape_raises(self):
         """A target with the wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="target must be"):
-            MinVarProblem(np.eye(3), target=np.eye(4))
+            Problem(np.eye(3), target=np.eye(4))
 
     def test_wrong_target_lr_shape_raises(self):
         """A target_lr with mismatched U_k / delta_k shapes raises ValueError."""
         U_k = np.ones((4, 2))  # noqa: N806  # wrong: 4 rows but n=3
         delta_k = np.ones(2)
         with pytest.raises(ValueError, match="target_lr"):
-            MinVarProblem(np.eye(3), target_lr=(0.5, U_k, delta_k))
+            Problem(np.eye(3), target_lr=(0.5, U_k, delta_k))
 
 
 class TestSolveCg:
-    """Tests for MinVarProblem.solve_cg (matrix-free CG on the KKT system)."""
+    """Tests for Problem.solve_cg (matrix-free CG on the KKT system)."""
 
     def test_shape(self, mvp):
         """Output weight vector has shape (N,)."""
@@ -270,7 +269,7 @@ class TestTargetLr:
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
-        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_cg()
+        w, *_ = Problem(X, alpha=alpha, target_lr=target_lr).solve_cg()
         assert abs(w.sum() - 1.0) < 1e-8
 
     def test_cg_with_target_lr_and_return_tilt(self, X):  # noqa: N803
@@ -279,7 +278,7 @@ class TestTargetLr:
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
         mu = np.random.default_rng(5).standard_normal(N)
-        w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve_cg()
+        w, *_ = Problem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve_cg()
         assert abs(w.sum() - 1.0) < 1e-8
 
 
@@ -491,28 +490,22 @@ class TestBalanceValidation:
     def test_b_without_c_raises(self, X_bal):  # noqa: N803
         """Supplying B without c is rejected."""
         with pytest.raises(ValueError, match="together"):
-            MinVarProblem(X_bal, B=np.ones((1, X_bal.shape[1])))
+            Problem(X_bal, B=np.ones((1, X_bal.shape[1])))
 
     def test_c_without_b_raises(self, X_bal):  # noqa: N803
         """Supplying c without B is rejected."""
         with pytest.raises(ValueError, match="together"):
-            MinVarProblem(X_bal, c=np.ones(1))
+            Problem(X_bal, c=np.ones(1))
 
     def test_bad_b_shape_raises(self, X_bal):  # noqa: N803
         """B with the wrong number of columns is rejected."""
         with pytest.raises(ValueError, match="B must have shape"):
-            MinVarProblem(X_bal, B=np.ones((2, 3)), c=np.ones(2))
+            Problem(X_bal, B=np.ones((2, 3)), c=np.ones(2))
 
     def test_bad_c_shape_raises(self, X_bal):  # noqa: N803
         """``c`` whose length differs from B's row count is rejected."""
         with pytest.raises(ValueError, match="c must have shape"):
-            MinVarProblem(X_bal, B=np.ones((2, X_bal.shape[1])), c=np.ones(3))
-
-    def test_factory_routes_balance_to_minvar(self, X_bal):  # noqa: N803
-        """The factory returns the equality-constrained solver for (B, c)."""
-        n = X_bal.shape[1]
-        prob = Problem(X_bal, B=np.ones((1, n)), c=np.array([1.0]))
-        assert isinstance(prob, MinVarProblem)
+            Problem(X_bal, B=np.ones((2, X_bal.shape[1])), c=np.ones(3))
 
 
 class TestBudgetEquivalence:
@@ -521,8 +514,8 @@ class TestBudgetEquivalence:
     def test_cg_same_iteration_counts(self, X_bal):  # noqa: N803
         """The default budget and an explicit ones-row B give the same solve."""
         n = X_bal.shape[1]
-        w0, outer0, inner0 = MinVarProblem(X_bal).solve_cg()
-        w1, outer1, inner1 = MinVarProblem(X_bal, B=np.ones((1, n)), c=np.array([1.0])).solve_cg()
+        w0, outer0, inner0 = Problem(X_bal).solve_cg()
+        w1, outer1, inner1 = Problem(X_bal, B=np.ones((1, n)), c=np.array([1.0])).solve_cg()
         assert (outer1, inner1) == (outer0, inner0)
         np.testing.assert_allclose(w1, w0, atol=1e-12)
 
@@ -534,7 +527,7 @@ class TestSleeves:
         """solve_cg reaches the reference-oracle objective and is exactly feasible."""
         b_eq, c_eq = sleeves
         alpha, target = lw
-        prob = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target)
+        prob = Problem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target)
         w_cg, _outer, inner = prob.solve_cg()
         w_ref = reference_weights(prob)
 
@@ -611,7 +604,7 @@ class TestSleevesWithTilt:
         b_eq, c_eq = sleeves
         alpha, target = lw
         mu = np.random.default_rng(1).standard_normal(X_bal.shape[1]) * 0.01
-        prob = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
+        prob = Problem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
         w_cg, _, _ = prob.solve_cg()
         w_ref = reference_weights(prob)
         assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
@@ -626,8 +619,8 @@ class TestSleevesLowRank:
         b_eq, c_eq = sleeves
         bar_lam, u_k, delta_k = rmt
         dense = bar_lam * np.eye(X_bal.shape[1]) + (u_k * delta_k) @ u_k.T
-        w_lr, *_ = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target_lr=rmt).solve_cg()
-        w_dense, *_ = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_cg()
+        w_lr, *_ = Problem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target_lr=rmt).solve_cg()
+        w_dense, *_ = Problem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_cg()
         np.testing.assert_allclose(w_lr, w_dense, atol=1e-6)
         assert np.abs(b_eq @ w_lr - c_eq).max() < 1e-8
 
