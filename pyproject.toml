@@ -20,8 +20,6 @@ authors = [
 ]
 dependencies = [
     "numpy>=2.0.0",
-    "scipy>=1.14",
-    "cvx-linalg>=0.9.6",
 ]
 
 [project.urls]
@@ -44,26 +42,12 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/fast_minimum_variance"]
 
-[tool.mypy]
-# Strict mode is supplied on the CLI by the Rhiza `typecheck` target
-# (`mypy --strict`). These overrides only relax checks for third-party
-# scientific libraries that ship no type stubs / py.typed marker, so their
-# imports don't drown out real type errors in our own code.
-[[tool.mypy.overrides]]
-module = [
-    "scipy.*",
-    "cvx.*",
-]
-ignore_missing_imports = true
-
 [tool.deptry]
 optional_dependencies_dev_groups = ["dev"]
 
 [tool.deptry.package_module_name_map]
 numpy = "numpy"
 polars = "polars"
-scipy = "scipy"
 "scikit-learn" = "sklearn"
 pandas = "pandas"
 pyarrow = "pyarrow"
-"cvx-linalg" = "cvx"

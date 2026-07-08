@@ -10,20 +10,17 @@
 ## Overview
 
 **fast-minimum-variance** solves the global (equality-constrained) minimum variance
-portfolio without ever forming the sample covariance matrix. The key observation is that
-the KKT stationarity condition $2\Sigma w = \lambda\mathbf{1}$ immediately gives
-$w \propto \Sigma^{-1}\mathbf{1}$: the entire problem reduces to one symmetric positive
-definite linear system $\Sigma v = \mathbf{1}$, solved matrix-free by conjugate gradients.
-The budget constraint is recovered by a single rescaling $w = v / (\mathbf{1}^\top v)$.
-Weights are sign-unconstrained, so short positions are allowed.
+portfolio. The key observation is that the KKT stationarity condition
+$2\Sigma w = \lambda\mathbf{1}$ immediately gives $w \propto \Sigma^{-1}\mathbf{1}$: the
+entire problem reduces to one symmetric positive definite linear system
+$\Sigma v = \mathbf{1}$, solved by conjugate gradients. The budget constraint is recovered
+by a single rescaling $w = v / (\mathbf{1}^\top v)$. Weights are sign-unconstrained, so
+short positions are allowed.
 
-Working directly with the returns matrix $X \in \mathbb{R}^{T \times N}$ — rather than
-the assembled covariance $X^\top X$ — has two consequences. First, each conjugate gradient
-iteration costs $O(TN)$ rather than $O(N^2)$, and $X^\top X$ is never stored. Second,
-Ledoit-Wolf shrinkage enters as a simple row-augmentation of $X$: stacking
-$[\sqrt{1-\alpha}\,X;\,\sqrt{\gamma}\,I]$ yields a matrix whose Gram matrix equals
-$\Sigma_{\text{LW}}$. The same CG code handles both the plain and shrunk problem without
-modification.
+The sample covariance $\Sigma = X^\top X / T$ is formed as a plain dense NumPy array (with
+Ledoit-Wolf shrinkage $\Sigma \mapsto (1-\alpha)\Sigma + \alpha T_0$ folded in when a
+target is supplied), and CG runs directly on it. The implementation depends only on NumPy
+and SciPy.
 
 ## Quick Start
 
@@ -34,7 +31,7 @@ from fast_minimum_variance import Problem
 # 500 daily returns, 20 assets
 X = np.random.default_rng(42).standard_normal((500, 20))
 
-w, outer, inner = Problem(X).solve_cg()   # matrix-free conjugate gradients
+w, outer, inner = Problem(X).solve_cg()   # conjugate gradients on a dense Sigma
 
 assert abs(w.sum() - 1.0) < 1e-8          # budget holds exactly; weights may be negative
 ```
@@ -55,20 +52,19 @@ On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations fro
 
 ## The Solver
 
-`Problem.solve_cg()` runs matrix-free conjugate gradients on the SPD system and
+`Problem.solve_cg()` runs conjugate gradients on the dense SPD system and
 returns `(w, outer_steps, inner_iters)` where $w \in \mathbb{R}^N$ and $\sum_i w_i = 1$.
 `outer_steps` is always `1` (there is no outer loop; the field is retained for API
 compatibility).
 
-The solve builds a `LinearOperator` that applies
+The solve forms the dense system matrix
 
-$$v \;\mapsto\; (1-\alpha)\,X^\top(X v) + \gamma v, \qquad \gamma = \frac{\alpha\|X\|_F^2}{N}$$
+$$\Sigma = \frac{1-\alpha}{T}\,X^\top X + \alpha\,T_0$$
 
-to a vector using two matrix-vector products with $X$, without ever forming
-$\Sigma = X^\top X$. Standard CG then solves $\Sigma v = \mathbf{1}$. Ledoit-Wolf
-shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and reduces iteration counts
-dramatically — from nearly 2000 iterations at $\alpha \approx 0$ to single digits at
-$\alpha \approx 1$ in rank-deficient settings.
+as a NumPy array and hands it to `scipy.sparse.linalg.cg`, which solves
+$\Sigma v = \mathbf{1}$ (and $\Sigma v_\mu = \mu$ when a return tilt is set). Ledoit-Wolf
+shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and reduces CG iteration
+counts.
 
 Because weights are sign-unconstrained, the KKT system is linear and a **single** CG
 solve suffices — no active-set iteration. If you need a long-only ($w \ge 0$) portfolio,
@@ -147,7 +143,6 @@ make install
 - Python 3.11+
 - numpy
 - scipy
-- cvx-linalg
 
 ## Citing
 
