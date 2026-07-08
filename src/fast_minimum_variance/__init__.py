@@ -15,20 +15,20 @@ def Problem(  # noqa: N802
     mu: np.ndarray | None = None,
     target_lr: tuple[float, np.ndarray, np.ndarray] | None = None,
 ) -> _MinVarProblem:
-    """Create a long-only minimum-variance portfolio optimisation problem.
+    """Create a global minimum-variance portfolio optimisation problem.
 
-    Returns a :class:`_MinVarProblem` (shrinking active-set) for the long-only
-    minimum-variance problem, optionally with a balance system ``(B, c)`` in
-    place of the default budget constraint.
+    Returns a :class:`_MinVarProblem` for the equality-constrained minimum-variance
+    problem, optionally with a balance system ``(B, c)`` in place of the default
+    budget constraint.  Weights are sign-unconstrained, so short positions are
+    allowed.
 
     Args:
         X:      Returns matrix of shape ``(T, N)``.
         target: Optional ``(N, N)`` regularisation matrix; when supplied the
                 shrinkage term ``alpha * ||target @ w||^2`` is added to the
                 objective.  ``None`` disables shrinkage entirely.
-        B:      Balance system ``(p, N)`` for the fast shrinking active-set
-                path: ``B w = c`` replaces the budget ``1^T w = 1``.  ``B``
-                must have full row rank on every active set the loop visits.
+        B:      Balance system ``(p, N)``: ``B w = c`` replaces the budget
+                ``1^T w = 1``.  ``B`` must have full row rank.
         c:      Balance RHS ``(p,)``; required together with ``B``.
         alpha:     Shrinkage intensity; only active when ``target`` is provided.
         rho:       Return tilt strength (Markowitz mean-variance).
@@ -45,8 +45,6 @@ def Problem(  # noqa: N802
         >>> w, *_ = Problem(X).solve_cg()
         >>> float(round(w.sum(), 8))
         1.0
-        >>> bool((w >= 0).all())
-        True
 
         A two-sleeve balance system — each half of the universe holds half
         of the budget:
@@ -55,8 +53,6 @@ def Problem(  # noqa: N802
         >>> w, *_ = Problem(X, B=B, c=np.array([0.5, 0.5])).solve_cg()
         >>> [float(round(s, 8)) for s in B @ w]
         [0.5, 0.5]
-        >>> bool((w >= -1e-6).all())
-        True
     """
     return _MinVarProblem(X, target=target, alpha=alpha, rho=rho, mu=mu, target_lr=target_lr, B=B, c=c)
 
