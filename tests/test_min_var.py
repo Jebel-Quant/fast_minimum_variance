@@ -5,12 +5,12 @@ Covers:
 * shared fixtures (``resource_dir``, ``reference_weights``) and the
   ``make_returns`` helper;
 * a small hand-verifiable three-asset worked example;
-* unit tests for ``Problem`` (defaults, validation, ``solve_cg``,
+* unit tests for ``Problem`` (defaults, validation, ``solve``,
   low-rank ``target_lr``);
-* cross-validation of the CG solver against an independent SLSQP oracle
+* cross-validation of the solver against an independent SLSQP oracle
   (plain / shrinkage / return-tilt / sizes / dense- and low-rank targets);
 * balance-system (``B w = c``) tests across every production path;
-* the matrix-free operator layer and property-based invariants.
+* property-based invariants.
 
 Weights are sign-unconstrained (global minimum variance): the only hard
 invariant is feasibility (``B w = c``, or the budget ``1^T w = 1``); shorts are
@@ -29,7 +29,6 @@ from hypothesis import strategies as st
 from scipy.optimize import minimize
 
 from fast_minimum_variance import Problem
-from fast_minimum_variance.operators import restricted_matvec
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,7 +56,7 @@ def reference_weights() -> Callable[[object], np.ndarray]:
 
     Solves the same objective as ``Problem`` — ``(1-alpha)||Xw||^2/T +
     alpha*w^T T0 w - rho*mu^T w`` subject to ``Bw = c`` (or the budget) with no
-    sign constraint — using SciPy's SLSQP, sharing no code with the library's CG
+    sign constraint — using SciPy's SLSQP, sharing no code with the library's
     solver. It agrees with the direct KKT solve to ~1e-7 on the covered cases.
     """
 
@@ -161,14 +160,14 @@ def test_covariance():
 
 
 def test_known_optimum():
-    """CG solver recovers the known GMV optimum [2/3, 2/3, -1/3] (asset 2 is short)."""
-    w, *_ = Problem(X3).solve_cg()
+    """Solver recovers the known GMV optimum [2/3, 2/3, -1/3] (asset 2 is short)."""
+    w = Problem(X3).solve()
     np.testing.assert_allclose(w, W_GMV, atol=1e-6)
 
 
 def test_short_position_allowed():
     """The unconstrained solution keeps the negative weight instead of clipping it."""
-    w, *_ = Problem(X3).solve_cg()
+    w = Problem(X3).solve()
     assert w[2] < 0
     assert w.sum() == pytest.approx(1.0)
 
@@ -218,26 +217,20 @@ class TestTargetValidation:
             Problem(np.eye(3), target_lr=(0.5, U_k, delta_k))
 
 
-class TestSolveCg:
-    """Tests for Problem.solve_cg (matrix-free CG on the KKT system)."""
+class TestSolve:
+    """Tests for Problem.solve (dense NumPy solve of the KKT system)."""
 
     def test_shape(self, mvp):
         """Output weight vector has shape (N,)."""
-        w, *_ = mvp.solve_cg()
+        w = mvp.solve()
         assert w.shape == (mvp.n,)
 
     def test_weights_sum_to_one(self, mvp):
         """Weights satisfy the budget exactly (sum to 1)."""
-        w, *_ = mvp.solve_cg()
+        w = mvp.solve()
         assert w.sum() == pytest.approx(1.0, abs=1e-8)
 
-    def test_outer_steps_is_one(self, mvp):
-        """There is no outer loop: solve_cg reports a single step."""
-        _, outer, inner = mvp.solve_cg()
-        assert outer == 1
-        assert inner > 0
-
-    # CG-vs-oracle cross-validation (plain / shrinkage / tilt / sizes / low-rank)
+    # solver-vs-oracle cross-validation (plain / shrinkage / tilt / sizes / low-rank)
     # lives in TestCgVsReference / TestLowRank below.
 
 
@@ -256,7 +249,7 @@ def _make_target_lr(n, k=2, seed=0):
 
 
 class TestTargetLr:
-    """target_lr (low-rank target) exercises distinct code branches in the CG step."""
+    """target_lr (low-rank target) exercises distinct code branches in the solve."""
 
     @pytest.fixture(scope="class")
     @staticmethod
@@ -265,11 +258,11 @@ class TestTargetLr:
         return np.random.default_rng(3).standard_normal((100, 8))
 
     def test_cg_with_target_lr(self, X):  # noqa: N803
-        """solve_cg with target_lr returns a budget-feasible portfolio."""
+        """Solve with target_lr returns a budget-feasible portfolio."""
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
-        w, *_ = Problem(X, alpha=alpha, target_lr=target_lr).solve_cg()
+        w = Problem(X, alpha=alpha, target_lr=target_lr).solve()
         assert abs(w.sum() - 1.0) < 1e-8
 
     def test_cg_with_target_lr_and_return_tilt(self, X):  # noqa: N803
@@ -278,12 +271,12 @@ class TestTargetLr:
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
         mu = np.random.default_rng(5).standard_normal(N)
-        w, *_ = Problem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve_cg()
+        w = Problem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve()
         assert abs(w.sum() - 1.0) < 1e-8
 
 
 # ===========================================================================
-# Cross-validation: CG solver vs an independent SLSQP reference
+# Cross-validation: solver vs an independent SLSQP reference
 # ===========================================================================
 
 
@@ -313,32 +306,32 @@ def rmt_target_and_alpha(X):  # noqa: N803
 
 
 class TestCgVsReference:
-    """CG and the independent SLSQP oracle must return the same portfolio."""
+    """The solver and the independent SLSQP oracle must return the same portfolio."""
 
     def test_plain_minvar(self, X, reference_weights):  # noqa: N803
         """Plain minimum variance (alpha=0, rho=0)."""
         prob = Problem(X)
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_with_shrinkage(self, X, reference_weights):  # noqa: N803
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
         prob = Problem(X, alpha=N / (N + T), target=np.eye(N))
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_with_return_tilt(self, X, reference_weights):  # noqa: N803
         """Return tilt (rho != 0, mu given)."""
         mu = np.random.default_rng(1).standard_normal(X.shape[1])
         prob = Problem(X, rho=0.5, mu=mu)
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_small_problem(self, X_small, reference_weights):  # noqa: N803
         """Small problem (T=100, N=5)."""
         prob = Problem(X_small)
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_shrinkage_and_tilt(self, X, reference_weights):  # noqa: N803
@@ -346,7 +339,7 @@ class TestCgVsReference:
         T, N = X.shape  # noqa: N806
         mu = np.ones(N) / N
         prob = Problem(X, alpha=N / (N + T), target=np.eye(N), rho=0.3, mu=mu)
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     @pytest.mark.parametrize("N", [2, 5, 20])
@@ -354,14 +347,14 @@ class TestCgVsReference:
         """Agreement holds for several problem sizes."""
         X = make_returns(T=5 * N, N=N, seed=N)  # noqa: N806
         prob = Problem(X)
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_with_explicit_target(self, X, reference_weights):  # noqa: N803
-        """CG with an explicit target matrix agrees with the oracle (target matvec branch)."""
+        """The solve with an explicit target matrix agrees with the oracle (target matvec branch)."""
         T, N = X.shape  # noqa: N806
         prob = Problem(X, alpha=N / (N + T), target=np.eye(N))
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
 
@@ -377,22 +370,22 @@ class TestLowRank:
     """The alpha=1 low-rank factor path must agree with the reference oracle."""
 
     def test_minvar_agrees_with_reference(self, reference_weights):
-        """alpha=1, RMT target: CG matches the oracle."""
+        """alpha=1, RMT target: the solve matches the oracle."""
         _, prob = _build_rmt_problem()
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_return_tilt_agrees_with_reference(self, reference_weights):
-        """alpha=1, RMT target, return tilt: CG matches the oracle."""
+        """alpha=1, RMT target, return tilt: the solve matches the oracle."""
         mu = np.random.default_rng(5).standard_normal(50)
         _, prob = _build_rmt_problem(rho=0.5, mu=mu)
-        w_cg, *_ = prob.solve_cg()
+        w_cg = prob.solve()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
     def test_weights_are_budget_feasible(self):
         """Low-rank solution satisfies the budget exactly."""
         _, prob = _build_rmt_problem()
-        w, *_ = prob.solve_cg()
+        w = prob.solve()
         assert abs(w.sum() - 1.0) < 1e-6
 
     def test_dense_target_without_target_lr(self):
@@ -400,7 +393,7 @@ class TestLowRank:
         X = make_returns(T=300, N=20, seed=7)  # noqa: N806
         target, _, _k, _ = rmt_target_and_alpha(X)
         prob = Problem(X, alpha=1.0, target=target)  # no target_lr
-        w, *_ = prob.solve_cg()
+        w = prob.solve()
         assert abs(w.sum() - 1.0) < 1e-6
 
 
@@ -511,101 +504,42 @@ class TestBalanceValidation:
 class TestBudgetEquivalence:
     """An explicit ones-row budget matches the default budget path."""
 
-    def test_cg_same_iteration_counts(self, X_bal):  # noqa: N803
-        """The default budget and an explicit ones-row B give the same solve."""
+    def test_ones_row_matches_default(self, X_bal):  # noqa: N803
+        """The default budget and an explicit ones-row B give the same weights."""
         n = X_bal.shape[1]
-        w0, outer0, inner0 = Problem(X_bal).solve_cg()
-        w1, outer1, inner1 = Problem(X_bal, B=np.ones((1, n)), c=np.array([1.0])).solve_cg()
-        assert (outer1, inner1) == (outer0, inner0)
+        w0 = Problem(X_bal).solve()
+        w1 = Problem(X_bal, B=np.ones((1, n)), c=np.array([1.0])).solve()
         np.testing.assert_allclose(w1, w0, atol=1e-12)
 
 
 class TestSleeves:
     """p=4 sleeve systems solved against the reference oracle."""
 
-    def test_cg_matches_reference(self, X_bal, sleeves, lw, reference_weights):  # noqa: N803
-        """solve_cg reaches the reference-oracle objective and is exactly feasible."""
+    def test_matches_reference(self, X_bal, sleeves, lw, reference_weights):  # noqa: N803
+        """Solve reaches the reference-oracle objective and is exactly feasible."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         prob = Problem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w_cg, _outer, inner = prob.solve_cg()
+        w_cg = prob.solve()
         w_ref = reference_weights(prob)
 
-        assert inner > 0
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
-        # Unique convex minimum: CG solves it to higher accuracy than the SLSQP
-        # oracle (whose large-leverage solution is only approximate), so CG's
+        # Unique convex minimum: the direct solve is more accurate than the SLSQP
+        # oracle (whose large-leverage solution is only approximate), so its
         # objective is at least as good.
         assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
-
-
-class TestFreeMatvec:
-    """The free-block matvec pre-slices via ``restricted`` with an ``apply_free`` fallback."""
-
-    def test_uses_restricted_when_available(self):
-        """A backend exposing ``restricted`` is pre-sliced once, not via apply_free."""
-        idx = np.array([0, 2, 4])
-        calls = {"restricted": 0, "apply_free": 0}
-
-        class _Restrictable:
-            """Backend exposing ``restricted`` so it should never touch ``apply_free``."""
-
-            def restricted(self, free):
-                """Return a sub-operator over ``free``, counting the call."""
-                calls["restricted"] += 1
-                sub = np.diag([1.0, 2.0, 3.0])
-                return type("_Sub", (), {"matvec": staticmethod(lambda v: sub @ v)})()
-
-            def apply_free(self, free, v):  # pragma: no cover - must not be reached
-                """Fail loudly: ``restricted`` should be preferred over this path."""
-                calls["apply_free"] += 1
-                raise AssertionError
-
-        f = restricted_matvec(_Restrictable(), idx)
-        np.testing.assert_allclose(f(np.ones(3)), [1.0, 2.0, 3.0])
-        assert calls == {"restricted": 1, "apply_free": 0}
-
-    def test_falls_back_to_apply_free(self):
-        """A backend without ``restricted`` falls back to per-call ``apply_free``."""
-
-        class _Legacy:
-            """Backend without ``restricted``; only the ``apply_free`` path exists."""
-
-            def apply_free(self, free, v):
-                """Scale the free sub-vector by two."""
-                return 2.0 * v
-
-        f = restricted_matvec(_Legacy(), np.array([0, 1]))
-        np.testing.assert_allclose(f(np.array([1.0, 3.0])), [2.0, 6.0])
-
-    def test_falls_back_when_restricted_not_implemented(self):
-        """A backend whose ``restricted`` raises NotImplementedError falls back."""
-
-        class _Partial:
-            """Backend whose ``restricted`` is declared but not implemented."""
-
-            def restricted(self, free):
-                """Signal that restriction is unsupported so the fallback is used."""
-                raise NotImplementedError
-
-            def apply_free(self, free, v):
-                """Scale the free sub-vector by three."""
-                return 3.0 * v
-
-        f = restricted_matvec(_Partial(), np.array([0]))
-        np.testing.assert_allclose(f(np.array([2.0])), [6.0])
 
 
 class TestSleevesWithTilt:
     """Markowitz tilt combined with a sleeve system."""
 
-    def test_cg_matches_reference(self, X_bal, sleeves, lw, reference_weights):  # noqa: N803
+    def test_matches_reference(self, X_bal, sleeves, lw, reference_weights):  # noqa: N803
         """Tilted sleeve solve agrees with the reference oracle."""
         b_eq, c_eq = sleeves
         alpha, target = lw
         mu = np.random.default_rng(1).standard_normal(X_bal.shape[1]) * 0.01
         prob = Problem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
-        w_cg, _, _ = prob.solve_cg()
+        w_cg = prob.solve()
         w_ref = reference_weights(prob)
         assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
@@ -619,8 +553,8 @@ class TestSleevesLowRank:
         b_eq, c_eq = sleeves
         bar_lam, u_k, delta_k = rmt
         dense = bar_lam * np.eye(X_bal.shape[1]) + (u_k * delta_k) @ u_k.T
-        w_lr, *_ = Problem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target_lr=rmt).solve_cg()
-        w_dense, *_ = Problem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_cg()
+        w_lr = Problem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target_lr=rmt).solve()
+        w_dense = Problem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve()
         np.testing.assert_allclose(w_lr, w_dense, atol=1e-6)
         assert np.abs(b_eq @ w_lr - c_eq).max() < 1e-8
 
@@ -631,7 +565,7 @@ class TestSleevesLowRank:
 
 
 class TestSolveCgProperties:
-    """solve_cg must satisfy its equality constraints for arbitrary well-posed inputs."""
+    """solve must satisfy its equality constraints for arbitrary well-posed inputs."""
 
     @pytest.mark.property
     @given(
@@ -643,7 +577,7 @@ class TestSolveCgProperties:
     def test_budget_solution_is_feasible(self, n, t_mult, seed):
         """For any random returns matrix the weights satisfy the budget exactly."""
         x = make_returns(T=n * t_mult, N=n, seed=seed)
-        w, *_ = Problem(x).solve_cg()
+        w = Problem(x).solve()
         assert w.shape == (n,)
         assert w.sum() == pytest.approx(1.0, abs=1e-6)
 
@@ -659,5 +593,5 @@ class TestSolveCgProperties:
         rng = np.random.default_rng(seed)
         x = make_returns(T=5 * n, N=n, seed=seed)
         b_eq, c_eq = _sleeve_system(n, min(p, n), rng)
-        w, *_ = Problem(x, B=b_eq, c=c_eq).solve_cg()
+        w = Problem(x, B=b_eq, c=c_eq).solve()
         assert np.abs(b_eq @ w - c_eq).max() < 1e-6

@@ -20,8 +20,6 @@ authors = [
 ]
 dependencies = [
     "numpy>=2.0.0",
-    "scipy>=1.14",
-    "cvx-linalg>=0.9.6",
 ]
 
 [project.urls]
@@ -32,6 +30,7 @@ Repository = "https://github.com/Jebel-Quant/fast_minimum_variance"
 lint = []
 test = [
     "pytest>=8.0",
+    "scipy>=1.14",  # independent SLSQP oracle in the test suite (not a runtime dependency)
 ]
 dev = [
     "matplotlib>=3.10.9",
@@ -52,7 +51,6 @@ packages = ["src/fast_minimum_variance"]
 [[tool.mypy.overrides]]
 module = [
     "scipy.*",
-    "cvx.*",
 ]
 ignore_missing_imports = true
 
@@ -66,4 +64,3 @@ scipy = "scipy"
 "scikit-learn" = "sklearn"
 pandas = "pandas"
 pyarrow = "pyarrow"
-"cvx-linalg" = "cvx"

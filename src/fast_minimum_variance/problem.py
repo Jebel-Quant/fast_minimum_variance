@@ -1,10 +1,8 @@
-"""Global minimum-variance solver: matrix-free CG on the equality-constrained KKT system."""
+"""Global minimum-variance solver: a dense NumPy solve of the equality-constrained KKT system."""
 
 from dataclasses import dataclass
 
 import numpy as np
-
-from .operators import build_system_operator, cg_solve_reduced
 
 
 @dataclass(frozen=True)
@@ -24,10 +22,11 @@ class Problem:
     With no inequality constraint the KKT system is linear: stationarity
     ``2*Sigma*w = B^T lambda + rho*mu`` with ``Sigma = (1-alpha)/T X^T X +
     alpha*T0``, together with ``B w = c``, is solved in a single pass — no outer
-    loop.  Matrix-free CG solves the SPD system ``Sigma V = B^T`` (``p``
-    right-hand sides, plus ``Sigma v_mu = mu`` when ``rho != 0``) and a ``p x p``
-    Schur solve recovers the multiplier, so the indefinite ``(n+p) x (n+p)``
-    saddle-point system is never formed.  Call :meth:`solve_cg` to solve it.
+    loop.  ``Sigma`` is formed as a dense ``(N, N)`` matrix and ``np.linalg.solve``
+    solves the SPD system ``Sigma V = B^T`` (``p`` right-hand sides, plus
+    ``Sigma v_mu = mu`` when ``rho != 0``); a ``p x p`` Schur solve recovers the
+    multiplier, so the indefinite ``(n+p) x (n+p)`` saddle-point system is never
+    formed.  Call :meth:`solve` to obtain the weights.  Depends only on NumPy.
 
     Args:
         X:      Returns matrix of shape ``(T, N)``.
@@ -39,7 +38,8 @@ class Problem:
         rho:       Return tilt strength (Markowitz mean-variance).
         mu:        Expected returns vector ``(N,)``; required when ``rho != 0``.
         target_lr: Low-rank factored target ``(bar_lam, U_k, delta_k)`` for RMT
-                   eigenvalue-cleaning; replaces ``target`` in the CG matvec.
+                   eigenvalue-cleaning; expanded to ``bar_lam*I + U_k diag(delta_k) U_k^T``
+                   when building ``Sigma``.
         B:         Balance system ``(p, N)``: ``B w = c`` replaces the budget.
                    Must have full row rank; required together with ``c``.
         c:         Balance RHS ``(p,)``; required together with ``B``.
@@ -48,7 +48,7 @@ class Problem:
         >>> import numpy as np
         >>> from fast_minimum_variance import Problem
         >>> X = np.random.default_rng(0).standard_normal((100, 5))
-        >>> w, *_ = Problem(X).solve_cg()
+        >>> w = Problem(X).solve()
         >>> float(round(w.sum(), 6))
         1.0
 
@@ -56,7 +56,7 @@ class Problem:
         the budget:
 
         >>> B = np.zeros((2, 5)); B[0, :3] = 1.0; B[1, 3:] = 1.0
-        >>> w, *_ = Problem(X, B=B, c=np.array([0.5, 0.5])).solve_cg()
+        >>> w = Problem(X, B=B, c=np.array([0.5, 0.5])).solve()
         >>> [float(round(s, 8)) for s in B @ w]
         [0.5, 0.5]
     """
@@ -121,24 +121,46 @@ class Problem:
         """Number of assets (columns of X)."""
         return int(self.X.shape[1])
 
-    def solve_cg(self) -> tuple[np.ndarray, int, int]:
-        """Solve the equality-constrained problem via matrix-free conjugate gradients.
+    def solve(self) -> np.ndarray:
+        """Solve the equality-constrained problem and return the weight vector ``w``.
 
-        Returns:
-            ``(w, outer_steps, inner_iters)`` — the weight vector, ``outer_steps``
-            (always ``1``; retained for API compatibility), and the total CG
-            iteration count.
+        Builds the dense system matrix ``Sigma`` (:meth:`_sigma`), solves
+        ``Sigma V = B^T`` (and ``Sigma v_mu = mu`` when ``rho != 0``) with
+        ``np.linalg.solve``, and recovers ``w`` from the ``p x p`` balance Schur
+        system.
 
         Examples:
             >>> import numpy as np
             >>> from fast_minimum_variance import Problem
             >>> X = np.random.default_rng(0).standard_normal((100, 5))
-            >>> w, outer, inner = Problem(X).solve_cg()
+            >>> w = Problem(X).solve()
             >>> float(round(w.sum(), 10))
             1.0
         """
-        w, iters = self._cg_step(np.ones(self.n, dtype=bool))
-        return w, 1, iters
+        sigma = self._sigma()
+        b = self._b_matrix()
+        v_eq = np.linalg.solve(sigma, b.T)  # (N, p): column j is Sigma^{-1} B[j]
+        v_mu = np.linalg.solve(sigma, self.mu) if self.rho != 0.0 and self.mu is not None else None
+        return self._recover_balance(v_eq, v_mu, b)
+
+    def _sigma(self) -> np.ndarray:
+        """Build the dense ``(N, N)`` system matrix ``Sigma = (1-alpha)/T X^T X + alpha T0``.
+
+        ``T0`` is the shrinkage target: the low-rank ``bar_lam*I + U_k diag(delta_k)
+        U_k^T`` when ``target_lr`` is set, else the dense ``target``. With no target
+        the data term carries the full weight.
+        """
+        gram = (self.X.T @ self.X) / self.t
+        if self.target_lr is not None:
+            bar_lam, u_k, delta_k = self.target_lr
+            t0 = bar_lam * np.eye(self.n) + (u_k * delta_k) @ u_k.T
+            sigma = (1.0 - self.alpha) * gram + self.alpha * t0
+        elif self.target is not None:
+            sigma = (1.0 - self.alpha) * gram + self.alpha * self.target
+        else:
+            sigma = gram
+        result: np.ndarray = sigma
+        return result
 
     # ------------------------------------------------------------------
     # Balance-system helpers (budget is the p = 1 special case)
@@ -153,49 +175,25 @@ class Problem:
         """Balance right-hand side ``c`` (the budget gives ``[1.0]``)."""
         return np.ones(1) if self.c is None else self.c
 
-    def _balance_rows(self, active: np.ndarray) -> np.ndarray:
-        """Return ``B_a``, the balance system restricted to active assets, shape ``(p, n_a)``."""
-        if self.B is None:
-            return np.ones((1, int(active.sum())))
-        return self.B[:, active]
+    def _b_matrix(self) -> np.ndarray:
+        """Balance matrix ``B`` of shape ``(p, N)`` (the budget gives a single ones row)."""
+        return np.ones((1, self.n)) if self.B is None else self.B
 
-    def _recover_balance(self, v_eq: np.ndarray, v_mu: np.ndarray | None, b_a: np.ndarray) -> np.ndarray:
-        """Recover ``w_a`` from the Schur reduction of the balance system.
+    def _recover_balance(self, v_eq: np.ndarray, v_mu: np.ndarray | None, b: np.ndarray) -> np.ndarray:
+        """Recover ``w`` from the Schur reduction of the balance system.
 
-        Given ``V = Sigma_a^{-1} B_a^T`` (columns of ``v_eq``) and optionally
-        ``v_mu = Sigma_a^{-1} mu_a``, stationarity ``2*Sigma_a*w = B_a^T lambda
-        + rho*mu_a`` and feasibility ``B_a w = c`` pin the multiplier through
-        the ``p x p`` SPD Schur system ``(B_a V) eta = c - rho/2 * B_a v_mu``
-        with ``eta = lambda/2``, so ``w = V eta + rho/2 * v_mu``.
+        Given ``V = Sigma^{-1} B^T`` (columns of ``v_eq``) and optionally
+        ``v_mu = Sigma^{-1} mu``, stationarity ``2*Sigma*w = B^T lambda + rho*mu``
+        and feasibility ``B w = c`` pin the multiplier through the ``p x p`` SPD
+        Schur system ``(B V) eta = c - rho/2 * B v_mu`` with ``eta = lambda/2``,
+        so ``w = V eta + rho/2 * v_mu``.
         """
-        schur = b_a @ v_eq  # (p, p)
+        schur = b @ v_eq  # (p, p)
         rhs = self._c_vec().astype(np.float64)
         if v_mu is not None:
-            rhs = rhs - 0.5 * self.rho * (b_a @ v_mu)
+            rhs = rhs - 0.5 * self.rho * (b @ v_mu)
         eta = np.linalg.solve(schur, rhs) if self._p > 1 else rhs / schur[0, 0]
         w = v_eq @ eta
         if v_mu is not None:
             w = w + 0.5 * self.rho * v_mu
         return w
-
-    # ------------------------------------------------------------------
-    # Matrix-free CG solve of the equality-constrained KKT system
-    # ------------------------------------------------------------------
-
-    def _cg_step(self, active: np.ndarray, x0: np.ndarray | None = None) -> tuple[np.ndarray, int]:
-        """Solve the SPD KKT system via matrix-free CG; return ``(w_a, iters)``.
-
-        Builds the system operator (:func:`~fast_minimum_variance.operators.build_system_operator`),
-        runs CG over it (:func:`~fast_minimum_variance.operators.cg_solve_reduced`)
-        without ever forming ``Sigma`` explicitly, and recovers ``w`` from the
-        balance Schur system. Low-rank and dense targets share one path.
-
-        ``active`` is a boolean mask selecting the asset subset; ``solve_cg``
-        always passes the full universe. ``x0`` is an optional warm-start guess
-        of shape ``(active.sum(),)``.
-        """
-        sigma = build_system_operator(self.X, self.alpha, self.target, self.target_lr, self.t)
-        b_a = self._balance_rows(active)
-        mu_active = self.mu[active] if self.rho != 0.0 and self.mu is not None else None
-        v_eq, v_mu, iters = cg_solve_reduced(sigma, active, b_a, mu_active, self._p, x0)
-        return self._recover_balance(v_eq, v_mu, b_a), iters
