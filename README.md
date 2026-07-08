@@ -160,7 +160,6 @@ make install
 - Python 3.11+
 - numpy
 - scipy
-- scikit-learn
 - cvx-linalg
 
 ## Citing
