@@ -8,11 +8,9 @@ import numpy as np
 from cvx.linalg import DenseOperator, FactorOperator, GramOperator, SumOperator
 from scipy.sparse.linalg import LinearOperator, cg
 
-from ._base import _BaseProblem
-
 
 @dataclass(frozen=True)
-class _MinVarProblem(_BaseProblem):
+class _MinVarProblem:
     """Minimum-variance portfolio solver via primal-dual active-set iteration.
 
     Solves::
@@ -50,12 +48,26 @@ class _MinVarProblem(_BaseProblem):
         True
     """
 
+    X: np.ndarray
+    target: np.ndarray | None = None
+    alpha: float = 0.0
+    rho: float = 0.0
+    mu: np.ndarray | None = None
+    target_lr: tuple[float, np.ndarray, np.ndarray] | None = None  # (bar_lam, U_k, delta_k) — low-rank + identity
     B: np.ndarray | None = None  # (p, N) balance system: B w = c; None = budget 1^T w = 1
     c: np.ndarray | None = None  # (p,) balance targets
 
     def __post_init__(self) -> None:
-        """Validate balance-system shapes on top of the base checks."""
-        super().__post_init__()
+        """Validate target/target_lr and balance-system shapes."""
+        n = self.n
+        if self.target is not None and self.target.shape != (n, n):
+            raise ValueError(f"target must be a square {n} x {n} matrix, got {self.target.shape}")  # noqa: TRY003
+        if self.target_lr is not None:
+            _bar_lam, U_k, delta_k = self.target_lr  # noqa: N806
+            if U_k.shape[0] != n or U_k.shape[1] != delta_k.shape[0]:
+                raise ValueError(  # noqa: TRY003
+                    f"target_lr: U_k must be ({n}, k) and delta_k (k,), got {U_k.shape}, {delta_k.shape}"
+                )
         if (self.B is None) != (self.c is None):
             raise ValueError("B and c must be supplied together")  # noqa: TRY003
         if self.B is not None:
@@ -65,6 +77,46 @@ class _MinVarProblem(_BaseProblem):
                 raise ValueError(f"B must have shape (p, {self.n}), got {self.B.shape}")  # noqa: TRY003
             if c.shape != (self.B.shape[0],):
                 raise ValueError(f"c must have shape ({self.B.shape[0]},), got {c.shape}")  # noqa: TRY003
+
+    # ------------------------------------------------------------------
+    # Shared utilities
+    # ------------------------------------------------------------------
+
+    @property
+    def t(self) -> int:
+        """Return the number of rows in X."""
+        return int(self.X.shape[0])
+
+    @property
+    def n(self) -> int:
+        """Number of assets (columns of X)."""
+        return int(self.X.shape[1])
+
+    def solve_cg(self, *, project: bool = True) -> tuple[np.ndarray, int, int]:
+        """Solve via matrix-free conjugate gradients.
+
+        Args:
+            project: Clip weights to ``[0, ∞)`` and renormalize to sum to 1
+                     after solving.  Set to ``False`` for custom constraints.
+
+        Returns:
+            ``(w, outer_steps, inner_iters)`` — weight vector, number of outer
+            active-set steps, and total CG iterations summed across all steps.
+
+        Examples:
+            >>> import numpy as np
+            >>> from fast_minimum_variance import Problem
+            >>> X = np.random.default_rng(0).standard_normal((100, 5))
+            >>> w, outer, inner = Problem(X).solve_cg()
+            >>> float(round(w.sum(), 10))
+            1.0
+            >>> bool((w >= 0).all())
+            True
+        """
+        w, outer, inner = self._constraint_active_set(self._cg_step)
+        if project:
+            w = self._clip_and_renormalize(w)
+        return w, outer, inner
 
     # ------------------------------------------------------------------
     # Balance-system helpers (budget is the p = 1 special case)
@@ -288,10 +340,10 @@ class _MinVarProblem(_BaseProblem):
         return self._recover_balance(v_eq, v_mu, b_a), count[0]
 
     # ------------------------------------------------------------------
-    # Budget-specific overrides
+    # Weight projection
     # ------------------------------------------------------------------
 
-    def _clip_and_renormalize(self, w: np.ndarray) -> np.ndarray:  # type: ignore[override]
+    def _clip_and_renormalize(self, w: np.ndarray) -> np.ndarray:
         """Project onto the budget simplex; identity when a balance system is set.
 
         Renormalising by the weight sum would break a general ``B w = c``, and
@@ -300,4 +352,6 @@ class _MinVarProblem(_BaseProblem):
         """
         if self.B is not None:
             return w
-        return _BaseProblem._clip_and_renormalize(w)
+        w = np.maximum(w, 0)
+        w /= w.sum()
+        return w
