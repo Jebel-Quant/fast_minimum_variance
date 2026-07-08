@@ -51,6 +51,52 @@ class TestMinVarProblemDefaults:
         """Default mu is None."""
         assert mvp.mu is None
 
+    def test_n_rectangular(self):
+        """N equals the column count for a non-square matrix."""
+        assert MinVarProblem(np.ones((20, 7))).n == 7
+
+
+# ---------------------------------------------------------------------------
+# Shape validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidation:
+    """__post_init__ rejects mis-shaped target / target_lr arguments."""
+
+    def test_wrong_target_shape_raises(self):
+        """A target with the wrong shape raises ValueError."""
+        with pytest.raises(ValueError, match="target must be"):
+            MinVarProblem(np.eye(3), target=np.eye(4))
+
+    def test_wrong_target_lr_shape_raises(self):
+        """A target_lr with mismatched U_k / delta_k shapes raises ValueError."""
+        U_k = np.ones((4, 2))  # noqa: N806  # wrong: 4 rows but n=3
+        delta_k = np.ones(2)
+        with pytest.raises(ValueError, match="target_lr"):
+            MinVarProblem(np.eye(3), target_lr=(0.5, U_k, delta_k))
+
+
+# ---------------------------------------------------------------------------
+# _clip_and_renormalize
+# ---------------------------------------------------------------------------
+
+
+class TestClipAndRenormalize:
+    """The budget-simplex projection applied by solve_cg(project=True)."""
+
+    def test_clips_negatives_and_sums_to_one(self):
+        """Negative weights are clipped to zero and the result sums to 1."""
+        w = MinVarProblem(np.eye(3))._clip_and_renormalize(np.array([-0.2, 0.5, 0.7]))
+        assert w[0] == 0.0
+        assert w.sum() == pytest.approx(1.0)
+        assert np.all(w >= 0)
+
+    def test_already_valid_unchanged(self):
+        """A valid weight vector is returned unchanged."""
+        w_in = np.array([0.2, 0.3, 0.5])
+        np.testing.assert_allclose(MinVarProblem(np.eye(3))._clip_and_renormalize(w_in.copy()), w_in)
+
 
 # ---------------------------------------------------------------------------
 # _constraint_active_set
