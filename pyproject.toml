@@ -21,7 +21,6 @@ authors = [
 dependencies = [
     "numpy>=2.0.0",
     "scipy>=1.14",
-    "scikit-learn>=1.5",
     "cvx-linalg>=0.9.6",
 ]
 
@@ -53,7 +52,6 @@ packages = ["src/fast_minimum_variance"]
 [[tool.mypy.overrides]]
 module = [
     "scipy.*",
-    "sklearn.*",
     "cvx.*",
 ]
 ignore_missing_imports = true

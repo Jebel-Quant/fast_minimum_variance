@@ -4,12 +4,36 @@ import numpy as np
 import pytest
 
 from fast_minimum_variance import Problem
-from fast_minimum_variance.shrinkage.util import rmt_target_and_alpha
 
 
 def make_returns(T, N, seed=0):  # noqa: N803
     """Generate a T x N matrix of i.i.d. standard normal returns."""
     return np.random.default_rng(seed).standard_normal((T, N))
+
+
+def rmt_target_and_alpha(X):  # noqa: N803
+    """Build an RMT-clipped shrinkage target (alpha=1) as solver input.
+
+    Eigenvalues of the sample covariance above the Marchenko-Pastur bulk edge
+    are kept; the rest are clipped to bar_lambda. Returns
+    ``(target, lr_factors, k, 1.0)`` where ``lr_factors = (bar_lam, U_k, delta_k)``
+    feeds the library's low-rank ``target_lr`` matvec path. Pure numpy; kept as a
+    test helper so the solver's low-rank branch stays exercised.
+    """
+    T, n = X.shape  # noqa: N806
+    cov = (X.T @ X) / T
+    bar_lam = np.trace(cov) / n
+    mp_upper = bar_lam * (1.0 + np.sqrt(n / T)) ** 2
+
+    eigs, vecs = np.linalg.eigh(cov)  # ascending order
+    signal = eigs > mp_upper
+    k = int(signal.sum())
+    vecs_k = vecs[:, signal]
+    delta_k = eigs[signal] - bar_lam  # (k,) eigenvalue excesses
+
+    target = bar_lam * np.eye(n) + vecs_k @ np.diag(delta_k) @ vecs_k.T
+    lr_factors = (float(bar_lam), vecs_k, delta_k)
+    return target, lr_factors, k, 1.0
 
 
 # ---------------------------------------------------------------------------
