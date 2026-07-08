@@ -9,12 +9,13 @@
 
 ## Overview
 
-**fast-minimum-variance** solves the long-only minimum variance portfolio without ever
-forming the sample covariance matrix. The key observation is that the KKT stationarity
-condition $2\Sigma w = \lambda\mathbf{1}$ immediately gives $w \propto \Sigma^{-1}\mathbf{1}$:
-the entire problem reduces to one symmetric positive definite linear system $\Sigma v =
-\mathbf{1}$, solved matrix-free by conjugate gradients. The budget constraint is recovered
-by a single rescaling $w = v / (\mathbf{1}^\top v)$.
+**fast-minimum-variance** solves the global (equality-constrained) minimum variance
+portfolio without ever forming the sample covariance matrix. The key observation is that
+the KKT stationarity condition $2\Sigma w = \lambda\mathbf{1}$ immediately gives
+$w \propto \Sigma^{-1}\mathbf{1}$: the entire problem reduces to one symmetric positive
+definite linear system $\Sigma v = \mathbf{1}$, solved matrix-free by conjugate gradients.
+The budget constraint is recovered by a single rescaling $w = v / (\mathbf{1}^\top v)$.
+Weights are sign-unconstrained, so short positions are allowed.
 
 Working directly with the returns matrix $X \in \mathbb{R}^{T \times N}$ — rather than
 the assembled covariance $X^\top X$ — has two consequences. First, each conjugate gradient
@@ -35,8 +36,7 @@ X = np.random.default_rng(42).standard_normal((500, 20))
 
 w, outer, inner = Problem(X).solve_cg()   # matrix-free conjugate gradients
 
-assert abs(w.sum() - 1.0) < 1e-8
-assert (w >= 0).all()
+assert abs(w.sum() - 1.0) < 1e-8          # budget holds exactly; weights may be negative
 ```
 
 ## Ledoit-Wolf Shrinkage
@@ -55,37 +55,25 @@ On S&P 500 equity data (495 assets, 1192 days), shrinkage cuts CG iterations fro
 
 ## The Solver
 
-`Problem.solve_cg()` runs matrix-free conjugate gradients on the SPD reduced system and
-returns `(w, outer_steps, inner_iters)` where $w \in \mathbb{R}^N$, $\sum_i w_i = 1$,
-$w_i \geq 0$.
+`Problem.solve_cg()` runs matrix-free conjugate gradients on the SPD system and
+returns `(w, outer_steps, inner_iters)` where $w \in \mathbb{R}^N$ and $\sum_i w_i = 1$.
+`outer_steps` is always `1` (there is no outer loop; the field is retained for API
+compatibility).
 
-The inner step builds a `LinearOperator` that applies
+The solve builds a `LinearOperator` that applies
 
-$$v \;\mapsto\; (1-\alpha)\,X_a^\top(X_a v) + \gamma v, \qquad \gamma = \frac{\alpha\|X\|_F^2}{N}$$
+$$v \;\mapsto\; (1-\alpha)\,X^\top(X v) + \gamma v, \qquad \gamma = \frac{\alpha\|X\|_F^2}{N}$$
 
-to a vector using two matrix-vector products with the active-asset submatrix $X_a$, without
-ever forming $\Sigma_a = X_a^\top X_a$. Standard CG then solves $\Sigma_a v = \mathbf{1}$.
-Ledoit-Wolf shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and reduces
-iteration counts dramatically — from nearly 2000 iterations at $\alpha \approx 0$ to
-single digits at $\alpha \approx 1$ in rank-deficient settings.
+to a vector using two matrix-vector products with $X$, without ever forming
+$\Sigma = X^\top X$. Standard CG then solves $\Sigma v = \mathbf{1}$. Ledoit-Wolf
+shrinkage ($\alpha > 0$) compresses the eigenvalue spectrum and reduces iteration counts
+dramatically — from nearly 2000 iterations at $\alpha \approx 0$ to single digits at
+$\alpha \approx 1$ in rank-deficient settings.
 
-## The Primal-Dual Active-Set Loop
-
-Long-only weights are enforced by an outer loop around the inner CG solve:
-
-1. **Primal step.** Solve the budget-only equality system over the current active asset
-   set. Drop any asset with weight below $-\varepsilon$ (multiple assets at once if
-   violations are large).
-2. **Dual step.** Once all active weights are non-negative, compute the gradient
-   $\nabla_i f(w) = 2[(1-\alpha)(X^\top X w)_i + \gamma w_i] - \rho\mu_i$ for every
-   excluded asset. If any excluded asset has $\nabla_i f(w) < \lambda$ (the budget
-   multiplier), it would decrease variance if added — re-insert the most-violated asset
-   and repeat.
-3. **Termination.** The loop exits when primal and dual feasibility hold simultaneously.
-   Combined with stationarity from the inner solve, this is sufficient for global optimality.
-
-With Ledoit-Wolf shrinkage at the analytically optimal $\alpha$, the loop typically
-converges in 2–4 outer iterations on real equity data.
+Because weights are sign-unconstrained, the KKT system is linear and a **single** CG
+solve suffices — no active-set iteration. If you need a long-only ($w \ge 0$) portfolio,
+project or re-optimise downstream; this library targets the fast global-minimum-variance
+solve.
 
 ## Problem Variants
 
@@ -109,9 +97,9 @@ mu_te = X.T @ (X @ b)
 w, *_ = Problem(X, rho=2.0, mu=mu_te).solve_cg()
 ```
 
-When `rho != 0`, two SPD solves are performed per outer step: $\Sigma_a v_1 = \mathbf{1}$
-and $\Sigma_a v_2 = \mu_a$. The budget multiplier $\lambda$ is recovered analytically
-from the budget constraint, avoiding the full saddle-point system.
+When `rho != 0`, two SPD solves are performed: $\Sigma v_1 = \mathbf{1}$ and
+$\Sigma v_2 = \mu$. The budget multiplier $\lambda$ is recovered analytically from the
+budget constraint, avoiding the full saddle-point system.
 
 ## Balance Systems
 
@@ -125,9 +113,8 @@ c = np.array([0.5, 0.5])                                        # ...half of the
 w, *_ = Problem(X, B=B, c=c).solve_cg()
 ```
 
-Long-only ($w \ge 0$) is still enforced. `B` must have full row rank on every active set
-the shrinking loop visits. Use this path only when you need it — the default path (no `B`,
-`c`) is faster for the standard budget + long-only problem.
+`B` must have full row rank. Weights remain sign-unconstrained; the multiplier for the
+`p` constraints is recovered from a small $p \times p$ Schur system.
 
 ## Benchmarks
 

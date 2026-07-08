@@ -1,16 +1,20 @@
-"""Consolidated test suite for the long-only minimum-variance solver.
+"""Test suite for the global (equality-constrained) minimum-variance solver.
 
-Merges the former ``conftest.py``, ``test_small.py``, ``test_minvar_problem.py``,
-``test_cg.py`` and ``test_balance.py`` into a single module:
+Covers:
 
 * shared fixtures (``resource_dir``, ``reference_weights``) and the
   ``make_returns`` helper;
-* a small hand-verifiable three-asset worked example for the primal-dual loop;
-* unit tests for ``_MinVarProblem`` (defaults, validation, projection,
-  active-set loop, ``solve_cg``, low-rank ``target_lr``);
+* a small hand-verifiable three-asset worked example;
+* unit tests for ``_MinVarProblem`` (defaults, validation, ``solve_cg``,
+  low-rank ``target_lr``);
 * cross-validation of the CG solver against an independent SLSQP oracle
   (plain / shrinkage / return-tilt / sizes / dense- and low-rank targets);
-* balance-system (``B w = c``) tests across every production path.
+* balance-system (``B w = c``) tests across every production path;
+* the matrix-free operator layer and property-based invariants.
+
+Weights are sign-unconstrained (global minimum variance): the only hard
+invariant is feasibility (``B w = c``, or the budget ``1^T w = 1``); shorts are
+allowed, so no non-negativity is asserted.
 """
 
 from __future__ import annotations
@@ -50,17 +54,16 @@ def resource_dir() -> Path:
 
 @pytest.fixture(scope="session")
 def reference_weights() -> Callable[[object], np.ndarray]:
-    """Return an independent long-only min-var oracle (SLSQP), for cross-validation.
+    """Return an independent equality-constrained min-var oracle (SLSQP), for cross-validation.
 
     Solves the same objective as ``_MinVarProblem`` — ``(1-alpha)||Xw||^2/T +
-    alpha*w^T T0 w - rho*mu^T w`` subject to ``Bw = c`` (or the budget) and
-    ``w >= 0`` — with SciPy's SLSQP, sharing no code with the library's
-    active-set solvers. It replaces the former CVXPY reference and agrees with
-    the direct KKT solve to ~1e-7 on the covered cases.
+    alpha*w^T T0 w - rho*mu^T w`` subject to ``Bw = c`` (or the budget) with no
+    sign constraint — using SciPy's SLSQP, sharing no code with the library's CG
+    solver. It agrees with the direct KKT solve to ~1e-7 on the covered cases.
     """
 
     def _reference(prob: object) -> np.ndarray:
-        """Return the SLSQP-optimal long-only weights for ``prob``."""
+        """Return the SLSQP-optimal equality-constrained weights for ``prob``."""
         x = prob.X  # ty:ignore[unresolved-attribute]
         t, n = x.shape
         alpha = prob.alpha  # ty:ignore[unresolved-attribute]
@@ -107,7 +110,6 @@ def reference_weights() -> Callable[[object], np.ndarray]:
             objective,
             np.ones(n) / n,
             method="SLSQP",
-            bounds=[(0.0, None)] * n,
             constraints=constraints,
             options={"ftol": 1e-12, "maxiter": 1000},
         )
@@ -136,7 +138,7 @@ def mvp(X):  # noqa: N803
 
 
 # ===========================================================================
-# Small worked example for the primal-dual loop in _MinVarProblem
+# Small worked example
 # ===========================================================================
 #
 # Three-asset problem designed for hand-verification:
@@ -145,22 +147,13 @@ def mvp(X):  # noqa: N803
 #          [0, 1, 1],              [0, 1, 1],
 #          [0, 0, 1]]              [1, 1, 3]]
 #
-# Equality-constrained optimum (no long-only): w = [2/3, 2/3, -1/3].
-# Long-only optimum:                           w* = [1/2, 1/2,   0].
-#
-# Primal-dual trace:
-#   Iteration 1 — solve on {0,1,2}: w = [2/3, 2/3, -1/3]; w[2] < 0 → drop.
-#   Iteration 2 — solve on {0,1}:   w = [1/2, 1/2]; all non-negative.
-#   Dual check:   grad = [1, 1, 2], lambda_ = 1, nu = [0, 0, 1] >= 0 → done.
+# With (X^T X)^{-1} 1 = [2, 2, -1] and 1^T (X^T X)^{-1} 1 = 3, the global
+# minimum-variance portfolio (budget 1^T w = 1, no sign constraint) is
+#     w* = [2, 2, -1] / 3 = [2/3, 2/3, -1/3].
 
 # X s.t. X^T X = [[1,0,1],[0,1,1],[1,1,3]] (Cholesky factor transposed).
 X3 = np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]])
-W_OPT = np.array([0.5, 0.5, 0.0])
-
-
-# ---------------------------------------------------------------------------
-# Analytic checks on the problem structure
-# ---------------------------------------------------------------------------
+W_GMV = np.array([2 / 3, 2 / 3, -1 / 3])
 
 
 def test_covariance():
@@ -168,78 +161,22 @@ def test_covariance():
     np.testing.assert_array_equal(X3.T @ X3, [[1, 0, 1], [0, 1, 1], [1, 1, 3]])
 
 
-def test_dual_variable_at_optimum():
-    """At w*=[1/2,1/2,0]: nu_2 = grad_2 - lambda_ = 2 - 1 = 1 > 0."""
-    grad = 2 * (X3.T @ X3) @ W_OPT  # [1, 1, 2]
-    active = W_OPT > 0
-    lambda_ = np.median(grad[active])  # 1.0
-    nu = grad - lambda_  # [0, 0, 1]
-    assert nu[2] == pytest.approx(1.0)
-    assert np.all(nu[~active] >= 0)
-
-
-# ---------------------------------------------------------------------------
-# Primal-dual loop behaviour
-# ---------------------------------------------------------------------------
-
-
 def test_known_optimum():
-    """CG solver recovers the known long-only optimum [1/2, 1/2, 0]."""
+    """CG solver recovers the known GMV optimum [2/3, 2/3, -1/3] (asset 2 is short)."""
     w, *_ = MinVarProblem(X3).solve_cg()
-    np.testing.assert_allclose(w, W_OPT, atol=1e-6)
+    np.testing.assert_allclose(w, W_GMV, atol=1e-6)
 
 
-def test_two_outer_iterations():
-    """Primal step fires once (asset 2 dropped); dual check passes immediately."""
-    p = MinVarProblem(X3)
-    calls = []
-
-    def counting_cg(active):
-        """Record each active-set mask, then delegate to the real _cg_step."""
-        calls.append(active.copy())
-        return p._cg_step(active)
-
-    p._constraint_active_set(counting_cg)
-
-    assert len(calls) == 2
-    assert calls[0].all()  # iteration 1: full active set
-    assert not calls[1][2]  # iteration 2: asset 2 excluded
-
-
-def test_dual_readd():
-    """Dual step re-adds an excluded asset when nu_i < 0.
-
-    X = I_3, optimal = [1/3, 1/3, 1/3].  A mock solve_fn forces asset 2 to be
-    dropped in the primal step, then returns [1/2, 1/2] on the reduced active
-    set {0, 1}.  The dual check computes nu_2 = 0 - 1 = -1 < 0 and re-adds
-    asset 2.  The final solve on the full active set returns [1/3, 1/3, 1/3].
-    """
-    p = MinVarProblem(np.eye(3))
-    call_no = [0]
-
-    def solve_fn(active):
-        """Force a primal drop of asset 2, then a dual re-add, per the trace."""
-        call_no[0] += 1
-        if call_no[0] == 1:
-            return np.array([0.45, 0.45, -0.1]), 1  # w[2] < 0 → primal drop
-        if call_no[0] == 2:
-            return np.array([0.5, 0.5]), 1  # nu_2 = 0-1 = -1 → re-add
-        return np.ones(active.sum()) / active.sum(), 1
-
-    w, *_ = p._constraint_active_set(solve_fn)
-
-    assert call_no[0] == 3
-    np.testing.assert_allclose(w, [1 / 3, 1 / 3, 1 / 3], atol=1e-10)
+def test_short_position_allowed():
+    """The unconstrained solution keeps the negative weight instead of clipping it."""
+    w, *_ = MinVarProblem(X3).solve_cg()
+    assert w[2] < 0
+    assert w.sum() == pytest.approx(1.0)
 
 
 # ===========================================================================
 # _MinVarProblem unit tests
 # ===========================================================================
-
-
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 
 
 class TestMinVarProblemDefaults:
@@ -266,11 +203,6 @@ class TestMinVarProblemDefaults:
         assert MinVarProblem(np.ones((20, 7))).n == 7
 
 
-# ---------------------------------------------------------------------------
-# Shape validation (target / target_lr)
-# ---------------------------------------------------------------------------
-
-
 class TestTargetValidation:
     """__post_init__ rejects mis-shaped target / target_lr arguments."""
 
@@ -287,156 +219,8 @@ class TestTargetValidation:
             MinVarProblem(np.eye(3), target_lr=(0.5, U_k, delta_k))
 
 
-# ---------------------------------------------------------------------------
-# _clip_and_renormalize
-# ---------------------------------------------------------------------------
-
-
-class TestClipAndRenormalize:
-    """The budget-simplex projection applied by solve_cg(project=True)."""
-
-    def test_clips_negatives_and_sums_to_one(self):
-        """Negative weights are clipped to zero and the result sums to 1."""
-        w = MinVarProblem(np.eye(3))._clip_and_renormalize(np.array([-0.2, 0.5, 0.7]))
-        assert w[0] == 0.0
-        assert w.sum() == pytest.approx(1.0)
-        assert np.all(w >= 0)
-
-    def test_already_valid_unchanged(self):
-        """A valid weight vector is returned unchanged."""
-        w_in = np.array([0.2, 0.3, 0.5])
-        np.testing.assert_allclose(MinVarProblem(np.eye(3))._clip_and_renormalize(w_in.copy()), w_in)
-
-
-# ---------------------------------------------------------------------------
-# _constraint_active_set
-# ---------------------------------------------------------------------------
-
-
-class TestConstraintActiveSet:
-    """Tests for MinVarProblem._constraint_active_set."""
-
-    def test_weak_negative_single_drop(self):
-        """A weakly negative weight (between -tol and -10*tol) uses the single-drop path."""
-        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
-        p = MinVarProblem(X, target=np.eye(3))
-        call_count = [0]
-
-        def solve_fn(mask):
-            """Return a weakly negative weight first, then defer to _cg_step."""
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return np.array([-5e-6, 0.6, 0.5 + 5e-6]), 1
-            return p._cg_step(mask)
-
-        w, *_ = p._constraint_active_set(solve_fn)
-        assert w[0] == pytest.approx(0.0)
-        assert w.shape == (3,)
-
-    def test_return_tilt_gradient(self):
-        """With rho != 0 the gradient is adjusted by -rho*mu in the dual check."""
-        X = make_returns(100, 5, seed=7)  # noqa: N806
-        mu = np.ones(5) / 5
-        w, *_ = MinVarProblem(X, rho=0.1, mu=mu).solve_cg()
-        assert w.sum() == pytest.approx(1.0, abs=1e-6)
-        assert np.all(w >= -1e-6)
-
-    def test_starts_all_active(self):
-        """solve_fn receives all-True mask on the first call."""
-        X = np.eye(3)  # noqa: N806
-        p = MinVarProblem(X)
-        first_mask = []
-
-        def solve_fn(mask):
-            """Record the first mask seen and always return equal weights."""
-            if not first_mask:
-                first_mask.append(mask.copy())
-            return np.array([1 / 3, 1 / 3, 1 / 3]), 1
-
-        p._constraint_active_set(solve_fn)
-        assert first_mask[0].all()
-        assert first_mask[0].shape == (3,)
-
-    def test_single_call_when_feasible(self):
-        """solve_fn is called once when the first solution has no negative weights."""
-        X = np.eye(3)  # noqa: N806
-        p = MinVarProblem(X)
-        calls = []
-
-        def solve_fn(mask):
-            """Record each mask seen and always return a feasible solution."""
-            calls.append(mask.copy())
-            return np.array([0.5, 0.3, 0.2]), 1
-
-        p._constraint_active_set(solve_fn)
-        assert len(calls) == 1
-
-    def test_iters_accumulated(self):
-        """Total iters is the sum across all solver calls (primal + dual steps)."""
-        # X chosen so that excluding asset 0 at w=[0,0.5,0.5] is dual-feasible:
-        # X.T@X = [[4,2,2],[2,2,1],[2,1,2]]; grad=[4,3,3], lambda=3 -> grad[0]>=lambda.
-        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
-        p = MinVarProblem(X)
-        call_count = [0]
-
-        def solve_fn(mask):
-            """Return 3 iters then 2 iters across the primal and dual steps."""
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return np.array([-0.1, 0.6, 0.5]), 3
-            return np.array([0.5, 0.5], dtype=float), 2
-
-        _, _, total = p._constraint_active_set(solve_fn)
-        assert total == 5
-
-    def test_negative_asset_removed(self):
-        """An asset with negative weight is excluded from the second call."""
-        # Same X as test_iters_accumulated: excluding asset 0 is dual-feasible.
-        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
-        p = MinVarProblem(X)
-        masks = []
-
-        def solve_fn(mask):
-            """Record each mask, returning a negative-weight solution first."""
-            masks.append(mask.copy())
-            if len(masks) == 1:
-                return np.array([-0.1, 0.6, 0.5]), 1
-            return np.array([0.5, 0.5], dtype=float), 1
-
-        p._constraint_active_set(solve_fn)
-        assert len(masks) == 2
-        assert not masks[1][0]  # asset 0 dropped
-        assert masks[1][1]  # asset 1 retained
-        assert masks[1][2]  # asset 2 retained
-
-    def test_zero_weight_padded_correctly(self):
-        """Assets excluded from the sub-problem receive weight 0 in the output."""
-        X = np.array([[2.0, 1.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # noqa: N806
-        p = MinVarProblem(X)
-        call_count = [0]
-
-        def solve_fn(mask):
-            """Return a negative-weight solution first, then a feasible pair."""
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return np.array([-0.1, 0.6, 0.5]), 1
-            return np.array([0.5, 0.5], dtype=float), 1
-
-        w, *_ = p._constraint_active_set(solve_fn)
-        assert w[0] == pytest.approx(0.0)
-        assert w.shape == (3,)
-
-    # Dual re-add (excluded asset comes back when nu_i < 0) is covered by the
-    # explicit white-box trace in test_dual_readd.
-
-
-# ---------------------------------------------------------------------------
-# Solver end-to-end tests
-# ---------------------------------------------------------------------------
-
-
 class TestSolveCg:
-    """Tests for MinVarProblem.solve_cg (matrix-free CG on reduced SPD system)."""
+    """Tests for MinVarProblem.solve_cg (matrix-free CG on the KKT system)."""
 
     def test_shape(self, mvp):
         """Output weight vector has shape (N,)."""
@@ -444,19 +228,15 @@ class TestSolveCg:
         assert w.shape == (mvp.n,)
 
     def test_weights_sum_to_one(self, mvp):
-        """Weights sum to 1."""
+        """Weights satisfy the budget exactly (sum to 1)."""
         w, *_ = mvp.solve_cg()
-        assert w.sum() == pytest.approx(1.0, abs=1e-4)
+        assert w.sum() == pytest.approx(1.0, abs=1e-8)
 
-    def test_weights_non_negative(self, mvp):
-        """All weights are non-negative."""
-        w, *_ = mvp.solve_cg()
-        assert np.all(w >= -1e-4)
-
-    def test_project_false(self, mvp):
-        """project=False returns raw CG solution without clipping."""
-        w, *_ = mvp.solve_cg(project=False)
-        assert w.shape == (mvp.n,)
+    def test_outer_steps_is_one(self, mvp):
+        """There is no outer loop: solve_cg reports a single step."""
+        _, outer, inner = mvp.solve_cg()
+        assert outer == 1
+        assert inner > 0
 
     # CG-vs-oracle cross-validation (plain / shrinkage / tilt / sizes / low-rank)
     # lives in TestCgVsReference / TestLowRank below.
@@ -486,23 +266,21 @@ class TestTargetLr:
         return np.random.default_rng(3).standard_normal((100, 8))
 
     def test_cg_with_target_lr(self, X):  # noqa: N803
-        """solve_cg with target_lr returns a valid portfolio."""
+        """solve_cg with target_lr returns a budget-feasible portfolio."""
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
         w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr).solve_cg()
-        assert abs(w.sum() - 1.0) < 1e-4
-        assert np.all(w >= -1e-4)
+        assert abs(w.sum() - 1.0) < 1e-8
 
     def test_cg_with_target_lr_and_return_tilt(self, X):  # noqa: N803
-        """target_lr + rho != 0 exercises the matvec2 c_lr branch."""
+        """target_lr + rho != 0 exercises the low-rank matvec plus return-tilt branch."""
         T, N = X.shape  # noqa: N806
         alpha = N / (N + T)
         target_lr = _make_target_lr(N)
         mu = np.random.default_rng(5).standard_normal(N)
         w, *_ = MinVarProblem(X, alpha=alpha, target_lr=target_lr, rho=0.5, mu=mu).solve_cg()
-        assert abs(w.sum() - 1.0) < 1e-4
-        assert np.all(w >= -1e-4)
+        assert abs(w.sum() - 1.0) < 1e-8
 
 
 # ===========================================================================
@@ -547,7 +325,7 @@ class TestCgVsReference:
     def test_with_shrinkage(self, X, reference_weights):  # noqa: N803
         """Ledoit-Wolf shrinkage (alpha > 0)."""
         T, N = X.shape  # noqa: N806
-        prob = Problem(X, alpha=N / (N + T))
+        prob = Problem(X, alpha=N / (N + T), target=np.eye(N))
         w_cg, *_ = prob.solve_cg()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
@@ -568,7 +346,7 @@ class TestCgVsReference:
         """Shrinkage and return tilt combined."""
         T, N = X.shape  # noqa: N806
         mu = np.ones(N) / N
-        prob = Problem(X, alpha=N / (N + T), rho=0.3, mu=mu)
+        prob = Problem(X, alpha=N / (N + T), target=np.eye(N), rho=0.3, mu=mu)
         w_cg, *_ = prob.solve_cg()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
@@ -612,12 +390,11 @@ class TestLowRank:
         w_cg, *_ = prob.solve_cg()
         np.testing.assert_allclose(w_cg, reference_weights(prob), atol=1e-4)
 
-    def test_weights_are_valid(self):
-        """Low-rank solution sums to 1 and is non-negative."""
+    def test_weights_are_budget_feasible(self):
+        """Low-rank solution satisfies the budget exactly."""
         _, prob = _build_rmt_problem()
         w, *_ = prob.solve_cg()
         assert abs(w.sum() - 1.0) < 1e-6
-        assert (w >= -1e-6).all()
 
     def test_dense_target_without_target_lr(self):
         """alpha=1 with only a dense target (no target_lr) solves via the Gram path."""
@@ -629,7 +406,7 @@ class TestLowRank:
 
 
 # ===========================================================================
-# Balance systems (B w = c) on the shrinking active-set solver
+# Balance systems (B w = c)
 # ===========================================================================
 
 
@@ -650,10 +427,18 @@ def _simulate_equity_returns(n, T, *, rng=None):  # noqa: N803
     return x - x.mean(axis=0)
 
 
-def _objective(prob, w):
-    """Shrunk portfolio variance ``(1-alpha)/T ||Xw||^2 + alpha w^T target w``."""
-    data = (1 - prob.alpha) * w @ (prob.X.T @ (prob.X @ w)) / prob.t
-    return float(data + prob.alpha * w @ (prob.target @ w))
+def _portfolio_objective(prob, w):
+    """Full solver objective at ``w``: variance (+ shrinkage) minus the return tilt."""
+    val = w @ (prob.X.T @ (prob.X @ w)) / prob.t
+    if prob.target_lr is not None:
+        bar_lam, u_k, delta_k = prob.target_lr
+        tq = float(w @ (bar_lam * w + u_k @ (delta_k * (u_k.T @ w))))
+        val = (1 - prob.alpha) * val + prob.alpha * tq
+    elif prob.target is not None:
+        val = (1 - prob.alpha) * val + prob.alpha * float(w @ (prob.target @ w))
+    if prob.rho != 0.0 and prob.mu is not None:
+        val = val - prob.rho * float(prob.mu @ w)
+    return float(val)
 
 
 def _sleeve_system(n, p, rng):
@@ -670,7 +455,7 @@ def _sleeve_system(n, p, rng):
 
 @pytest.fixture(scope="module")
 def X_bal():  # noqa: N802
-    """Factor-model return matrix (500, 60) so the long-only constraint binds."""
+    """Factor-model return matrix (500, 60)."""
     return _simulate_equity_returns(60, 500, rng=42)
 
 
@@ -700,11 +485,6 @@ def rmt(X_bal):  # noqa: N803
     return bar_lam, u_k, delta_k
 
 
-# ---------------------------------------------------------------------------
-# Validation (B, c)
-# ---------------------------------------------------------------------------
-
-
 class TestBalanceValidation:
     """Shape and pairing checks for (B, c)."""
 
@@ -729,22 +509,17 @@ class TestBalanceValidation:
             MinVarProblem(X_bal, B=np.ones((2, X_bal.shape[1])), c=np.ones(3))
 
     def test_factory_routes_balance_to_minvar(self, X_bal):  # noqa: N803
-        """The factory returns the shrinking active-set solver for (B, c)."""
+        """The factory returns the equality-constrained solver for (B, c)."""
         n = X_bal.shape[1]
         prob = Problem(X_bal, B=np.ones((1, n)), c=np.array([1.0]))
         assert isinstance(prob, MinVarProblem)
-
-
-# ---------------------------------------------------------------------------
-# Budget equivalence: B = ones row reproduces the default exactly
-# ---------------------------------------------------------------------------
 
 
 class TestBudgetEquivalence:
     """An explicit ones-row budget matches the default budget path."""
 
     def test_cg_same_iteration_counts(self, X_bal):  # noqa: N803
-        """The single-constraint CG path takes the same outer/inner counts."""
+        """The default budget and an explicit ones-row B give the same solve."""
         n = X_bal.shape[1]
         w0, outer0, inner0 = MinVarProblem(X_bal).solve_cg()
         w1, outer1, inner1 = MinVarProblem(X_bal, B=np.ones((1, n)), c=np.array([1.0])).solve_cg()
@@ -752,13 +527,8 @@ class TestBudgetEquivalence:
         np.testing.assert_allclose(w1, w0, atol=1e-12)
 
 
-# ---------------------------------------------------------------------------
-# Sleeve systems against the reference oracle
-# ---------------------------------------------------------------------------
-
-
 class TestSleeves:
-    """p=4 sleeve systems solved by every production path."""
+    """p=4 sleeve systems solved against the reference oracle."""
 
     def test_cg_matches_reference(self, X_bal, sleeves, lw, reference_weights):  # noqa: N803
         """solve_cg reaches the reference-oracle objective and is exactly feasible."""
@@ -770,32 +540,10 @@ class TestSleeves:
 
         assert inner > 0
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
-        assert w_cg.min() > -1e-6
-        # CG is at least as good as the independent oracle (which is itself only
-        # approximately optimal near the long-only boundary on this universe).
-        assert _objective(prob, w_cg) <= _objective(prob, w_ref) + 1e-9
-
-    def test_no_shrinkage_active_set_shrinks(self, X_bal, sleeves):  # noqa: N803
-        """Without shrinkage some assets are eliminated and feasibility holds."""
-        b_eq, c_eq = sleeves
-        w, outer, _inner = MinVarProblem(X_bal, B=b_eq, c=c_eq).solve_cg()
-        assert outer > 1
-        assert (w > 1e-8).sum() < X_bal.shape[1]
-        assert np.abs(b_eq @ w - c_eq).max() < 1e-8
-
-    def test_projection_is_identity_for_balance(self, X_bal, sleeves, lw):  # noqa: N803
-        """project=True must not renormalise a balance-system solution."""
-        b_eq, c_eq = sleeves
-        alpha, target = lw
-        prob = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target)
-        w_proj, *_ = prob.solve_cg(project=True)
-        w_raw, *_ = prob.solve_cg(project=False)
-        np.testing.assert_array_equal(w_proj, w_raw)
-
-
-# ---------------------------------------------------------------------------
-# Free-block matvec
-# ---------------------------------------------------------------------------
+        # Unique convex minimum: CG solves it to higher accuracy than the SLSQP
+        # oracle (whose large-leverage solution is only approximate), so CG's
+        # objective is at least as good.
+        assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
 
 
 class TestFreeMatvec:
@@ -855,11 +603,6 @@ class TestFreeMatvec:
         np.testing.assert_allclose(f(np.array([2.0])), [6.0])
 
 
-# ---------------------------------------------------------------------------
-# Return tilt (rho > 0) with sleeves
-# ---------------------------------------------------------------------------
-
-
 class TestSleevesWithTilt:
     """Markowitz tilt combined with a sleeve system."""
 
@@ -871,13 +614,8 @@ class TestSleevesWithTilt:
         prob = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=alpha, target=target, rho=0.5, mu=mu)
         w_cg, _, _ = prob.solve_cg()
         w_ref = reference_weights(prob)
-        np.testing.assert_allclose(w_cg, w_ref, atol=1e-5)
+        assert _portfolio_objective(prob, w_cg) <= _portfolio_objective(prob, w_ref) + 1e-9
         assert np.abs(b_eq @ w_cg - c_eq).max() < 1e-8
-
-
-# ---------------------------------------------------------------------------
-# RMT low-rank target (alpha=1) with sleeves
-# ---------------------------------------------------------------------------
 
 
 class TestSleevesLowRank:
@@ -900,7 +638,7 @@ class TestSleevesLowRank:
 
 
 class TestSolveCgProperties:
-    """solve_cg must hold its constraints for arbitrary well-posed inputs."""
+    """solve_cg must satisfy its equality constraints for arbitrary well-posed inputs."""
 
     @pytest.mark.property
     @given(
@@ -909,13 +647,12 @@ class TestSolveCgProperties:
         seed=st.integers(min_value=0, max_value=2**32 - 1),
     )
     @settings(max_examples=50, deadline=None)
-    def test_budget_solution_is_valid(self, n, t_mult, seed):
-        """For any random returns matrix, weights sum to 1 and are non-negative."""
+    def test_budget_solution_is_feasible(self, n, t_mult, seed):
+        """For any random returns matrix the weights satisfy the budget exactly."""
         x = make_returns(T=n * t_mult, N=n, seed=seed)
         w, *_ = Problem(x).solve_cg()
         assert w.shape == (n,)
         assert w.sum() == pytest.approx(1.0, abs=1e-6)
-        assert (w >= -1e-6).all()
 
     @pytest.mark.property
     @given(
@@ -925,15 +662,9 @@ class TestSolveCgProperties:
     )
     @settings(max_examples=40, deadline=None)
     def test_balance_solution_is_feasible(self, n, p, seed):
-        """A sleeve balance system stays exactly feasible (B w = c) and non-negative.
-
-        alpha=1 with an identity target makes the subproblem minimum-norm, so the
-        solution is interior (equal weight within each sleeve) — no sleeve loses
-        all its assets, keeping ``B_a`` full row rank on every active set.
-        """
+        """A sleeve balance system stays exactly feasible (B w = c)."""
         rng = np.random.default_rng(seed)
         x = make_returns(T=5 * n, N=n, seed=seed)
         b_eq, c_eq = _sleeve_system(n, min(p, n), rng)
-        w, *_ = Problem(x, B=b_eq, c=c_eq, alpha=1.0, target=np.eye(n)).solve_cg()
+        w, *_ = Problem(x, B=b_eq, c=c_eq).solve_cg()
         assert np.abs(b_eq @ w - c_eq).max() < 1e-6
-        assert (w >= -1e-6).all()
