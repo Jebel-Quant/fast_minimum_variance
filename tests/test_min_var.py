@@ -20,10 +20,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from scipy.optimize import minimize
 
 from fast_minimum_variance import Problem
 from fast_minimum_variance.minvar_problem import _MinVarProblem as MinVarProblem
+from fast_minimum_variance.operators import restricted_matvec
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -817,7 +820,7 @@ class TestFreeMatvec:
                 calls["apply_free"] += 1
                 raise AssertionError
 
-        f = MinVarProblem._free_matvec(_Restrictable(), idx)
+        f = restricted_matvec(_Restrictable(), idx)
         np.testing.assert_allclose(f(np.ones(3)), [1.0, 2.0, 3.0])
         assert calls == {"restricted": 1, "apply_free": 0}
 
@@ -831,7 +834,7 @@ class TestFreeMatvec:
                 """Scale the free sub-vector by two."""
                 return 2.0 * v
 
-        f = MinVarProblem._free_matvec(_Legacy(), np.array([0, 1]))
+        f = restricted_matvec(_Legacy(), np.array([0, 1]))
         np.testing.assert_allclose(f(np.array([1.0, 3.0])), [2.0, 6.0])
 
     def test_falls_back_when_restricted_not_implemented(self):
@@ -848,7 +851,7 @@ class TestFreeMatvec:
                 """Scale the free sub-vector by three."""
                 return 3.0 * v
 
-        f = MinVarProblem._free_matvec(_Partial(), np.array([0]))
+        f = restricted_matvec(_Partial(), np.array([0]))
         np.testing.assert_allclose(f(np.array([2.0])), [6.0])
 
 
@@ -889,3 +892,48 @@ class TestSleevesLowRank:
         w_dense, *_ = MinVarProblem(X_bal, B=b_eq, c=c_eq, alpha=1.0, target=dense).solve_cg()
         np.testing.assert_allclose(w_lr, w_dense, atol=1e-6)
         assert np.abs(b_eq @ w_lr - c_eq).max() < 1e-8
+
+
+# ===========================================================================
+# Property-based invariants (hypothesis)
+# ===========================================================================
+
+
+class TestSolveCgProperties:
+    """solve_cg must hold its constraints for arbitrary well-posed inputs."""
+
+    @pytest.mark.property
+    @given(
+        n=st.integers(min_value=2, max_value=12),
+        t_mult=st.integers(min_value=2, max_value=6),
+        seed=st.integers(min_value=0, max_value=2**32 - 1),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_budget_solution_is_valid(self, n, t_mult, seed):
+        """For any random returns matrix, weights sum to 1 and are non-negative."""
+        x = make_returns(T=n * t_mult, N=n, seed=seed)
+        w, *_ = Problem(x).solve_cg()
+        assert w.shape == (n,)
+        assert w.sum() == pytest.approx(1.0, abs=1e-6)
+        assert (w >= -1e-6).all()
+
+    @pytest.mark.property
+    @given(
+        n=st.integers(min_value=4, max_value=12),
+        p=st.integers(min_value=1, max_value=4),
+        seed=st.integers(min_value=0, max_value=2**32 - 1),
+    )
+    @settings(max_examples=40, deadline=None)
+    def test_balance_solution_is_feasible(self, n, p, seed):
+        """A sleeve balance system stays exactly feasible (B w = c) and non-negative.
+
+        alpha=1 with an identity target makes the subproblem minimum-norm, so the
+        solution is interior (equal weight within each sleeve) — no sleeve loses
+        all its assets, keeping ``B_a`` full row rank on every active set.
+        """
+        rng = np.random.default_rng(seed)
+        x = make_returns(T=5 * n, N=n, seed=seed)
+        b_eq, c_eq = _sleeve_system(n, min(p, n), rng)
+        w, *_ = Problem(x, B=b_eq, c=c_eq, alpha=1.0, target=np.eye(n)).solve_cg()
+        assert np.abs(b_eq @ w - c_eq).max() < 1e-6
+        assert (w >= -1e-6).all()
