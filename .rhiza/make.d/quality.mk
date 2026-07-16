@@ -5,7 +5,7 @@
 LICENSE_FAIL_ON ?= GPL;LGPL;AGPL
 
 # Declare phony targets (they don't produce files)
-.PHONY: all deptry fmt license todos suppression-audit semgrep
+.PHONY: all deptry fmt license todos semgrep
 
 ##@ Quality and Formatting
 all: fmt deptry test docs-coverage security license typecheck rhiza-test ## run all CI targets locally
@@ -14,11 +14,11 @@ all: fmt deptry test docs-coverage security license typecheck rhiza-test ## run 
 # contributes the folders it owns to DEPTRY_FOLDERS (and any per-folder ignores
 # to DEPTRY_IGNORE), so this core target never needs to know which bundles are
 # present. Core itself contributes SOURCE_FOLDER when it exists; see e.g.
-# marimo.mk for a bundle that appends its own folder. Rhiza's own tooling and
-# test folders (.rhiza/utils, .rhiza/tests) are deliberately excluded: their
-# dependencies are declared inline via PEP 723 script metadata or shipped in
-# .rhiza/requirements/, not in the project's pyproject, so deptry (which
-# validates against pyproject) would only emit noise for them.
+# marimo.mk for a bundle that appends its own folder. Rhiza's own test folder
+# (.rhiza/tests) is deliberately excluded: its tooling is provisioned on the fly
+# via `uv run --with` in the individual targets, not declared in the project's
+# pyproject, so deptry (which validates against pyproject) would only emit noise
+# for it.
 DEPTRY_FOLDERS ?=
 DEPTRY_IGNORE ?=
 ifneq ($(wildcard $(SOURCE_FOLDER)),)
@@ -51,10 +51,6 @@ todos: ## search and report all TODO/FIXME/HACK comments in the codebase
 		awk -F: '{ printf "${YELLOW}%s${RESET}:${GREEN}%s${RESET}: %s\n", $$1, $$2, substr($$0, index($$0,$$3)) }' || \
 		printf "${GREEN}[SUCCESS] No TODO/FIXME/HACK comments found!${RESET}\n"
 	@printf "\n${BLUE}[INFO] Search complete.${RESET}\n"
-
-suppression-audit: ## scan codebase for inline suppressions and report (grade, detail, histogram)
-	@printf "${BLUE}[INFO] Running suppression audit...${RESET}\n"
-	@${UV_BIN} run .rhiza/utils/suppression_audit.py
 
 semgrep: install ## run Semgrep static analysis
 	@printf "${BLUE}[INFO] Running Semgrep...${RESET}\n"
